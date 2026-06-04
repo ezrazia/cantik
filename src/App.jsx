@@ -42,7 +42,7 @@ export default function App() {
 
       if (idx === 0) {
         projects = ["Desa Cantik 2026", "Pendataan PLS 2026"];
-        projectRoles = { "Desa Cantik 2026": "PCL", "Pendataan PLS 2026": "PCL" };
+        projectRoles = { "Desa Cantik 2026": "PCL", "Pendataan PLS 2026": "PML" };
         assignments = {
           "Desa Cantik 2026": { sls: ["SLS 01 Tideng Pale", "RT 01 A Tideng Pale"], pengawas: "Siti Rahayu" },
           "Pendataan PLS 2026": { sls: ["SLS 01 Tanah Merah"], pengawas: "Agus Prasetyo" }
@@ -234,8 +234,8 @@ export default function App() {
   /** Pemetaan screen name ke komponen yang dirender. */
   const SCREENS = {
     "login":          <LoginScreen onLogin={(role) => go(role === "admin" ? "admin-beranda" : "petugas-home")} />,
-    "petugas-home":   <PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} />,
-    "questionnaire":  <PetugasQuestionnaire onNavigate={go} />,
+    "petugas-home":   <PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} petugas={petugas} activities={activities} />,
+    "questionnaire":  <PetugasQuestionnaire onNavigate={go} petugas={petugas} activities={activities} />,
     "petugas-sync":   <PetugasSync onNavigate={go} />,
     "petugas-settings":<PetugasSettings onNavigate={go} />,
     "admin-beranda":  <AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} />,

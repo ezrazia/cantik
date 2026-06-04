@@ -1,7 +1,5 @@
-import { WifiOff, Wifi, Bell, MapPin, FileText, Upload, Download, ChevronRight, CheckCircle, AlertCircle } from "lucide-react";
-import Badge from "../../components/ui/Badge";
+import { WifiOff, Wifi, Bell, MapPin, FileText, Upload, Download, ChevronRight, CheckCircle, AlertCircle, Calendar } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
-import { getRtList } from "../../constants/mockData";
 
 /**
  * Halaman beranda Petugas — minimalis dan clean.
@@ -10,9 +8,34 @@ import { getRtList } from "../../constants/mockData";
  * @param {(screen: string) => void} props.onNavigate
  * @param {boolean} props.isOffline
  * @param {(value: boolean) => void} props.setIsOffline
+ * @param {Array} props.petugas
+ * @param {Array} props.activities
  * @returns {React.ReactElement}
  */
-function PetugasHome({ onNavigate, isOffline, setIsOffline }) {
+function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities }) {
+  const currentPetugas = petugas?.find(p => p.name === "Budi Santoso") || {
+    name: "Budi Santoso",
+    desa: "Tideng Pale",
+    projects: ["Desa Cantik 2026", "Pendataan PLS 2026"],
+    projectRoles: { "Desa Cantik 2026": "PCL", "Pendataan PLS 2026": "PML" }
+  };
+
+  const officerActivities = (currentPetugas.projects || []).map(projName => {
+    const act = activities?.find(a => a.name === projName) || {
+      name: projName,
+      desc: "Deskripsi kegiatan survei.",
+      progress: 0,
+      color: "bg-blue-600",
+      textColor: "text-blue-600",
+      bgColor: "bg-blue-50",
+      date: new Date().toISOString().split('T')[0],
+      status: "published"
+    };
+    return {
+      ...act,
+      role: currentPetugas.projectRoles?.[projName] || "PCL"
+    };
+  });
   return (
     <PetugasLayout activeTab="petugas-home" onNavigate={onNavigate}>
       <div className="min-h-screen bg-white slide-up pb-24">
@@ -104,37 +127,61 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline }) {
               </button>
             </div>
 
-            {/* RT list */}
+            {/* Kegiatan Berlangsung */}
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-base font-bold text-slate-900">Daftar Rumah Tangga</h3>
+                <h3 className="text-base font-bold text-slate-900">Kegiatan Berlangsung</h3>
                 <button className="text-xs text-blue-600 font-medium border-0 bg-transparent cursor-pointer hover:underline">Lihat semua</button>
               </div>
-              <div className="space-y-2">
-                {getRtList().map((rt, i) => (
-                  <button key={rt.id} onClick={() => rt.status !== "belum" && onNavigate("questionnaire")}
-                    className="w-full bg-white rounded-xl p-4 border border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-slate-200 hover:shadow-sm group">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0 ${
-                      rt.status === "selesai" ? "bg-emerald-50 text-emerald-600" :
-                      rt.status === "progress" ? "bg-amber-50 text-amber-600" :
-                      "bg-slate-50 text-slate-300"
-                    }`}>{i + 1}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{rt.krt}</p>
-                      <p className="text-xs text-slate-400 truncate">{rt.alamat}</p>
+              <div className="space-y-3">
+                {officerActivities.map((act) => (
+                  <button key={act.name} onClick={() => onNavigate("questionnaire")}
+                    className="w-full bg-white rounded-2xl p-5 border border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-350 hover:shadow-md group relative overflow-hidden">
+                    
+                    {/* Border accent indicator */}
+                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${act.color || 'bg-blue-600'}`} />
+
+                    <div className="flex items-start justify-between w-full">
+                      <div className="flex-1 min-w-0 pr-4">
+                        <h4 className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors truncate">
+                          {act.name}
+                        </h4>
+                        <p className="text-xs text-slate-400 mt-1 font-medium line-clamp-2 leading-relaxed">
+                          {act.desc}
+                        </p>
+                      </div>
+                      
+                      {/* Role Badge */}
+                      <div className="flex-shrink-0">
+                        {act.role === "PML" ? (
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-100/50 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                            Pengawas (PML)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100/50 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                            Pencacah (PCL)
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                      <Badge status={rt.status}/>
-                      {rt.sync && (
-                        <span className="text-[10px] text-emerald-500 flex items-center gap-1 font-medium">
-                          <CheckCircle size={10}/> Tersinkron
+
+                    {/* Progress bar and details */}
+                    <div className="flex flex-col gap-2 pt-3 border-t border-slate-50">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                          <Calendar size={13} className="text-slate-400" />
+                          Mulai: {act.date ? new Date(act.date).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric' }) : "-"}
                         </span>
-                      )}
-                      {rt.status === "rejected" && (
-                        <span className="text-[10px] text-red-500 flex items-center gap-1 font-medium">
-                          <AlertCircle size={10}/> Ditolak
-                        </span>
-                      )}
+                        <span className="font-bold text-slate-700">{act.progress}% Selesai</span>
+                      </div>
+                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full transition-all duration-500 ${act.color || 'bg-blue-600'}`}
+                          style={{ width: `${act.progress}%` }}
+                        />
+                      </div>
                     </div>
                   </button>
                 ))}

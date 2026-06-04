@@ -263,20 +263,20 @@ export default function AdminTabulasi({
     switch (activityStatus) {
       case "selesai":
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-250/50">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/50">
             <CheckCircle size={12} className="text-emerald-600" /> Data Final (Selesai)
           </span>
         );
       case "uji_coba":
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-250/50">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/50">
             <AlertTriangle size={12} className="text-amber-600 animate-pulse" /> Data Simulasi (Uji Coba)
           </span>
         );
       case "published":
       default:
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 border border-blue-250/50">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200/50">
             <RefreshCw size={12} className="text-blue-600 animate-spin-slow" /> Data Sementara (Belum Final)
           </span>
         );
@@ -475,7 +475,7 @@ export default function AdminTabulasi({
                     className={`flex-1 py-2 px-3 rounded-lg text-[11px] font-bold border-0 transition-all cursor-pointer ${
                       metric === "count"
                         ? "bg-blue-600 text-white shadow-sm"
-                        : "bg-transparent text-slate-400 hover:text-slate-650"
+                        : "bg-transparent text-slate-400 hover:text-slate-700"
                     }`}
                   >
                     Jumlah
@@ -485,7 +485,7 @@ export default function AdminTabulasi({
                     className={`flex-1 py-2 px-3 rounded-lg text-[11px] font-bold border-0 transition-all cursor-pointer ${
                       metric === "avg_age"
                         ? "bg-blue-600 text-white shadow-sm"
-                        : "bg-transparent text-slate-400 hover:text-slate-650"
+                        : "bg-transparent text-slate-400 hover:text-slate-700"
                     }`}
                   >
                     Rata-rata Umur
@@ -564,7 +564,7 @@ export default function AdminTabulasi({
                           {rVal}
                         </td>
                         {colValues.map((cVal) => (
-                          <td key={cVal} className="px-6 py-4 text-xs text-center font-medium mono text-slate-650">
+                          <td key={cVal} className="px-6 py-4 text-xs text-center font-medium mono text-slate-600">
                             {pivotData[rVal]?.[cVal] ?? 0}
                           </td>
                         ))}

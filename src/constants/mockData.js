@@ -56,11 +56,12 @@ let formQsInit = [
 ];
 
 let rtList = [
-  { id: "RT-001", krt: "Ahmad Subagyo",  alamat: "Jl. Melati No. 12",   status: "selesai",  sync: true  },
-  { id: "RT-002", krt: "Slamet Widodo",  alamat: "Jl. Mangga No. 5",    status: "progress", sync: false },
-  { id: "RT-003", krt: "Ika Wahyuni",    alamat: "Jl. Rambutan No. 8",  status: "belum",    sync: false },
-  { id: "RT-004", krt: "Bambang Susilo", alamat: "Jl. Durian No. 3",    status: "belum",    sync: false },
-  { id: "RT-005", krt: "Nurhayati",      alamat: "Jl. Nangka No. 15",   status: "belum",    sync: false },
+  { id: "RT-001", activityName: "Desa Cantik 2026", petugasName: "Budi Santoso", krt: "Ahmad Subagyo", alamat: "Jl. Melati No. 12", status: "terkirim", sync: true, kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", gender: "1", umur: "45", perkawinan: "2", bekerja: "1", lapanganUsaha: "Pertanian", reviewStatus: "approved", r302: "1", r201: "1", r202: "80", r203: "1", r204: "1", r401: "1", r402: "1", r403: "1", r501: "1", r502: "1", r503: "2", r504: "1", logs: ["04/06/2026 08:12: Kuesioner dibuat (Draft)", "04/06/2026 09:30: Kuesioner disimpan oleh PCL", "04/06/2026 10:00: Dokumen dikirim ke server (Terkirim)", "04/06/2026 14:15: Dokumen disetujui (Approved) oleh PML (Siti Rahayu)"], lastSentData: { kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", alamat: "Jl. Melati No. 12", r201: "1", r202: "80", r203: "1", r204: "1", krt: "Ahmad Subagyo", r302: "1", gender: "1", umur: "45", perkawinan: "2", bekerja: "1", lapanganUsaha: "Pertanian", r401: "1", r402: "1", r403: "1", r501: "1", r502: "1", r503: "2", r504: "1" } },
+  { id: "RT-002", activityName: "Desa Cantik 2026", petugasName: "Budi Santoso", krt: "Slamet Widodo", alamat: "Jl. Mangga No. 5", status: "tersimpan", sync: false, kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", gender: "1", umur: "38", perkawinan: "2", bekerja: "1", lapanganUsaha: "Perdagangan", reviewStatus: "draft", r302: "1", r201: "1", r202: "60", r203: "1", r204: "1", r401: "1", r402: "1", r403: "2", r501: "2", r502: "1", r503: "2", r504: "1", logs: ["04/06/2026 11:20: Kuesioner dibuat (Draft)", "04/06/2026 11:45: Kuesioner disimpan oleh PCL (Tersimpan)"] },
+  { id: "RT-003", activityName: "Desa Cantik 2026", petugasName: "Budi Santoso", krt: "Ika Wahyuni", alamat: "Jl. Rambutan No. 8", status: "draft", sync: false, kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", gender: "2", umur: "32", perkawinan: "1", bekerja: "2", lapanganUsaha: "", reviewStatus: "draft", r302: "1", r201: "", r202: "", r203: "", r204: "", r401: "", r402: "", r403: "", r501: "", r502: "", r503: "", r504: "", logs: ["05/06/2026 08:00: Kuesioner dibuat (Draft)"] },
+  { id: "RT-004", activityName: "Pendataan PLS 2026", petugasName: "Budi Santoso", krt: "Bambang Susilo", alamat: "Jl. Durian No. 3", status: "draft", sync: false, kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", gender: "1", umur: "50", perkawinan: "2", bekerja: "1", lapanganUsaha: "Jasa Kebersihan", reviewStatus: "rejected", r302: "1", r201: "1", r202: "100", r203: "1", r204: "1", r401: "1", r402: "2", r403: "1", r501: "1", r502: "1", r503: "1", r504: "1", logs: ["03/06/2026 09:00: Kuesioner dibuat (Draft)", "03/06/2026 10:30: Kuesioner disimpan oleh PCL (Tersimpan)", "03/06/2026 11:00: Dokumen dikirim ke server (Terkirim)", "03/06/2026 15:45: Ditolak (Rejected) oleh PML (Agus Prasetyo): Keterangan Umur tidak sesuai dengan Jenis Dinding Bangunan yang tergolong mewah (Mohon cek ulang Blok II & Blok III)."], lastSentData: { kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", alamat: "Jl. Durian No. 3", r201: "1", r202: "100", r203: "1", r204: "1", krt: "Bambang Susilo", r302: "1", gender: "1", umur: "50", perkawinan: "2", bekerja: "1", lapanganUsaha: "Jasa Kebersihan", r401: "1", r402: "2", r403: "1", r501: "1", r502: "1", r503: "1", r504: "1" } },
+  { id: "RT-005", activityName: "Pendataan PLS 2026", petugasName: "Budi Santoso", krt: "Nurhayati", alamat: "Jl. Nangka No. 15", status: "tersimpan", sync: false, kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", gender: "2", umur: "28", perkawinan: "3", bekerja: "2", lapanganUsaha: "", reviewStatus: "draft", r302: "1", r201: "1", r202: "45", r203: "1", r204: "1", r401: "1", r402: "1", r403: "1", r501: "1", r502: "1", r503: "2", r504: "1", logs: ["05/06/2026 08:22: Kuesioner dibuat (Draft)", "05/06/2026 08:45: Kuesioner disimpan oleh PCL (Tersimpan)"] },
+  { id: "RT-006", activityName: "Pendataan PLS 2026", petugasName: "Budi Santoso", krt: "Sugeng Riyadi", alamat: "Jl. Dahlia No. 10", status: "terkirim", sync: true, kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", gender: "1", umur: "42", perkawinan: "2", bekerja: "1", lapanganUsaha: "Pertanian", reviewStatus: "draft", r302: "1", r201: "1", r202: "70", r203: "1", r204: "1", r401: "1", r402: "1", r403: "1", r501: "1", r502: "1", r503: "2", r504: "1", logs: ["04/06/2026 14:00: Kuesioner dibuat (Draft)", "04/06/2026 15:30: Kuesioner disimpan oleh PCL (Tersimpan)", "04/06/2026 16:00: Dokumen dikirim ke server (Terkirim)"], lastSentData: { kecamatan: "Sesayap", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", alamat: "Jl. Dahlia No. 10", r201: "1", r202: "70", r203: "1", r204: "1", krt: "Sugeng Riyadi", r302: "1", gender: "1", umur: "42", perkawinan: "2", bekerja: "1", lapanganUsaha: "Pertanian", r401: "1", r402: "1", r403: "1", r501: "1", r502: "1", r503: "2", r504: "1" } },
 ];
 
 let syncItems = [
@@ -101,6 +102,21 @@ export const updateFormQsInit = (newData) => {
 export const getRtList = () => JSON.parse(JSON.stringify(rtList));
 export const updateRtList = (newData) => {
   rtList = newData;
+  return getRtList();
+};
+
+export const getRtListByActivityAndOfficer = (activityName, petugasName) => {
+  return getRtList().filter(rt => rt.activityName === activityName && rt.petugasName === petugasName);
+};
+
+export const saveRtItem = (item) => {
+  const existing = rtList.find(rt => rt.id === item.id);
+  if (existing) {
+    rtList = rtList.map(rt => rt.id === item.id ? { ...rt, ...item } : rt);
+  } else {
+    const nextId = `RT-${String(rtList.length + 1).padStart(3, '0')}`;
+    rtList.push({ id: nextId, ...item });
+  }
   return getRtList();
 };
 
