@@ -1,7 +1,7 @@
 import { WifiOff, Wifi, Bell, MapPin, FileText, Upload, Download, ChevronRight, CheckCircle, AlertCircle } from "lucide-react";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
-import { RT_LIST } from "../../constants/mockData";
+import { getRtList } from "../../constants/mockData";
 
 /**
  * Halaman beranda Petugas — minimalis dan clean.
@@ -25,7 +25,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline }) {
                 <h2 className="text-xl font-bold text-slate-900 mt-0.5 tracking-tight">Budi Santoso</h2>
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <MapPin size={12} className="text-blue-500"/>
-                  <span className="text-xs text-slate-400 font-medium">Desa Harapan Jaya · SLS 003</span>
+                  <span className="text-xs text-slate-400 font-medium">Desa Tideng Pale · SLS 01 Tideng Pale</span>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -111,7 +111,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline }) {
                 <button className="text-xs text-blue-600 font-medium border-0 bg-transparent cursor-pointer hover:underline">Lihat semua</button>
               </div>
               <div className="space-y-2">
-                {RT_LIST.map((rt, i) => (
+                {getRtList().map((rt, i) => (
                   <button key={rt.id} onClick={() => rt.status !== "belum" && onNavigate("questionnaire")}
                     className="w-full bg-white rounded-xl p-4 border border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-slate-200 hover:shadow-sm group">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0 ${

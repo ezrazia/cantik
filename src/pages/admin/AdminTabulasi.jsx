@@ -20,7 +20,7 @@ const METRIC_LABELS = {
 
 // Custom ordering for variables to look neat in tables
 const VALUE_ORDER = {
-  desa: ["Harapan Jaya", "Maju Bersama", "Sejahtera"],
+  desa: ["Tideng Pale", "Sesayap Hilir", "Limbu Sedulun", "Tanah Merah", "Seludau"],
   gender: ["Laki-laki", "Perempuan"],
   pendidikan: ["Tidak Sekolah", "SD", "SMP", "SMA", "Diploma/S1"],
   hubungan: ["Kepala Keluarga", "Istri", "Anak", "Orang Tua", "Lainnya"],

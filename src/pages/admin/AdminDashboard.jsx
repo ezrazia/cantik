@@ -1,5 +1,5 @@
 import AdminLayout from '../../components/layouts/AdminLayout';
-import { DESA_DATA, CHART_DATA, PIE_DATA, PETUGAS_DATA } from '../../constants/mockData';
+import { getDesaData, getPetugasData } from '../../constants/mockData';
 import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer } from 'recharts';
 import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown } from "lucide-react";
 import useDropdown from '../../hooks/useDropdown';
@@ -11,7 +11,7 @@ import useDropdown from '../../hooks/useDropdown';
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activities }) {
+function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activities, petugas }) {
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const status = activeActivity ? activeActivity.status : "draft";
 
@@ -33,26 +33,63 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
 
   const villageDropdown = useDropdown("Semua Desa");
 
-  const villages = ["Semua Desa", ...DESA_DATA.map(d => d.name)];
+  const activeDesas = activeActivity?.lokus?.desa || [];
+  const villages = activeDesas.length > 0 
+    ? ["Semua Desa", ...activeDesas.map(d => `Desa ${d}`)]
+    : ["Semua Desa", "Desa Tideng Pale", "Desa Sesayap Hilir", "Desa Limbu Sedulun"];
+
+  const officersList = petugas || getPetugasData();
+  const activeProjectOfficers = officersList.filter(p => p.projects?.includes(selectedProject));
 
   const filteredPetugas = villageDropdown.selected === "Semua Desa" 
-    ? PETUGAS_DATA 
-    : PETUGAS_DATA.filter(p => p.desa === villageDropdown.selected.replace("Desa ", ""));
+    ? activeProjectOfficers
+    : activeProjectOfficers.filter(p => p.desa === villageDropdown.selected.replace("Desa ", ""));
+
+  const colors = ["#2563eb", "#0891b2", "#7c3aed", "#10b981", "#f59e0b", "#ec4899"];
+  const desaDataList = activeDesas.map((desaName, idx) => {
+    const desaOfficers = activeProjectOfficers.filter(p => p.desa === desaName);
+    const target = desaOfficers.reduce((sum, p) => sum + (p.target || 0), 0) || 15;
+    const selesai = desaOfficers.reduce((sum, p) => sum + (p.selesai || 0), 0) || 0;
+    return {
+      name: `Desa ${desaName}`,
+      target,
+      selesai,
+      color: colors[idx % colors.length]
+    };
+  });
+
+  const finalDesaData = desaDataList.length > 0 ? desaDataList : getDesaData();
 
   const filteredDesa = villageDropdown.selected === "Semua Desa"
-    ? DESA_DATA
-    : DESA_DATA.filter(d => d.name === villageDropdown.selected);
+    ? finalDesaData
+    : finalDesaData.filter(d => d.name === villageDropdown.selected);
 
   const total   = filteredDesa.reduce((a,b)=>a+b.target,0);
   const selesai = filteredDesa.reduce((a,b)=>a+b.selesai,0);
-  const review  = villageDropdown.selected === "Semua Desa" ? 18 : Math.floor(selesai * 0.3);
-  const ditolak = villageDropdown.selected === "Semua Desa" ? 7 : Math.floor(selesai * 0.1);
+  const review  = Math.round(selesai * 0.3);
+  const ditolak = Math.round(selesai * 0.1);
 
   const stats = [
     { icon: FileText, l: "Total Target", v: total, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
     { icon: CheckCircle, l: "Selesai", v: selesai, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
     { icon: Clock, l: "Review", v: review, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500" },
     { icon: XCircle, l: "Ditolak", v: ditolak, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500" },
+  ];
+
+  const PIE_DATA = [
+    { name: "Disetujui", value: selesai, color: "#16a34a" },
+    { name: "Pending",   value: review, color: "#f59e0b" },
+    { name: "Ditolak",   value: ditolak, color: "#dc2626" },
+    { name: "Draft",     value: (total - selesai - review - ditolak) > 0 ? (total - selesai - review - ditolak) : 0,  color: "#94a3b8" },
+  ];
+
+  const CHART_DATA = [
+    { h: "Sen", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.15) },
+    { h: "Sel", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.2) },
+    { h: "Rab", k: Math.round(selesai * 0.25), t: Math.round(ditolak * 0.15) },
+    { h: "Kam", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.2) },
+    { h: "Jum", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.1) },
+    { h: "Sab", k: Math.round(selesai * 0.05), t: Math.round(ditolak * 0.2) },
   ];
 
   return (
@@ -74,7 +111,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
               )}
             </div>
             <div className="flex items-center gap-2 mt-1.5">
-              <span className="text-xs font-medium text-slate-400">Desa Cantik 2026</span>
+              <span className="text-xs font-medium text-slate-400">{selectedProject}</span>
               <span className="text-slate-200">·</span>
               <div className="relative">
                 <button 
@@ -113,6 +150,19 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
             </button>
           </div>
         </div>
+
+        {status === "draft" ? (
+          <div className="bg-white rounded-2xl border border-slate-100 p-16 text-center shadow-sm max-w-2xl mx-auto my-8">
+            <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto mb-4">
+              <Clock size={32} className="stroke-[1.5]" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-1">Kegiatan Belum Dimulai</h3>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
+              Kegiatan "{selectedProject}" saat ini masih berstatus Draft. Monitoring pencacahan akan aktif setelah kegiatan ini dipublikasikan (Published).
+            </p>
+          </div>
+        ) : (
+          <>
 
         {/* Stat cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
@@ -286,6 +336,8 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
     </AdminLayout>
   );

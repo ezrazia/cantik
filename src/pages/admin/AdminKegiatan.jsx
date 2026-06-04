@@ -1,10 +1,46 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { 
   Plus, Search, Edit, Trash2, Calendar, Check, X, AlertTriangle, 
-  Users, Briefcase, ChevronRight, UserPlus, UserMinus, Eye, FileText, CheckCircle, ArrowLeft, ShieldAlert, ChevronDown
+  Users, Briefcase, ChevronRight, UserPlus, UserMinus, Eye, FileText, CheckCircle, ArrowLeft, ShieldAlert, ChevronDown,
+  Save
 } from "lucide-react";
-import { DESA_DATA } from "../../constants/mockData";
+import { getDesaData } from "../../constants/mockData";
+
+const MOCK_KECAMATAN = ["Sesayap", "Sesayap Hilir", "Tana Lia", "Betayau", "Muruk Rian"];
+
+const MOCK_DESA_HIERARCHY = [
+  { name: "Tideng Pale", kecamatan: "Sesayap" },
+  { name: "Tideng Pale Timur", kecamatan: "Sesayap" },
+  { name: "Limbu Sedulun", kecamatan: "Sesayap" },
+  { name: "Gunawan", kecamatan: "Sesayap" },
+  { name: "Sesayap Hilir", kecamatan: "Sesayap Hilir" },
+  { name: "Seludau", kecamatan: "Sesayap Hilir" },
+  { name: "Bebatu", kecamatan: "Sesayap Hilir" },
+  { name: "Sepala Dalung", kecamatan: "Sesayap Hilir" },
+  { name: "Tanah Merah", kecamatan: "Tana Lia" },
+  { name: "Sambungan", kecamatan: "Tana Lia" },
+  { name: "Tengku Dacing", kecamatan: "Tana Lia" },
+  { name: "Kujau", kecamatan: "Betayau" },
+  { name: "Buong Baru", kecamatan: "Betayau" },
+  { name: "Betayau", kecamatan: "Betayau" },
+  { name: "Rian", kecamatan: "Muruk Rian" },
+  { name: "Kapuas", kecamatan: "Muruk Rian" },
+  { name: "Belayan", kecamatan: "Muruk Rian" }
+];
+
+const MOCK_SLS_HIERARCHY = [];
+MOCK_DESA_HIERARCHY.forEach(d => {
+  MOCK_SLS_HIERARCHY.push({ name: `SLS 01 ${d.name}`, desa: d.name });
+  MOCK_SLS_HIERARCHY.push({ name: `SLS 02 ${d.name}`, desa: d.name });
+  MOCK_SLS_HIERARCHY.push({ name: `SLS 03 ${d.name}`, desa: d.name });
+});
+
+const MOCK_SUB_SLS_HIERARCHY = [];
+MOCK_DESA_HIERARCHY.forEach(d => {
+  MOCK_SUB_SLS_HIERARCHY.push({ name: `RT 01 A ${d.name}`, sls: `SLS 01 ${d.name}` });
+  MOCK_SUB_SLS_HIERARCHY.push({ name: `RT 01 B ${d.name}`, sls: `SLS 01 ${d.name}` });
+});
 
 /**
  * Halaman Manajemen Kegiatan BPS — premium, modern, dan minimalis.
@@ -30,6 +66,54 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
   // State multi-select penugasan petugas
   const [selectedOfficerNames, setSelectedOfficerNames] = useState([]); // Array of names
   const [officerRolesMap, setOfficerRolesMap] = useState({}); // { [officerName]: "PML" | "PCL" }
+
+  const [tempLokus, setTempLokus] = useState(null);
+
+  useEffect(() => {
+    if (selectedActivity) {
+      setTempLokus(selectedActivity.lokus || { kecamatan: [], desa: [], sls: [], subSls: [] });
+    } else {
+      setTempLokus(null);
+    }
+  }, [selectedActivity]);
+
+  const handleLokusChange = (type, value) => {
+    if (selectedActivity.status !== "draft") return;
+    const currentLokus = tempLokus || { kecamatan: [], desa: [], sls: [], subSls: [] };
+    let nextValues = [];
+    if (currentLokus[type] && currentLokus[type].includes(value)) {
+      nextValues = currentLokus[type].filter(v => v !== value);
+    } else {
+      nextValues = [...(currentLokus[type] || []), value];
+    }
+
+    let nextLokus = { ...currentLokus, [type]: nextValues };
+    if (type === "kecamatan") {
+      const allowedDesas = MOCK_DESA_HIERARCHY.filter(d => nextValues.includes(d.kecamatan)).map(d => d.name);
+      nextLokus.desa = (currentLokus.desa || []).filter(d => allowedDesas.includes(d));
+    }
+    if (type === "desa" || type === "kecamatan") {
+      const allowedSls = MOCK_SLS_HIERARCHY.filter(s => nextLokus.desa.includes(s.desa)).map(s => s.name);
+      nextLokus.sls = (currentLokus.sls || []).filter(s => allowedSls.includes(s));
+    }
+    if (type === "sls" || type === "desa" || type === "kecamatan") {
+      const allowedSub = MOCK_SUB_SLS_HIERARCHY.filter(sub => nextLokus.sls.includes(sub.sls)).map(sub => sub.name);
+      nextLokus.subSls = (currentLokus.subSls || []).filter(sub => allowedSub.includes(sub));
+    }
+
+    setTempLokus(nextLokus);
+  };
+
+  const handleSaveLokusClick = () => {
+    triggerConfirm(
+      "save_lokus",
+      { activityName: selectedActivity.name },
+      () => {
+        setActivities(prev => prev.map(a => a.name === selectedActivity.name ? { ...a, lokus: tempLokus } : a));
+        setSelectedActivity(prev => ({ ...prev, lokus: tempLokus }));
+      }
+    );
+  };
 
   // Form states untuk tambah kegiatan
   const [newActivity, setNewActivity] = useState({
@@ -527,6 +611,176 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                   </div>
                 </div>
 
+                {/* Lokus Kegiatan Card */}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-50 pb-3">
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                      Lokus Kegiatan
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {selectedActivity.status === "draft" && (
+                        <button
+                          onClick={handleSaveLokusClick}
+                          className="px-3.5 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer hover:bg-blue-700 transition-all active:scale-[0.98] shadow-sm flex items-center gap-1.5"
+                        >
+                          <Save size={12}/> Simpan Lokus
+                        </button>
+                      )}
+                      <span className="text-[10px] text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full font-bold">
+                        Kalimantan Utara / Tana Tidung
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Read-Only Auto-filled Fields */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Provinsi</label>
+                      <input 
+                        type="text" 
+                        value="Kalimantan Utara" 
+                        disabled 
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-500 font-semibold cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Kabupaten</label>
+                      <input 
+                        type="text" 
+                        value="Tana Tidung" 
+                        disabled 
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-500 font-semibold cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Hierarchy selection columns */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-3">
+                    {/* Kecamatan */}
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Kecamatan</span>
+                      <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
+                        {MOCK_KECAMATAN.map(kec => {
+                          const isChecked = (tempLokus?.kecamatan || []).includes(kec);
+                          const isDraft = selectedActivity.status === "draft";
+                          return (
+                            <label key={kec} className={`flex items-center gap-2 py-0.5 font-medium ${
+                              isDraft ? "cursor-pointer hover:text-slate-800 text-slate-600" : "cursor-not-allowed text-slate-400"
+                            }`}>
+                              <input 
+                                type="checkbox" 
+                                checked={isChecked} 
+                                disabled={!isDraft}
+                                onChange={() => handleLokusChange("kecamatan", kec)}
+                                className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
+                              />
+                              <span className="truncate">{kec}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Desa */}
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Desa</span>
+                      <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
+                        {(tempLokus?.kecamatan || []).length > 0 ? (
+                          MOCK_DESA_HIERARCHY
+                            .filter(d => (tempLokus?.kecamatan || []).includes(d.kecamatan))
+                            .map(d => {
+                              const isChecked = (tempLokus?.desa || []).includes(d.name);
+                              const isDraft = selectedActivity.status === "draft";
+                              return (
+                                <label key={d.name} className={`flex items-center gap-2 py-0.5 font-medium ${
+                                  isDraft ? "cursor-pointer hover:text-slate-800 text-slate-600" : "cursor-not-allowed text-slate-400"
+                                }`}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={isChecked} 
+                                    disabled={!isDraft}
+                                    onChange={() => handleLokusChange("desa", d.name)}
+                                    className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
+                                  />
+                                  <span className="truncate">{d.name}</span>
+                                </label>
+                              );
+                            })
+                        ) : (
+                          <span className="text-[10px] text-slate-350 italic block py-2">Pilih Kecamatan dahulu</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* SLS */}
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">SLS</span>
+                      <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
+                        {(tempLokus?.desa || []).length > 0 ? (
+                          MOCK_SLS_HIERARCHY
+                            .filter(s => (tempLokus?.desa || []).includes(s.desa))
+                            .map(s => {
+                              const isChecked = (tempLokus?.sls || []).includes(s.name);
+                              const isDraft = selectedActivity.status === "draft";
+                              return (
+                                <label key={s.name} className={`flex items-center gap-2 py-0.5 font-medium ${
+                                  isDraft ? "cursor-pointer hover:text-slate-800 text-slate-600" : "cursor-not-allowed text-slate-400"
+                                }`}>
+                                  <input 
+                                    type="checkbox" 
+                                    checked={isChecked} 
+                                    disabled={!isDraft}
+                                    onChange={() => handleLokusChange("sls", s.name)}
+                                    className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
+                                  />
+                                  <span className="truncate">{s.name.replace(` ${s.desa}`, '')}</span>
+                                </label>
+                              );
+                            })
+                        ) : (
+                          <span className="text-[10px] text-slate-350 italic block py-2">Pilih Desa dahulu</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Sub SLS */}
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Sub SLS</span>
+                      <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
+                        {(tempLokus?.sls || []).length > 0 ? (
+                          (() => {
+                            const subOptions = MOCK_SUB_SLS_HIERARCHY.filter(sub => (tempLokus?.sls || []).includes(sub.sls));
+                            const isDraft = selectedActivity.status === "draft";
+                            if (subOptions.length > 0) {
+                              return subOptions.map(sub => {
+                                const isChecked = (tempLokus?.subSls || []).includes(sub.name);
+                                return (
+                                  <label key={sub.name} className={`flex items-center gap-2 py-0.5 font-medium ${
+                                    isDraft ? "cursor-pointer hover:text-slate-800 text-slate-600" : "cursor-not-allowed text-slate-400"
+                                  }`}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={isChecked} 
+                                      disabled={!isDraft}
+                                      onChange={() => handleLokusChange("subSls", sub.name)}
+                                      className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
+                                    />
+                                    <span className="truncate">{sub.name.split(' RT')[0]}</span>
+                                  </label>
+                                );
+                              });
+                            } else {
+                              return <span className="text-[10px] text-slate-350 italic block py-2">Tidak ada Sub SLS</span>;
+                            }
+                          })()
+                        ) : (
+                          <span className="text-[10px] text-slate-350 italic block py-2">Pilih SLS dahulu</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Additional metadata card */}
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div>
@@ -564,13 +818,11 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                   {selectedActivity.status !== "selesai" && (
                     <button 
                       onClick={() => {
-                        setSelectedOfficerNames([]);
-                        setOfficerRolesMap({});
-                        setShowAssignModal(true);
+                        onNavigate("admin-users");
                       }}
                       className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-blue-600 hover:text-blue-700 bg-blue-50 rounded-xl border-0 cursor-pointer transition-all"
                     >
-                      <UserPlus size={13}/> Tugaskan Massal
+                      <UserPlus size={13}/> Tambah Petugas
                     </button>
                   )}
                 </div>
@@ -984,6 +1236,12 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
             {showConfirmModal.type === "edit_activity" && (
               <p className="text-xs text-slate-400 mb-6 leading-relaxed">
                 Anda akan menyimpan perubahan informasi kegiatan <strong>{showConfirmModal.data.name}</strong>.
+              </p>
+            )}
+
+            {showConfirmModal.type === "save_lokus" && (
+              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+                Anda akan menyimpan konfigurasi Lokus Wilayah Tugas untuk kegiatan <strong>{showConfirmModal.data.activityName}</strong>.
               </p>
             )}
 

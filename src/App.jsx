@@ -12,7 +12,7 @@ import AdminPetugas from "./pages/admin/AdminPetugas";
 import AdminBeranda from "./pages/admin/AdminBeranda";
 import AdminKegiatan from "./pages/admin/AdminKegiatan";
 import AdminTabulasi from "./pages/admin/AdminTabulasi";
-import { PETUGAS_DATA } from "./constants/mockData";
+import { getPetugasData } from "./constants/mockData";
 
 /**
  * Komponen root aplikasi CAPI BPS (Desa Cantik).
@@ -29,25 +29,48 @@ export default function App() {
   // Lifted petugas state
   const [petugas, setPetugas] = useState(() => {
     const phones = ["0812-7890-1234", "0856-1234-5678", "0813-9876-5432", "0878-5555-1234", "0821-4444-9876"];
-    return PETUGAS_DATA.map((p, idx) => {
+    const mockOfficersData = getPetugasData();
+    return mockOfficersData.map((p, idx) => {
       const username = p.name.toLowerCase().replace(/\s+/g, ".");
       const id = `32710${idx + 1}0${idx + 1}`;
       const nik = `327101010101000${idx + 1}`;
       const phone = phones[idx % phones.length];
       const asalDesa = `Desa ${p.desa}`;
       let projects = [];
-      if (idx === 0) projects = ["Desa Cantik 2026", "Pendataan PLS 2026"];
-      else if (idx === 1) projects = ["Desa Cantik 2026", "Survei Ekonomi 2026"];
-      else if (idx === 2) projects = ["Desa Cantik 2026", "Pendataan PLS 2026"];
-      else if (idx === 3) projects = ["Survei Ekonomi 2026"];
-      else projects = ["Survei Ekonomi 2026", "Pendataan PLS 2026"];
-      
       let projectRoles = {};
-      projects.forEach((proj, pIdx) => {
-        projectRoles[proj] = (idx + pIdx) % 2 === 0 ? "PCL" : "PML";
-      });
+      let assignments = {};
 
-      return { ...p, id, username, phone, nik, asalDesa, projects, projectRoles };
+      if (idx === 0) {
+        projects = ["Desa Cantik 2026", "Pendataan PLS 2026"];
+        projectRoles = { "Desa Cantik 2026": "PCL", "Pendataan PLS 2026": "PCL" };
+        assignments = {
+          "Desa Cantik 2026": { sls: ["SLS 01 Tideng Pale", "RT 01 A Tideng Pale"], pengawas: "Siti Rahayu" },
+          "Pendataan PLS 2026": { sls: ["SLS 01 Tanah Merah"], pengawas: "Agus Prasetyo" }
+        };
+      } else if (idx === 1) {
+        projects = ["Desa Cantik 2026", "Survei Ekonomi 2026"];
+        projectRoles = { "Desa Cantik 2026": "PML", "Survei Ekonomi 2026": "PML" };
+        assignments = {};
+      } else if (idx === 2) {
+        projects = ["Desa Cantik 2026", "Pendataan PLS 2026"];
+        projectRoles = { "Desa Cantik 2026": "PCL", "Pendataan PLS 2026": "PML" };
+        assignments = {
+          "Desa Cantik 2026": { sls: ["SLS 02 Tideng Pale"], pengawas: "Siti Rahayu" }
+        };
+      } else if (idx === 3) {
+        projects = ["Survei Ekonomi 2026"];
+        projectRoles = { "Survei Ekonomi 2026": "PML" };
+        assignments = {};
+      } else {
+        projects = ["Survei Ekonomi 2026", "Desa Cantik 2026"];
+        projectRoles = { "Survei Ekonomi 2026": "PCL", "Desa Cantik 2026": "PCL" };
+        assignments = {
+          "Survei Ekonomi 2026": { sls: ["SLS 01 Limbu Sedulun"], pengawas: "Dewi Lestari" },
+          "Desa Cantik 2026": { sls: ["SLS 01 Sesayap Hilir"], pengawas: "Siti Rahayu" }
+        };
+      }
+
+      return { ...p, id, username, phone, nik, asalDesa, projects, projectRoles, assignments };
     });
   });
 
@@ -61,7 +84,13 @@ export default function App() {
       textColor: "text-blue-600",
       bgColor: "bg-blue-50",
       date: "2026-05-15",
-      status: "published" // viewable by officer
+      status: "published",
+      lokus: {
+        kecamatan: ["Sesayap", "Sesayap Hilir"],
+        desa: ["Tideng Pale", "Sesayap Hilir"],
+        sls: ["SLS 01 Tideng Pale", "SLS 02 Tideng Pale", "SLS 01 Sesayap Hilir"],
+        subSls: ["RT 01 A Tideng Pale", "RT 01 B Tideng Pale"]
+      }
     },
     { 
       name: "Survei Ekonomi 2026", 
@@ -71,7 +100,13 @@ export default function App() {
       textColor: "text-purple-600",
       bgColor: "bg-purple-50",
       date: "2026-06-01",
-      status: "published"
+      status: "published",
+      lokus: {
+        kecamatan: ["Sesayap"],
+        desa: ["Limbu Sedulun"],
+        sls: ["SLS 01 Limbu Sedulun", "SLS 02 Limbu Sedulun"],
+        subSls: []
+      }
     },
     { 
       name: "Pendataan PLS 2026", 
@@ -81,7 +116,13 @@ export default function App() {
       textColor: "text-emerald-600",
       bgColor: "bg-emerald-50",
       date: "2026-04-10",
-      status: "published"
+      status: "published",
+      lokus: {
+        kecamatan: ["Tana Lia"],
+        desa: ["Tanah Merah"],
+        sls: ["SLS 01 Tanah Merah"],
+        subSls: []
+      }
     },
     { 
       name: "Survei Demografi 2026", 
@@ -91,13 +132,19 @@ export default function App() {
       textColor: "text-amber-600",
       bgColor: "bg-amber-50",
       date: "2026-07-20",
-      status: "draft" // not viewable by officer
+      status: "draft",
+      lokus: {
+        kecamatan: [],
+        desa: [],
+        sls: [],
+        subSls: []
+      }
     }
   ]);
 
   // Shared Clean Data state for dynamic tabulations
   const [cleanData, setCleanData] = useState(() => {
-    const desas = ["Harapan Jaya", "Maju Bersama", "Sejahtera"];
+    const desas = ["Tideng Pale", "Sesayap Hilir", "Limbu Sedulun", "Tanah Merah", "Seludau"];
     const genders = ["Laki-laki", "Perempuan"];
     const pendidikans = ["Tidak Sekolah", "SD", "SMP", "SMA", "Diploma/S1"];
     const hubungans = ["Kepala Keluarga", "Istri", "Anak", "Orang Tua", "Lainnya"];
@@ -192,8 +239,8 @@ export default function App() {
     "petugas-sync":   <PetugasSync onNavigate={go} />,
     "petugas-settings":<PetugasSettings onNavigate={go} />,
     "admin-beranda":  <AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} />,
-    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} />,
-    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={handleApproveDocument} />,
+    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} />,
+    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={handleApproveDocument} petugas={petugas} />,
     "admin-builder":  <AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} />,
     "admin-users":    <AdminPetugas onNavigate={go} isGlobal={false} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} />,
     "admin-master-petugas": <AdminPetugas onNavigate={go} isGlobal={true} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} />,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
-import { PETUGAS_DATA, DESA_DATA } from "../../constants/mockData";
+import { getPetugasData, getDesaData } from "../../constants/mockData";
 import { 
   Users, Briefcase, MapPin, Clock, ArrowRight, Layers, Eye, Activity, CheckCircle, Smartphone, User, AlertTriangle
 } from "lucide-react";
@@ -167,7 +167,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
             </div>
             <div>
               <p className="text-[11px] text-slate-400 font-semibold uppercase">Wilayah Desa</p>
-              <p className="mono text-xl font-bold text-slate-900">{DESA_DATA.length}</p>
+              <p className="mono text-xl font-bold text-slate-900">{getDesaData().length}</p>
             </div>
           </div>
         </div>

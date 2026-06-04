@@ -1,23 +1,113 @@
-import { useState, Fragment } from "react";
+import { useState, Fragment, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
-import { RESPONSES_INIT, DESA_DATA } from "../../constants/mockData";
+import { getResponsesInit, getDesaData, getPetugasData } from "../../constants/mockData";
 import Badge from "../../components/ui/Badge";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import useDropdown from "../../hooks/useDropdown";
-import { Search, Eye, Check, X, AlertTriangle, Filter, Upload, Database, FileText } from "lucide-react";
+import { 
+  Search, Eye, Check, X, AlertTriangle, Filter, Upload, 
+  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3
+} from "lucide-react";
 
 /**
- * Halaman Review Data Admin — minimalis.
+ * Custom QCard for viewing and editing questionnaires
+ */
+function ReviewQCard({ r, label, required, hint, skipInfo, children }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 p-5 shadow-sm space-y-3 relative overflow-hidden transition-all duration-200 hover:shadow-md">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{r}</span>
+            {required && (
+              <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>
+            )}
+            {skipInfo && (
+              <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded uppercase">{skipInfo}</span>
+            )}
+          </div>
+          <h4 className="text-sm font-bold text-slate-800 mt-1.5 leading-snug">{label}</h4>
+          {hint && (
+            <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{hint}</p>
+          )}
+        </div>
+      </div>
+      <div className="pt-1.5">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Helpers for mock answers mapping
+const getKrtName = (record) => {
+  if (record.nama_krt) return record.nama_krt;
+  const krtMap = {
+    "R-0231": "Ahmad Subagyo",
+    "R-0232": "Joko Widodo",
+    "R-0233": "Sri Wahyuni",
+    "R-0234": "Mulyono",
+    "R-0235": "Slamet Riyadi",
+    "R-0236": "Bambang Hermawan",
+    "R-0237": "Joko Wahyono",
+    "R-0238": "Dewi Lestari"
+  };
+  return krtMap[record.id] || "Kepala Rumah Tangga";
+};
+
+const getRecordAnswers = (record) => {
+  const krt = getKrtName(record);
+  return {
+    r101: "65 - KALIMANTAN UTARA",
+    r102: "04 - TANA TIDUNG",
+    r103: "010 - SESAYAP",
+    r104: record.desa || "Tideng Pale",
+    r105: "2", // Perdesaan
+    
+    r201: "002",
+    r202: "4",
+    r203: "2",
+    r204: "2",
+    
+    r301: krt,
+    r303: record.id === "R-0231" || record.id === "R-0235" ? "2" : "1", // 2=Perempuan, 1=Laki-laki
+    r304: record.id === "R-0231" ? "45" : record.id === "R-0233" ? "32" : "50",
+    r305: "2", // Kawin
+    r307: "1", // Ya
+    r308: record.id === "R-0231" ? "Pertanian" : "Perdagangan",
+    
+    r401: "1", // Milik Sendiri
+    r402: "1", // Beton/Genteng
+    r403: "1", // Tembok
+    r404: "1", // Keramik
+    r405: "1", // Leding
+    
+    r501: "1", // Ya
+    r502: "0",
+    r503: "1"
+  };
+};
+
+/**
+ * Halaman Review Data Admin.
  *
  * @param {Object} props
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument }) {
+function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas }) {
   const [filter, setFilter] = useState("all");
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState("");
-  const [data, setData] = useState(RESPONSES_INIT);
+  const [data, setData] = useState(() => getResponsesInit());
+
+  // Read-only / Edit Questionnaire Viewer States
+  const [viewingRecord, setViewingRecord] = useState(null);
+  const [viewingBlock, setViewingBlock] = useState("Blok III");
+  const [isEditing, setIsEditing] = useState(false);
+  const [ans, setAns] = useState({});
+  const [customAnswers, setCustomAnswers] = useState({});
+  const [confirmModalType, setConfirmModalType] = useState(null); // 'approve' | 'unapprove' | null
 
   // States for Prelist Upload Modal
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -50,12 +140,33 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const isDraft = activeActivity ? activeActivity.status === "draft" : false;
   const canUploadPrelist = selectedProject && isDraft;
 
-  const villages = ["Semua Desa", ...DESA_DATA.map(d => d.name)];
+  const villages = ["Semua Desa", ...getDesaData().map(d => d.name)];
   const villageDropdown = useDropdown("Semua Desa");
 
+  // Officers logic
+  const officersList = petugas || getPetugasData();
+  const pcls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PCL");
+  const pmls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PML");
+
+  const handleAssignPCL = (recordId, pclName) => {
+    setData(prev => prev.map(r => r.id === recordId ? { ...r, petugas: pclName } : r));
+  };
+
+  const handleAssignPML = (recordId, pmlName) => {
+    setData(prev => prev.map(r => r.id === recordId ? { ...r, pengawas: pmlName } : r));
+  };
+
+  // Filter by selected project
+  const projectFilteredData = data.filter(r => {
+    if (r.project) {
+      return r.project === selectedProject;
+    }
+    return selectedProject === "Desa Cantik 2026" || !selectedProject;
+  });
+
   const villageData = villageDropdown.selected === "Semua Desa"
-    ? data
-    : data.filter(r => r.desa === villageDropdown.selected.replace("Desa ", ""));
+    ? projectFilteredData
+    : projectFilteredData.filter(r => r.desa === villageDropdown.selected.replace("Desa ", ""));
   const filtered = filter === "all" ? villageData : villageData.filter(r => r.status === filter);
   const count = s => villageData.filter(r => r.status === s).length;
 
@@ -66,8 +177,27 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     return b.id.localeCompare(a.id);
   });
 
+  const getRecordAnswersWithCustom = (record) => {
+    if (customAnswers[record.id]) {
+      return customAnswers[record.id];
+    }
+    return getRecordAnswers(record);
+  };
+
+  // Sync answers state when active record or custom edits change
+  useEffect(() => {
+    if (viewingRecord) {
+      setAns(getRecordAnswersWithCustom(viewingRecord));
+    }
+  }, [viewingRecord, customAnswers]);
+
   const approve = () => {
     setData(p => p.map(r => r.id === modal.id ? { ...r, status: "approved", flag: 0 } : r));
+    
+    if (viewingRecord && viewingRecord.id === modal.id) {
+      setViewingRecord(prev => ({ ...prev, status: "approved", flag: 0 }));
+    }
+    
     if (onApproveDocument) {
       onApproveDocument(modal.desa);
     }
@@ -76,11 +206,50 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const reject = () => {
     setData(p => p.map(r => r.id === modal.id ? { ...r, status: "rejected" } : r));
-    setModal(null); setNote("");
+    
+    if (viewingRecord && viewingRecord.id === modal.id) {
+      setViewingRecord(prev => ({ ...prev, status: "rejected" }));
+    }
+    
+    setModal(null); 
+    setNote("");
+  };
+
+  // Sidebar Approve Action
+  const handleApprove = () => {
+    setData(p => p.map(r => r.id === viewingRecord.id ? { ...r, status: "approved", flag: 0 } : r));
+    setViewingRecord(prev => ({ ...prev, status: "approved", flag: 0 }));
+    setIsEditing(false);
+    if (onApproveDocument) {
+      onApproveDocument(viewingRecord.desa);
+    }
+    setConfirmModalType(null);
+  };
+
+  // Sidebar Unapprove Action
+  const handleUnapprove = () => {
+    setData(p => p.map(r => r.id === viewingRecord.id ? { ...r, status: "submitted" } : r));
+    setViewingRecord(prev => ({ ...prev, status: "submitted" }));
+    setConfirmModalType(null);
+  };
+
+  // Save changes from Edit Mode
+  const handleSaveEdit = () => {
+    setCustomAnswers(prev => ({
+      ...prev,
+      [viewingRecord.id]: ans
+    }));
+    setIsEditing(false);
+  };
+
+  // Cancel edits
+  const handleCancelEdit = () => {
+    setAns(getRecordAnswersWithCustom(viewingRecord));
+    setIsEditing(false);
   };
 
   const handleDownloadTemplate = () => {
-    const csvContent = "data:text/csv;charset=utf-8,id,petugas,desa,nama_krt,alamat,warning_flags\nPL-101,,Harapan Jaya,Ahmad Riyadi,Jl. Cempaka No. 5,0\nPL-102,,Maju Bersama,Joko Widodo,Jl. Merdeka No. 10,0\nPL-103,,Sejahtera,Siti Aminah,Jl. Mawar No. 3,0";
+    const csvContent = "data:text/csv;charset=utf-8,id,petugas,desa,sls,subSls,nama_krt,alamat\nPL-301,,Tideng Pale,SLS 01 Tideng Pale,RT 01 A Tideng Pale,Ahmad Riyadi,Jl. Cempaka No. 5\nPL-302,,Tideng Pale,SLS 01 Tideng Pale,RT 01 B Tideng Pale,Joko Widodo,Jl. Merdeka No. 10\nPL-303,,Tideng Pale Timur,SLS 01 Tideng Pale Timur,RT 01 A Tideng Pale Timur,Siti Aminah,Jl. Mawar No. 3";
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
@@ -98,13 +267,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         size: "38.2 KB",
         rowCount: 5
       });
-      setDetectedColumns(["id", "petugas", "desa", "nama_krt", "alamat", "warning_flags"]);
+      setDetectedColumns(["id", "petugas", "desa", "sls", "subSls", "nama_krt", "alamat"]);
       setPreviewRows([
-        { id: "PL-301", petugas: "Belum Ditugaskan", desa: "Harapan Jaya", nama_krt: "Keluarga Slamet Riyadi", alamat: "Jl. Cempaka No. 5" },
-        { id: "PL-302", petugas: "Belum Ditugaskan", desa: "Maju Bersama", nama_krt: "Keluarga Joko Wahyono", alamat: "Jl. Merdeka No. 10" },
-        { id: "PL-303", petugas: "Belum Ditugaskan", desa: "Sejahtera", nama_krt: "Keluarga Sri Wahyuni", alamat: "Jl. Mawar No. 3" },
-        { id: "PL-304", petugas: "Belum Ditugaskan", desa: "Harapan Jaya", nama_krt: "Keluarga Mulyono", alamat: "Jl. Dahlia No. 15" },
-        { id: "PL-305", petugas: "Belum Ditugaskan", desa: "Maju Bersama", nama_krt: "Keluarga Bambang Hermawan", alamat: "Jl. Melati No. 8" }
+        { id: "PL-301", petugas: "Belum Ditugaskan", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", subSls: "RT 01 A Tideng Pale", nama_krt: "Keluarga Slamet Riyadi", alamat: "Jl. Cempaka No. 5" },
+        { id: "PL-302", petugas: "Belum Ditugaskan", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", subSls: "RT 01 B Tideng Pale", nama_krt: "Keluarga Joko Wahyono", alamat: "Jl. Merdeka No. 10" },
+        { id: "PL-303", petugas: "Belum Ditugaskan", desa: "Tideng Pale Timur", sls: "SLS 01 Tideng Pale Timur", subSls: "RT 01 A Tideng Pale Timur", nama_krt: "Keluarga Sri Wahyuni", alamat: "Jl. Mawar No. 3" },
+        { id: "PL-304", petugas: "Belum Ditugaskan", desa: "Tideng Pale Timur", sls: "SLS 02 Tideng Pale Timur", subSls: "", nama_krt: "Keluarga Mulyono", alamat: "Jl. Dahlia No. 15" },
+        { id: "PL-305", petugas: "Belum Ditugaskan", desa: "Limbu Sedulun", sls: "SLS 01 Limbu Sedulun", subSls: "", nama_krt: "Keluarga Bambang Hermawan", alamat: "Jl. Melati No. 8" }
       ]);
       setIsUploading(false);
     }, 1200);
@@ -114,15 +283,39 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     if (!uploadedFile || previewRows.length === 0) return;
     
     const randomOffset = Math.floor(Math.random() * 1000);
-    const newItems = previewRows.map((row, index) => ({
-      id: `PL-${301 + index + randomOffset}`,
-      petugas: row.petugas,
-      desa: row.desa,
-      tgl: "—",
-      status: "menunggu",
-      flag: 0,
-      isPrelist: true
-    }));
+    const newItems = previewRows.map((row, index) => {
+      // Find matching PCL from petugas state
+      const matchedPcl = (petugas || []).find(p => {
+        if (!p.projects?.includes(selectedProject)) return false;
+        const assignment = p.assignments?.[selectedProject];
+        if (!assignment || !assignment.sls) return false;
+        
+        const role = p.projectRoles?.[selectedProject] || "PCL";
+        if (role !== "PCL") return false;
+
+        if (row.subSls && assignment.sls.includes(row.subSls)) return true;
+        if (row.sls && assignment.sls.includes(row.sls)) return true;
+        return false;
+      });
+
+      const assignedPcl = matchedPcl ? matchedPcl.name : "Belum Ditugaskan";
+      const assignedPml = matchedPcl?.assignments?.[selectedProject]?.pengawas || "Belum Ditugaskan";
+
+      return {
+        id: `PL-${301 + index + randomOffset}`,
+        petugas: assignedPcl,
+        pengawas: assignedPml,
+        desa: row.desa,
+        sls: row.sls,
+        subSls: row.subSls || "",
+        tgl: "—",
+        status: "menunggu",
+        flag: 0,
+        isPrelist: true,
+        nama_krt: row.nama_krt,
+        project: selectedProject
+      };
+    });
 
     setData(prev => [...prev, ...newItems]);
     setIsSuccess(true);
@@ -136,203 +329,1004 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     }, 1500);
   };
 
-  return (
-    <AdminLayout tab="admin-review" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+  // Questionnaire Viewer content layout
+  const renderQuestionnaireViewer = () => {
+    const krtName = getKrtName(viewingRecord);
+    const skipped = ans.r307 === "2";
+
+    const BLOCKS = [
+      { id: "Blok I", l: "Blok I", done: true, title: "Pengenalan Tempat" },
+      { id: "Blok II", l: "Blok II", done: true, title: "Keterangan RT" },
+      { id: "Blok III", l: "Blok III", active: true, title: "Keterangan Anggota RT" },
+      { id: "Blok IV", l: "Blok IV", title: "Keterangan Perumahan" },
+      { id: "Blok V", l: "Blok V", cond: true, title: "Keterangan Usaha" },
+    ];
+
+    const activeBlockObj = BLOCKS.find(b => b.id === viewingBlock) || BLOCKS[2];
+
+    return (
       <div className="p-6 lg:p-8 w-full slide-up">
-        {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Review Data</h1>
-              {selectedProject && (
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-xl text-[10px] font-bold ${statusConfig.text} ${statusConfig.bg} border-slate-100/50 shadow-sm`}>
-                  <span className="relative flex h-2 w-2">
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${statusConfig.pulse}`}></span>
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${statusConfig.dot}`}></span>
-                  </span>
-                  <span className="uppercase tracking-wider font-bold">{statusConfig.label}</span>
+        {/* Top Control Bar - Minimalistic Card just displaying Title */}
+        <div className="flex items-center justify-between mb-6 bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => {
+                setViewingRecord(null);
+                setViewingBlock("Blok III");
+                setIsEditing(false);
+              }}
+              className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-slate-200 cursor-pointer rounded-lg flex items-center justify-center flex-shrink-0 transition-all text-slate-500"
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <h2 className="text-base font-bold text-slate-900">Review Isian Kuesioner</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge status={viewingRecord.status} />
+          </div>
+        </div>
+
+        {/* 2-Column Layout: Left Sidebar + Right Questions */}
+        <div className="flex flex-col lg:flex-row gap-6 w-full items-start">
+          
+          {/* Inner Left Sidebar Container */}
+          <div className="w-full lg:w-72 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col justify-between h-[620px] sticky top-6">
+            
+            {/* Top: Document Information */}
+            <div className="p-5 border-b border-slate-50 bg-slate-50/50">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Informasi Dokumen</p>
+              <div className="mt-4 space-y-2.5 text-xs font-semibold text-slate-700">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 font-medium">ID Dokumen</span>
+                  <span className="mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{viewingRecord.id}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 font-medium">Kepala Keluarga</span>
+                  <span className="text-slate-800 truncate max-w-[120px]">{krtName}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 font-medium">Petugas</span>
+                  <span className="text-slate-800 truncate max-w-[120px]">{viewingRecord.petugas}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-400 font-medium">Desa</span>
+                  <span className="text-slate-800">{viewingRecord.desa}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Middle: Block List (Vertical Navigation) */}
+            <div className="p-3 space-y-1 flex-1 overflow-y-auto">
+              <p className="px-3 py-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Daftar Blok</p>
+              {BLOCKS.map((b, i) => {
+                const isCurrent = viewingBlock === b.id;
+                return (
+                  <button 
+                    key={i}
+                    onClick={() => setViewingBlock(b.id)}
+                    className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all ${
+                      isCurrent 
+                        ? "text-blue-600 bg-blue-50/70 shadow-sm" 
+                        : "bg-transparent text-slate-500 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isCurrent ? 'bg-blue-500 animate-pulse' : 'bg-slate-300'}`} />
+                    <div className="text-left flex flex-col min-w-0">
+                      <span>{b.l}</span>
+                      <span className="text-[10px] text-slate-400 font-normal mt-0.5 leading-normal">{b.title}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bottom: Stuck to bottom controls (Edit, Save, Cancel, Approve, Unapprove) */}
+            <div className="p-5 border-t border-slate-100 bg-slate-50/30 space-y-2 mt-auto">
+              {/* Edit Operations */}
+              {viewingRecord.status !== "approved" ? (
+                isEditing ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={handleCancelEdit}
+                      className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center"
+                    >
+                      Batal
+                    </button>
+                    <button 
+                      onClick={handleSaveEdit}
+                      className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center shadow-sm"
+                    >
+                      Simpan
+                    </button>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setIsEditing(true)}
+                    className="w-full py-2.5 bg-white hover:bg-slate-50 text-blue-600 border border-slate-200 hover:border-slate-300 font-bold rounded-xl text-xs cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  >
+                    <Edit3 size={13}/> Edit Isian
+                  </button>
+                )
+              ) : (
+                <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                  Dokumen Telah Disetujui
                 </div>
               )}
-              <div className="relative">
+
+              {/* Approve / Unapprove Actions */}
+              {viewingRecord.status === "approved" ? (
                 <button 
-                  onClick={villageDropdown.toggle}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border-0 cursor-pointer hover:bg-blue-100 transition-all"
+                  onClick={() => setConfirmModalType("unapprove")}
+                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs cursor-pointer border border-amber-100 transition-all flex items-center justify-center gap-1.5"
                 >
-                  {villageDropdown.selected} <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform duration-200 ${villageDropdown.isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+                  <X size={13}/> Batalkan Persetujuan (Unapprove)
                 </button>
-                
-                {villageDropdown.isOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={villageDropdown.close}/>
-                    <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56" style={{ animation: 'scaleIn 0.15s ease' }}>
-                      {villages.map(v => (
-                        <button key={v} onClick={() => villageDropdown.select(v)}
-                          className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
-                            villageDropdown.selected === v ? 'bg-blue-50 text-blue-600 font-semibold' : 'bg-white text-slate-500 hover:bg-slate-50 font-medium'
-                          }`}>
-                          {v}
-                        </button>
-                      ))}
+              ) : (
+                <button 
+                  onClick={() => setConfirmModalType("approve")}
+                  disabled={isEditing}
+                  className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${
+                    isEditing 
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
+                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                  }`}
+                >
+                  <Check size={13}/> Setujui Dokumen (Approve)
+                </button>
+              )}
+            </div>
+
+          </div>
+
+          {/* Right Area: Questionnaire Cards (Either Read-Only or Editable) */}
+          <div className="flex-1 w-full bg-white rounded-xl border border-slate-100 p-6 shadow-sm min-h-[620px]">
+            <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-50">
+              <h3 className="text-sm font-bold text-slate-800">{activeBlockObj.id} – {activeBlockObj.title}</h3>
+              <span className="text-[11px] text-blue-600 font-bold">Blok {BLOCKS.findIndex(b => b.id === viewingBlock) + 1} dari 5</span>
+            </div>
+
+            <div className="space-y-4 max-w-xl pb-10">
+              
+              {viewingBlock === "Blok I" && (
+                <>
+                  <ReviewQCard r="101" label="Provinsi" required>
+                    <input 
+                      value={ans.r101 || "32 - JAWA BARAT"} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r101: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="102" label="Kabupaten/Kota" required>
+                    <input 
+                      value={ans.r102 || "71 - BOGOR"} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r102: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="103" label="Kecamatan" required>
+                    <input 
+                      value={ans.r103 || "010 - CIAWI"} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r103: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="104" label="Desa/Kelurahan" required>
+                    <input 
+                      value={ans.r104 || ""} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r104: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="105" label="Klasifikasi Wilayah" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Perkotaan"], ["2", "Perdesaan"]].map(([v, l]) => {
+                        const isSelected = ans.r105 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r105: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
                     </div>
-                  </>
-                )}
+                  </ReviewQCard>
+                </>
+              )}
+
+              {viewingBlock === "Blok II" && (
+                <>
+                  <ReviewQCard r="201" label="Nomor Urut RT" required>
+                    <input 
+                      value={ans.r201 || ""} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r201: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold mono ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="202" label="Jumlah Anggota Keluarga" required>
+                    <input 
+                      value={ans.r202 || ""} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r202: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold mono ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="203" label="Jumlah Laki-laki" required>
+                    <input 
+                      value={ans.r203 || ""} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r203: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold mono ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                  <ReviewQCard r="204" label="Jumlah Perempuan" required>
+                    <input 
+                      value={ans.r204 || ""} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r204: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold mono ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                </>
+              )}
+
+              {viewingBlock === "Blok III" && (
+                <>
+                  <ReviewQCard r="301" label="Nama Kepala Rumah Tangga" required>
+                    <input 
+                      value={ans.r301 || ""} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r301: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+
+                  <ReviewQCard r="303" label="Jenis Kelamin" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Laki-laki"], ["2", "Perempuan"]].map(([v, l]) => {
+                        const isSelected = ans.r303 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r303: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="304" label="Umur (tahun)" required hint="Nilai valid: 0 – 120 tahun">
+                    <div className="flex items-center gap-3">
+                      <input 
+                        type="number" 
+                        value={ans.r304 || ""} 
+                        disabled={!isEditing}
+                        onChange={e => setAns({ ...ans, r304: e.target.value })}
+                        className={`mono w-28 px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                          isEditing 
+                            ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                            : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                        }`}
+                      />
+                      <span className="text-xs text-slate-400 font-semibold">Tahun</span>
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="305" label="Status Perkawinan" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Belum Kawin"], ["2", "Kawin"], ["3", "Cerai Hidup"], ["4", "Cerai Mati"]].map(([v, l]) => {
+                        const isSelected = ans.r305 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r305: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="307" label="Bekerja seminggu yang lalu?" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => {
+                        const isSelected = ans.r307 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r307: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <div style={{ opacity: skipped ? 0.4 : 1, transition: "opacity .3s ease" }}>
+                    <ReviewQCard r="308" label="Lapangan Usaha Utama"
+                      skipInfo={skipped ? "Dilewati otomatis" : "Aktif jika Ya"}>
+                      <input 
+                        value={ans.r308 || ""} 
+                        disabled={!isEditing || skipped}
+                        onChange={e => setAns({ ...ans, r308: e.target.value })}
+                        className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold ${
+                          isEditing && !skipped
+                            ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                            : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                        }`}
+                        placeholder={skipped ? "Dilewati" : ""}
+                      />
+                    </ReviewQCard>
+                  </div>
+
+                  {viewingRecord.flag > 0 && (
+                    <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3 animate-pulse">
+                      <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5"/>
+                      <div>
+                        <p className="text-xs font-bold text-amber-800">Peringatan Konsistensi ({viewingRecord.flag} Flags)</p>
+                        <p className="text-xs text-amber-600 mt-0.5 leading-relaxed">
+                          {viewingRecord.id === "R-0231" 
+                            ? "Umur 45 tahun dengan status Kawin sudah sesuai."
+                            : `Peringatan: Terdapat ${viewingRecord.flag} kegagalan validasi logika di Blok III. Harap verifikasi keselarasan data.`}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {viewingBlock === "Blok IV" && (
+                <>
+                  <ReviewQCard r="401" label="Status Penguasaan Bangunan Tempat Tinggal" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Milik Sendiri"], ["2", "Kontrak/Sewa"], ["3", "Bebas Sewa"], ["4", "Dinas"]].map(([v, l]) => {
+                        const isSelected = ans.r401 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r401: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="402" label="Jenis Atap Terluas" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Beton/Genteng"], ["2", "Seng/Asbes"], ["3", "Bambu/Jerami"]].map(([v, l]) => {
+                        const isSelected = ans.r402 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r402: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="403" label="Jenis Dinding Terluas" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Tembok"], ["2", "Kayu/Papan"], ["3", "Bambu"]].map(([v, l]) => {
+                        const isSelected = ans.r403 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r403: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="404" label="Jenis Lantai Terluas" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Keramik"], ["2", "Semen/Ubin"], ["3", "Kayu/Papan"], ["4", "Tanah"]].map(([v, l]) => {
+                        const isSelected = ans.r404 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r404: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="405" label="Sumber Air Minum" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Leding"], ["2", "Sumur Bor/Terlindungi"], ["3", "Mata Air Terlindungi"], ["4", "Air Hujan/Lainnya"]].map(([v, l]) => {
+                        const isSelected = ans.r405 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r405: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+                </>
+              )}
+
+              {viewingBlock === "Blok V" && (
+                <>
+                  <ReviewQCard r="501" label="Memiliki Usaha Sendiri/Bersama" required>
+                    <div className="grid grid-cols-2 gap-2">
+                      {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => {
+                        const isSelected = ans.r501 === v;
+                        const cardStyle = isSelected
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : isEditing
+                            ? "border-slate-200 bg-white text-slate-500 hover:border-slate-300"
+                            : "border-slate-100 bg-slate-50/50 text-slate-400";
+                        
+                        const ContainerTag = isEditing ? "button" : "div";
+                        const clickProp = isEditing ? { onClick: () => setAns({ ...ans, r501: v }) } : {};
+                        
+                        return (
+                          <ContainerTag 
+                            key={v}
+                            {...clickProp}
+                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-semibold transition-all ${
+                              isEditing ? 'cursor-pointer' : ''
+                            } ${cardStyle}`}
+                          >
+                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${isSelected ? "border-blue-600" : "border-slate-200"}`}>
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                            </div>
+                            {v}. {l}
+                          </ContainerTag>
+                        );
+                      })}
+                    </div>
+                  </ReviewQCard>
+
+                  <ReviewQCard r="502" label="Jumlah Pekerja Dibayar" required>
+                    <input 
+                      value={ans.r502 || "0"} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r502: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold mono ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+
+                  <ReviewQCard r="503" label="Jumlah Pekerja Tidak Dibayar" required>
+                    <input 
+                      value={ans.r503 || "1"} 
+                      disabled={!isEditing}
+                      onChange={e => setAns({ ...ans, r503: e.target.value })}
+                      className={`w-full px-4 py-3 text-sm rounded-xl outline-none transition-all font-semibold mono ${
+                        isEditing 
+                          ? "bg-white border border-blue-300 focus:border-blue-500 text-slate-800" 
+                          : "bg-slate-50 border border-slate-100 text-slate-500 cursor-not-allowed"
+                      }`}
+                    />
+                  </ReviewQCard>
+                </>
+              )}
+
+              {/* Block bottom navigation */}
+              <div className="flex gap-3 max-w-xl mt-6">
+                <button 
+                  disabled={viewingBlock === "Blok I"}
+                  onClick={() => {
+                    const prevBlock = BLOCKS[BLOCKS.findIndex(b => b.id === viewingBlock) - 1]?.id;
+                    if (prevBlock) setViewingBlock(prevBlock);
+                  }}
+                  className="px-5 py-3 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-sm"
+                >
+                  <ChevronLeft size={14}/> Sebelumnya
+                </button>
+                <button 
+                  disabled={viewingBlock === "Blok V"}
+                  onClick={() => {
+                    const nextBlock = BLOCKS[BLOCKS.findIndex(b => b.id === viewingBlock) + 1]?.id;
+                    if (nextBlock) setViewingBlock(nextBlock);
+                  }}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                >
+                  Blok Berikutnya <ChevronRight size={14}/>
+                </button>
               </div>
             </div>
           </div>
-          
-          <div className="flex items-center gap-3 w-full lg:w-auto">
-            <button 
-              disabled={!canUploadPrelist}
-              onClick={() => setIsUploadModalOpen(true)}
-              className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
-                canUploadPrelist 
-                  ? "bg-blue-600 hover:bg-blue-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
-                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
-              }`}
-              title={
-                !selectedProject 
-                  ? "Pilih kegiatan terlebih dahulu" 
-                  : !isDraft 
-                    ? "Prelist dikunci karena kegiatan sudah dipublish" 
-                    : "Unggah prelist keluarga"
-              }
-            >
-              <Upload size={14}/>
-              <span>Unggah Prelist</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <AdminLayout tab="admin-review" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+      {viewingRecord ? (
+        renderQuestionnaireViewer()
+      ) : (
+        <div className="p-6 lg:p-8 w-full slide-up">
+          {/* Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
+            <div>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Review Data</h1>
+                {selectedProject && (
+                  <div className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-xl text-[10px] font-bold ${statusConfig.text} ${statusConfig.bg} border-slate-100/50 shadow-sm`}>
+                    <span className="relative flex h-2 w-2">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${statusConfig.pulse}`}></span>
+                      <span className={`relative inline-flex rounded-full h-2 w-2 ${statusConfig.dot}`}></span>
+                    </span>
+                    <span className="uppercase tracking-wider font-bold">{statusConfig.label}</span>
+                  </div>
+                )}
+                <div className="relative">
+                  <button 
+                    onClick={villageDropdown.toggle}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border-0 cursor-pointer hover:bg-blue-100 transition-all"
+                  >
+                    {villageDropdown.selected} <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform duration-200 ${villageDropdown.isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+                  </button>
+                  
+                  {villageDropdown.isOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={villageDropdown.close}/>
+                      <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56" style={{ animation: 'scaleIn 0.15s ease' }}>
+                        {villages.map(v => (
+                          <button key={v} onClick={() => villageDropdown.select(v)}
+                            className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
+                              villageDropdown.selected === v ? 'bg-blue-50 text-blue-600 font-semibold' : 'bg-white text-slate-500 hover:bg-slate-50 font-medium'
+                            }`}>
+                            {v}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-3 w-full lg:w-auto">
+              <button 
+                disabled={!canUploadPrelist}
+                onClick={() => setIsUploadModalOpen(true)}
+                className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
+                  canUploadPrelist 
+                    ? "bg-blue-600 hover:bg-blue-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
+                    : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                }`}
+                title={
+                  !selectedProject 
+                    ? "Pilih kegiatan terlebih dahulu" 
+                    : !isDraft 
+                      ? "Prelist dikunci karena kegiatan sudah dipublish" 
+                      : "Unggah prelist keluarga"
+                }
+              >
+                <Upload size={14}/>
+                <span>Unggah Prelist</span>
+              </button>
+              <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
+                <Search size={16} className="text-slate-400"/>
+                <input className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" placeholder="Cari ID atau nama..."/>
+              </div>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[
+                { id: "all", l: "Semua", c: villageData.length },
+                { id: "menunggu", l: "Menunggu", c: count("menunggu") },
+                { id: "submitted", l: "Submit", c: count("submitted") },
+                { id: "pml_approved", l: "Disetujui PML", c: count("pml_approved") },
+                { id: "approved", l: "Approved", c: count("approved") },
+              ].map(t => (
+                <button key={t.id} onClick={() => setFilter(t.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium border-0 cursor-pointer transition-all ${
+                    filter === t.id ? "text-white bg-blue-600" : "bg-white border border-slate-100 text-slate-500 hover:bg-slate-50"
+                  }`}>
+                  {t.l}
+                  <span className={`mono text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                    filter === t.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400"
+                  }`}>{t.c}</span>
+                </button>
+              ))}
+            </div>
+            
+            <button className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all cursor-pointer">
+              <Filter size={13}/> Urutkan
             </button>
-            <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
-              <Search size={16} className="text-slate-400"/>
-              <input className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" placeholder="Cari ID atau nama..."/>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full border-separate border-spacing-0 min-w-[950px]">
+                <thead>
+                  <tr className="bg-slate-50/50">
+                    {status === "draft" ? (
+                      ["ID", "Kepala Keluarga", "Desa", "SLS", "Sub SLS", "Tipe", "Petugas Pendataan (PCL)", "Pengawas (PML)", "Aksi"].map(h => (
+                        <th key={h} className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider">{h}</th>
+                      ))
+                    ) : (
+                      ["ID", "Kepala Keluarga", "Petugas", "Desa", "SLS", "Sub SLS", "Tipe", "Tgl. Kirim", "Warning", "Status", "Aksi"].map(h => (
+                        <th key={h} className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider">{h}</th>
+                      ))
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedFiltered.map((r, index) => {
+                    const showPrelistHeader = index === 0 && r.isPrelist;
+                    const showTambahanHeader = (index === 0 && !r.isPrelist) || (index > 0 && !r.isPrelist && sortedFiltered[index - 1].isPrelist);
+
+                    return (
+                      <Fragment key={r.id}>
+                        {showPrelistHeader && (
+                          <tr className="bg-slate-50/30">
+                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-b border-slate-100/80">
+                              Target Prelist Desa ({sortedFiltered.filter(item => item.isPrelist).length} Keluarga)
+                            </td>
+                          </tr>
+                        )}
+                        {showTambahanHeader && (
+                          <tr className="bg-indigo-50/10">
+                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-indigo-500 tracking-wider uppercase border-t border-b border-indigo-50/30">
+                              Temuan Baru / Tambahan Lapangan ({sortedFiltered.filter(item => !item.isPrelist).length} Keluarga)
+                            </td>
+                          </tr>
+                        )}
+                        <tr className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-3.5 border-t border-slate-50">
+                            <span className="mono text-xs font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded-md">{r.id}</span>
+                          </td>
+                          <td className="px-6 py-3.5 border-t border-slate-50 text-sm font-semibold text-slate-700">
+                            {getKrtName(r)}
+                          </td>
+                          {status === "draft" ? (
+                            <>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.desa}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.sls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-medium">{r.subSls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50">
+                                {r.isPrelist ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/50">
+                                    Prelist
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100/50">
+                                    Tambahan
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-6 py-3.5 border-t border-slate-50">
+                                <div className="flex items-center gap-2">
+                                  <select 
+                                    value={r.petugas || "Belum Ditugaskan"}
+                                    onChange={(e) => handleAssignPCL(r.id, e.target.value)}
+                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px]"
+                                  >
+                                    <option value="Belum Ditugaskan">Pilih PCL</option>
+                                    {pcls.map(o => (
+                                      <option key={o.name} value={o.name}>{o.name}</option>
+                                    ))}
+                                  </select>
+                                  {r.petugas && r.petugas !== "Belum Ditugaskan" ? (
+                                    <span className="w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 animate-scale-in">
+                                      <Check size={11} strokeWidth={3} />
+                                    </span>
+                                  ) : (
+                                    <span className="w-5 h-5 rounded-full bg-slate-50 border border-slate-100 text-slate-300 flex items-center justify-center flex-shrink-0">
+                                      <X size={11} strokeWidth={3} />
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-6 py-3.5 border-t border-slate-50">
+                                <div className="flex items-center gap-2">
+                                  <select 
+                                    value={r.pengawas || "Belum Ditugaskan"}
+                                    onChange={(e) => handleAssignPML(r.id, e.target.value)}
+                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px]"
+                                  >
+                                    <option value="Belum Ditugaskan">Pilih PML</option>
+                                    {pmls.map(o => (
+                                      <option key={o.name} value={o.name}>{o.name}</option>
+                                    ))}
+                                  </select>
+                                  {r.pengawas && r.pengawas !== "Belum Ditugaskan" ? (
+                                    <span className="w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 animate-scale-in">
+                                      <Check size={11} strokeWidth={3} />
+                                    </span>
+                                  ) : (
+                                    <span className="w-5 h-5 rounded-full bg-slate-50 border border-slate-100 text-slate-300 flex items-center justify-center flex-shrink-0">
+                                      <X size={11} strokeWidth={3} />
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td className="px-6 py-3.5 border-t border-slate-50">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-[10px] font-bold text-blue-600">
+                                    {r.petugas !== "Belum Ditugaskan" ? r.petugas.split(' ').map(n=>n[0]).join('') : "?"}
+                                  </div>
+                                  <span className="text-sm font-semibold text-slate-700">{r.petugas}</span>
+                                </div>
+                              </td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.desa}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.sls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-medium">{r.subSls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50">
+                                {r.isPrelist ? (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/50">
+                                    Prelist
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100/50">
+                                    Tambahan
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 mono text-xs text-slate-400 font-semibold">{r.tgl}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50">
+                                {r.flag > 0
+                                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-600 rounded-md"><AlertTriangle size={11}/>{r.flag}</span>
+                                  : <span className="text-slate-200">—</span>}
+                              </td>
+                              <td className="px-6 py-3.5 border-t border-slate-50"><Badge status={r.status}/></td>
+                            </>
+                          )}
+                          <td className="px-6 py-3.5 border-t border-slate-50">
+                            <div className="flex items-center gap-1.5">
+                              <button 
+                                onClick={() => {
+                                  setViewingRecord(r);
+                                  setViewingBlock("Blok III");
+                                }}
+                                className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-blue-600 transition-all bg-transparent"
+                                title="Lihat Detail Isian Kuesioner"
+                              >
+                                <Eye size={15}/>
+                              </button>
+                              {status !== "draft" && r.status === "pml_approved" && (
+                                <>
+                                  <button onClick={() => setModal({ ...r, type: "approve" })}
+                                    className="w-8 h-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-emerald-600 transition-all bg-transparent"
+                                    title="Setujui (Admin)">
+                                    <Check size={15}/>
+                                  </button>
+                                  <button onClick={() => setModal({ ...r, type: "reject" })}
+                                    className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-600 transition-all bg-transparent"
+                                    title="Tolak (Admin)">
+                                    <X size={15}/>
+                                  </button>
+                                </>
+                              )}
+                              {status === "draft" && (
+                                <button 
+                                  onClick={() => setData(prev => prev.filter(item => item.id !== r.id))}
+                                  className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-500 transition-all bg-transparent"
+                                  title="Hapus Data Keluarga"
+                                >
+                                  <X size={15}/>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
+                  {sortedFiltered.length === 0 && (
+                    <tr><td colSpan={status === "draft" ? 9 : 11} className="px-6 py-16 text-center">
+                      <Search size={24} className="text-slate-200 mx-auto mb-2"/>
+                      <p className="text-xs text-slate-400 font-medium">Tidak ada dokumen di {villageDropdown.selected}</p>
+                    </td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
-
-        {/* Tabs */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
-          <div className="flex flex-wrap gap-2">
-            {[
-              { id: "all", l: "Semua", c: villageData.length },
-              { id: "menunggu", l: "Menunggu", c: count("menunggu") },
-              { id: "submitted", l: "Submit", c: count("submitted") },
-              { id: "pml_approved", l: "Disetujui PML", c: count("pml_approved") },
-              { id: "approved", l: "Approved", c: count("approved") },
-            ].map(t => (
-              <button key={t.id} onClick={() => setFilter(t.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium border-0 cursor-pointer transition-all ${
-                  filter === t.id ? "text-white bg-blue-600" : "bg-white border border-slate-100 text-slate-500 hover:bg-slate-50"
-                }`}>
-                {t.l}
-                <span className={`mono text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                  filter === t.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400"
-                }`}>{t.c}</span>
-              </button>
-            ))}
-          </div>
-          
-          <button className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all cursor-pointer">
-            <Filter size={13}/> Urutkan
-          </button>
-        </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full border-separate border-spacing-0 min-w-[950px]">
-              <thead>
-                <tr className="bg-slate-50/50">
-                  {["ID", "Petugas", "Desa", "Tipe", "Tgl. Kirim", "Warning", "Status", "Aksi"].map(h => (
-                    <th key={h} className="px-6 py-3 text-left text-[11px] text-slate-400 font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedFiltered.map((r, index) => {
-                  const showPrelistHeader = index === 0 && r.isPrelist;
-                  const showTambahanHeader = (index === 0 && !r.isPrelist) || (index > 0 && !r.isPrelist && sortedFiltered[index - 1].isPrelist);
-
-                  return (
-                    <Fragment key={r.id}>
-                      {showPrelistHeader && (
-                        <tr className="bg-slate-50/30">
-                          <td colSpan={8} className="px-6 py-2.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-b border-slate-100/80">
-                            Target Prelist Desa ({sortedFiltered.filter(item => item.isPrelist).length} Keluarga)
-                          </td>
-                        </tr>
-                      )}
-                      {showTambahanHeader && (
-                        <tr className="bg-indigo-50/10">
-                          <td colSpan={8} className="px-6 py-2.5 text-[10px] font-bold text-indigo-500 tracking-wider uppercase border-t border-b border-indigo-50/30">
-                            Temuan Baru / Tambahan Lapangan ({sortedFiltered.filter(item => !item.isPrelist).length} Keluarga)
-                          </td>
-                        </tr>
-                      )}
-                      <tr className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          <span className="mono text-xs font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded-md">{r.id}</span>
-                        </td>
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-[10px] font-semibold text-blue-600">
-                              {r.petugas !== "Belum Ditugaskan" ? r.petugas.split(' ').map(n=>n[0]).join('') : "?"}
-                            </div>
-                            <span className="text-sm font-medium text-slate-700">{r.petugas}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500">{r.desa}</td>
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          {r.isPrelist ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200/50">
-                              Prelist
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 text-indigo-600 border border-indigo-100/50">
-                              Tambahan
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-3.5 border-t border-slate-50 mono text-xs text-slate-400">{r.tgl}</td>
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          {r.flag > 0
-                            ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-600 rounded-md"><AlertTriangle size={11}/>{r.flag}</span>
-                            : <span className="text-slate-200">—</span>}
-                        </td>
-                        <td className="px-6 py-3.5 border-t border-slate-50"><Badge status={r.status}/></td>
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          <div className="flex items-center gap-1.5">
-                            <button className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-blue-600 transition-all bg-transparent">
-                              <Eye size={15}/>
-                            </button>
-                            {r.status === "pml_approved" && (
-                              <>
-                                <button onClick={() => setModal({ ...r, type: "approve" })}
-                                  className="w-8 h-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-emerald-600 transition-all bg-transparent"
-                                  title="Setujui (Admin)">
-                                  <Check size={15}/>
-                                </button>
-                                <button onClick={() => setModal({ ...r, type: "reject" })}
-                                  className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-600 transition-all bg-transparent"
-                                  title="Tolak (Admin)">
-                                  <X size={15}/>
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    </Fragment>
-                  );
-                })}
-                {sortedFiltered.length === 0 && (
-                  <tr><td colSpan={8} className="px-6 py-16 text-center">
-                    <Search size={24} className="text-slate-200 mx-auto mb-2"/>
-                    <p className="text-xs text-slate-400 font-medium">Tidak ada dokumen di {villageDropdown.selected}</p>
-                  </td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+      )}
 
       {isUploadModalOpen && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6"
@@ -456,6 +1450,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   <th className="px-3 py-2">ID</th>
                                   <th className="px-3 py-2">Nama KRT</th>
                                   <th className="px-3 py-2">Desa</th>
+                                  <th className="px-3 py-2">SLS</th>
+                                  <th className="px-3 py-2">Sub SLS</th>
                                   <th className="px-3 py-2">Alamat</th>
                                 </tr>
                               </thead>
@@ -469,6 +1465,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                         {row.desa}
                                       </span>
                                     </td>
+                                    <td className="px-3 py-2 text-slate-500">{row.sls || "—"}</td>
+                                    <td className="px-3 py-2 text-slate-500">{row.subSls || "—"}</td>
                                     <td className="px-3 py-2 text-slate-400 truncate max-w-[150px]">{row.alamat}</td>
                                   </tr>
                                 ))}
@@ -507,6 +1505,51 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Approve / Unapprove Sidebar Confirm Modal */}
+      {confirmModalType && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6"
+          style={{ animation: 'fadeIn 0.2s ease' }}
+          onClick={() => setConfirmModalType(null)}>
+          <div className="bg-white rounded-2xl p-8 w-full shadow-lg max-w-[420px]"
+            style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
+            onClick={e => e.stopPropagation()}>
+            
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${
+              confirmModalType === "approve" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+            }`}>
+              {confirmModalType === "approve" ? <Check size={24} /> : <AlertTriangle size={24} />}
+            </div>
+
+            <h3 className="text-lg font-bold text-slate-900 mb-1.5">
+              {confirmModalType === "approve" ? "Setujui Dokumen?" : "Batalkan Persetujuan?"}
+            </h3>
+            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
+              {confirmModalType === "approve" 
+                ? `Apakah Anda yakin ingin menyetujui dokumen ${viewingRecord.id} dari ${viewingRecord.petugas}? Dokumen akan disimpan sebagai data valid.`
+                : `Apakah Anda yakin ingin membatalkan persetujuan dokumen ${viewingRecord.id}? Status dokumen akan dikembalikan menjadi 'Submitted' dan dapat diedit kembali.`
+              }
+            </p>
+
+            <div className="flex gap-3">
+              <button 
+                onClick={() => setConfirmModalType(null)}
+                className="flex-1 py-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 cursor-pointer transition-all border-0"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={confirmModalType === "approve" ? handleApprove : handleUnapprove}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white border-0 cursor-pointer transition-all ${
+                  confirmModalType === "approve" ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
+                }`}
+              >
+                Ya, Yakin
+              </button>
+            </div>
           </div>
         </div>
       )}

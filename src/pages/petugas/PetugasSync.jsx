@@ -1,6 +1,6 @@
 import { Upload, Download, CheckCircle, Clock, AlertCircle, RefreshCcw } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
-import { SYNC_ITEMS } from "../../constants/mockData";
+import { getSyncItems } from "../../constants/mockData";
 
 /**
  * Halaman sinkronisasi Petugas — minimalis.
@@ -69,7 +69,7 @@ function PetugasSync({ onNavigate }) {
                   <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">4 Total</span>
                 </div>
                 <div className="space-y-2">
-                  {SYNC_ITEMS.map(item => (
+                  {getSyncItems().map(item => (
                     <div key={item.id} className="bg-white p-4 rounded-xl border border-slate-100 flex items-center gap-4 hover:border-slate-200 transition-all group">
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                         item.status === 'synced' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
