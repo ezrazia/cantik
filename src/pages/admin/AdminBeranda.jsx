@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
-import { getPetugasData, getDesaData } from "../../constants/mockData";
+import { api } from "../../services/api";
 import { 
   Users, Briefcase, MapPin, Clock, ArrowRight, Layers, Eye, Activity, CheckCircle, Smartphone, User, AlertTriangle
 } from "lucide-react";
@@ -15,6 +15,32 @@ import {
  * @returns {React.ReactElement}
  */
 function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, activities }) {
+  const [stats, setStats] = useState({
+    totalPetugas: petugas?.length || 0,
+    totalKegiatan: activities?.length || 0,
+    totalDesa: 0,
+    activePetugas: petugas?.filter(p => p.status === "active").length || 0
+  });
+
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      try {
+        const res = await api.dashboard.getStats();
+        if (res && res.success) {
+          setStats({
+            totalPetugas: res.summary.totalPetugas,
+            totalKegiatan: res.summary.totalKegiatan,
+            totalDesa: res.summary.totalDesa,
+            activePetugas: petugas?.filter(p => p.status === "active").length || 0
+          });
+        }
+      } catch (err) {
+        console.error("Gagal mengambil dashboard stats:", err);
+      }
+    };
+    fetchDashboardStats();
+  }, [petugas, activities]);
+
   // Calculate dynamic officers count for each activity
   const activeActivities = activities.map(act => {
     const count = petugas.filter(p => p.projects && p.projects.includes(act.name)).length;
@@ -134,7 +160,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
             </div>
             <div>
               <p className="text-[11px] text-slate-400 font-semibold uppercase">Total Kegiatan</p>
-              <p className="mono text-xl font-bold text-slate-900">{activeActivities.length}</p>
+              <p className="mono text-xl font-bold text-slate-900">{stats.totalKegiatan}</p>
             </div>
           </div>
 
@@ -145,7 +171,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
             </div>
             <div>
               <p className="text-[11px] text-slate-400 font-semibold uppercase">Total Petugas</p>
-              <p className="mono text-xl font-bold text-slate-900">{petugas.length}</p>
+              <p className="mono text-xl font-bold text-slate-900">{stats.totalPetugas}</p>
             </div>
           </div>
 
@@ -155,9 +181,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
             </div>
             <div>
               <p className="text-[11px] text-slate-400 font-semibold uppercase">Petugas Aktif</p>
-              <p className="mono text-xl font-bold text-slate-900">
-                {petugas.filter(p => p.status === "active").length}
-              </p>
+              <p className="mono text-xl font-bold text-slate-900">{stats.activePetugas}</p>
             </div>
           </div>
 
@@ -167,7 +191,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
             </div>
             <div>
               <p className="text-[11px] text-slate-400 font-semibold uppercase">Wilayah Desa</p>
-              <p className="mono text-xl font-bold text-slate-900">{getDesaData().length}</p>
+              <p className="mono text-xl font-bold text-slate-900">{stats.totalDesa}</p>
             </div>
           </div>
         </div>
@@ -200,7 +224,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
                       )}
                     </div>
                     <h4 className="text-xs font-bold text-slate-800 tracking-tight">{act.name}</h4>
-                    <p className="text-[11.5px] text-slate-400 leading-relaxed font-medium mt-1 mb-4">{act.desc}</p>
+                    <p className="text-[11.5px] text-slate-400 leading-relaxed font-medium mt-1 mb-4">{act.description || act.desc}</p>
                   </div>
 
                   <div>

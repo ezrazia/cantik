@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
-import { getPetugasData, getDesaData } from "../../constants/mockData";
+import { api } from "../../services/api";
 import useDropdown from "../../hooks/useDropdown";
 import { 
   Search, Plus, UserPlus, Users, CheckCircle, Clock, AlertTriangle, 
@@ -8,41 +8,6 @@ import {
   MapPin, Target, Send, Eye, Award, EyeOff, ArrowUpDown, SlidersHorizontal,
   User, Fingerprint, Phone, Briefcase
 } from "lucide-react";
-
-const MOCK_KECAMATAN = ["Sesayap", "Sesayap Hilir", "Tana Lia", "Betayau", "Muruk Rian"];
-
-const MOCK_DESA_HIERARCHY = [
-  { name: "Tideng Pale", kecamatan: "Sesayap" },
-  { name: "Tideng Pale Timur", kecamatan: "Sesayap" },
-  { name: "Limbu Sedulun", kecamatan: "Sesayap" },
-  { name: "Gunawan", kecamatan: "Sesayap" },
-  { name: "Sesayap Hilir", kecamatan: "Sesayap Hilir" },
-  { name: "Seludau", kecamatan: "Sesayap Hilir" },
-  { name: "Bebatu", kecamatan: "Sesayap Hilir" },
-  { name: "Sepala Dalung", kecamatan: "Sesayap Hilir" },
-  { name: "Tanah Merah", kecamatan: "Tana Lia" },
-  { name: "Sambungan", kecamatan: "Tana Lia" },
-  { name: "Tengku Dacing", kecamatan: "Tana Lia" },
-  { name: "Kujau", kecamatan: "Betayau" },
-  { name: "Buong Baru", kecamatan: "Betayau" },
-  { name: "Betayau", kecamatan: "Betayau" },
-  { name: "Rian", kecamatan: "Muruk Rian" },
-  { name: "Kapuas", kecamatan: "Muruk Rian" },
-  { name: "Belayan", kecamatan: "Muruk Rian" }
-];
-
-const MOCK_SLS_HIERARCHY = [];
-MOCK_DESA_HIERARCHY.forEach(d => {
-  MOCK_SLS_HIERARCHY.push({ name: `SLS 01 ${d.name}`, desa: d.name });
-  MOCK_SLS_HIERARCHY.push({ name: `SLS 02 ${d.name}`, desa: d.name });
-  MOCK_SLS_HIERARCHY.push({ name: `SLS 03 ${d.name}`, desa: d.name });
-});
-
-const MOCK_SUB_SLS_HIERARCHY = [];
-MOCK_DESA_HIERARCHY.forEach(d => {
-  MOCK_SUB_SLS_HIERARCHY.push({ name: `RT 01 A ${d.name}`, sls: `SLS 01 ${d.name}` });
-  MOCK_SUB_SLS_HIERARCHY.push({ name: `RT 01 B ${d.name}`, sls: `SLS 01 ${d.name}` });
-});
 
 /**
  * Halaman Manajemen Petugas Lapangan Admin — premium, modern, dan minimalis.
@@ -53,7 +18,7 @@ MOCK_DESA_HIERARCHY.forEach(d => {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProjectChange, petugas, setPetugas, activities }) {
+function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData }) {
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const projectStatus = activeActivity ? activeActivity.status : "draft";
 
@@ -90,14 +55,131 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   
   // State form petugas baru
   const [name, setName] = useState("");
-  const [assignedDesa, setAssignedDesa] = useState(() => getDesaData()[0].name.replace("Desa ", ""));
+  const [assignedDesa, setAssignedDesa] = useState("Tideng Pale");
   const [target, setTarget] = useState(15);
   const [selesai, setSelesai] = useState(0);
   const [status, setStatus] = useState("active");
 
+  const [dbDesa, setDbDesa] = useState([]);
+  const [allWilayah, setAllWilayah] = useState([]);
+
+  // States untuk Tambah Petugas (Assign Kegiatan) di view local (isGlobal === false)
+  const [modalSearch, setModalSearch] = useState("");
+  const [selectedModalOfficerIds, setSelectedModalOfficerIds] = useState([]); // Array of IDs
+  const [modalOfficerRoles, setModalOfficerRoles] = useState({}); // { [id]: "PCL" | "PML" }
+
+  // States untuk edit wilayah di detail sidebar & main table (isGlobal === false)
+  const [selectedDesaCode, setSelectedDesaCode] = useState("");
+  const [selectedSlsCode, setSelectedSlsCode] = useState("");
+  const [selectedSubSlsCode, setSelectedSubSlsCode] = useState("");
+  const [rowSelections, setRowSelections] = useState({}); // { [officerId]: { desa, sls, subSls } }
+
+  useEffect(() => {
+    const loadWilayah = async () => {
+      try {
+        const list = await api.wilayah.getAll();
+        setAllWilayah(list);
+        
+        const uniqueDesas = Array.from(new Set(list.map(w => w.desa))).map(d => {
+          const matched = list.find(w => w.desa === d);
+          return { name: `Desa ${d}`, kecamatan: matched ? matched.kecamatan : "" };
+        });
+        setDbDesa(uniqueDesas);
+        if (uniqueDesas.length > 0) {
+          setAssignedDesa(uniqueDesas[0].name.replace("Desa ", ""));
+        }
+      } catch (err) {
+        console.error("Gagal mengambil data wilayah:", err);
+      }
+    };
+    loadWilayah();
+  }, []);
+
+  useEffect(() => {
+    if (selectedPetugas && selectedProject && !isGlobal) {
+      const assignedSlsList = selectedPetugas.assignments?.[selectedProject]?.sls || [];
+      const assignedName = assignedSlsList[0] || "";
+      
+      if (assignedName) {
+        const matchedSub = allWilayah.find(w => w.sub_sls === assignedName);
+        if (matchedSub) {
+          setSelectedDesaCode(matchedSub.desa);
+          setSelectedSlsCode(matchedSub.sls);
+          setSelectedSubSlsCode(matchedSub.sub_sls);
+          return;
+        }
+        
+        const matchedSls = allWilayah.find(w => w.sls === assignedName);
+        if (matchedSls) {
+          setSelectedDesaCode(matchedSls.desa);
+          setSelectedSlsCode(matchedSls.sls);
+          setSelectedSubSlsCode("");
+          return;
+        }
+      }
+      setSelectedDesaCode("");
+      setSelectedSlsCode("");
+      setSelectedSubSlsCode("");
+    }
+  }, [selectedPetugas, selectedProject, allWilayah, isGlobal]);
+
+  useEffect(() => {
+    setRowSelections({});
+  }, [selectedProject]);
+
+  useEffect(() => {
+    if (!isGlobal && petugas && selectedProject && allWilayah.length > 0) {
+      setRowSelections(prev => {
+        const nextSelections = { ...prev };
+        petugas.forEach(p => {
+          const assignedSlsList = p.assignments?.[selectedProject]?.sls || [];
+          const assignedName = assignedSlsList[0] || "";
+          if (assignedName) {
+            const matchedSub = allWilayah.find(w => w.sub_sls === assignedName);
+            if (matchedSub) {
+              nextSelections[p.id] = {
+                desa: matchedSub.desa,
+                sls: matchedSub.sls,
+                subSls: matchedSub.sub_sls
+              };
+              return;
+            }
+            const matchedSls = allWilayah.find(w => w.sls === assignedName);
+            if (matchedSls) {
+              const hasSubSls = allWilayah.some(w => w.sls === assignedName && w.sub_sls);
+              nextSelections[p.id] = {
+                desa: matchedSls.desa,
+                sls: matchedSls.sls,
+                subSls: hasSubSls ? "" : "0"
+              };
+              return;
+            }
+          } else {
+            if (!nextSelections[p.id]) {
+              nextSelections[p.id] = {
+                desa: "",
+                sls: "",
+                subSls: ""
+              };
+            }
+          }
+        });
+        return nextSelections;
+      });
+    }
+  }, [petugas, selectedProject, allWilayah, isGlobal]);
+
+  const dbSubSlsHierarchy = allWilayah
+    .filter(w => w.sub_sls)
+    .map(w => ({ name: w.sub_sls, sls: w.sls }));
+
+  const dbSlsHierarchy = allWilayah
+    .filter(w => w.sls)
+    .map(w => ({ name: w.sls, desa: w.desa }));
+
   // Dropdown for village filter (contextual view)
   const villageDropdown = useDropdown("Semua Desa");
-  const villages = ["Semua Desa", ...getDesaData().map(d => d.name)];
+  const villages = ["Semua Desa", ...dbDesa.map(d => d.name)];
 
   // Dropdown for activities/projects filter (global view)
   const allProjects = activities ? activities.map(a => a.name) : [
@@ -113,7 +195,7 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
 
   // Column Visibility States
   const [visibleColsGlobal, setVisibleColsGlobal] = useState(["Nama", "Username", "ID", "Asal Desa", "Nomor Telepon", "Kegiatan", "Status", "Aksi"]);
-  const [visibleColsLocal, setVisibleColsLocal] = useState(["Nama", "Wilayah Tugas", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"]);
+  const [visibleColsLocal, setVisibleColsLocal] = useState(["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"]);
   const colDropdown = useDropdown("Kolom");
 
   // Sorting States
@@ -164,6 +246,8 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
         : petugas.filter(p => p.projects && p.projects.includes(projectFilterDropdown.selected))
       )
     : petugas.filter(p => p.projects && p.projects.includes(selectedProject));
+
+  const unassignedOfficers = petugas.filter(p => !p.projects || !p.projects.includes(selectedProject));
 
   // Filter & Search Logic
   const filteredByVillage = (isGlobal || villageDropdown.selected === "Semua Desa")
@@ -274,48 +358,69 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   };
 
   // Handler Tambah Petugas
-  const handleAddPetugas = () => {
+  const handleAddPetugas = async () => {
     if (!name.trim()) return;
 
-    const idx = petugas.length;
     const finalUsername = usernameInput.trim() || name.toLowerCase().replace(/\s+/g, ".");
-    const id = `32710${idx + 1}0${idx + 1}`;
-    const finalNik = nikInput.trim() || `327101010101000${idx + 1}`;
-    const finalPhone = phoneInput.trim() || "0812-3456-7890";
-    const asalDesa = `Desa ${assignedDesa}`;
+    const finalNik = nikInput.trim() || null;
+    const finalPhone = phoneInput.trim() || null;
 
-    const newOfficer = {
-      name,
-      desa: assignedDesa,
-      target: 15,
-      selesai: 0,
-      sync: "Baru saja",
-      status: "active",
-      id,
-      username: finalUsername,
-      nik: finalNik,
-      phone: finalPhone,
-      asalDesa,
-      projects: isGlobal ? ["Desa Cantik 2026"] : [selectedProject]
-    };
-
-    setPetugas(prev => [newOfficer, ...prev]);
-    
-    // Reset Form
-    setName("");
-    setNikInput("");
-    setPhoneInput("");
-    setUsernameInput("");
-    setAssignedDesa(getDesaData()[0].name.replace("Desa ", ""));
-    setShowAddModal(false);
-    setShowAddConfirm(false);
+    try {
+      const payload = {
+        username: finalUsername,
+        name: name.trim(),
+        nik: finalNik,
+        phone: finalPhone,
+        desa: assignedDesa,
+        status: 'active'
+      };
+      
+      const res = await api.petugas.create(payload);
+      if (res && res.success) {
+        // Jika tidak global, tugaskan langsung ke kegiatan terpilih
+        if (!isGlobal && activeActivity) {
+          await api.petugas.assign({
+            petugas_id: res.petugasId,
+            kegiatan_id: activeActivity.id,
+            role: 'PCL',
+            sls_assignments: [],
+            pengawas: ''
+          });
+        }
+        
+        await refreshData();
+        
+        // Reset Form
+        setName("");
+        setNikInput("");
+        setPhoneInput("");
+        setUsernameInput("");
+        if (dbDesa.length > 0) {
+          setAssignedDesa(dbDesa[0].name.replace("Desa ", ""));
+        }
+        setShowAddModal(false);
+        setShowAddConfirm(false);
+      }
+    } catch (err) {
+      alert("Gagal menambahkan petugas: " + err.message);
+    }
   };
 
   // Handler Hapus Petugas
-  const handleDeletePetugas = (nameToDelete) => {
-    setPetugas(prev => prev.filter(p => p.name !== nameToDelete));
-    if (selectedPetugas && selectedPetugas.name === nameToDelete) {
-      setSelectedPetugas(null);
+  const handleDeletePetugas = async (nameToDelete) => {
+    const targetPetugas = petugas.find(p => p.name === nameToDelete);
+    if (!targetPetugas) return;
+    
+    try {
+      const res = await api.petugas.delete(targetPetugas.id);
+      if (res && res.success) {
+        await refreshData();
+        if (selectedPetugas && selectedPetugas.id === targetPetugas.id) {
+          setSelectedPetugas(null);
+        }
+      }
+    } catch (err) {
+      alert("Gagal menghapus petugas: " + err.message);
     }
   };
 
@@ -337,100 +442,306 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   };
 
   // Handler Konfirmasi Assignment Kegiatan
-  const handleConfirmAssignment = () => {
-    setPetugas(prev => prev.map(p => {
-      if (p.name === selectedPetugas.name) {
-        const nextRoles = { ...(p.projectRoles || {}) };
+  const handleConfirmAssignment = async () => {
+    if (!selectedPetugas) return;
+    
+    try {
+      const currentProjects = selectedPetugas.projects || [];
+      
+      const toAssign = tempProjects.filter(p => !currentProjects.includes(p));
+      const toUnassign = currentProjects.filter(p => !tempProjects.includes(p));
+      
+      for (const projName of toAssign) {
+        const act = activities.find(a => a.name === projName);
+        if (act) {
+          await api.petugas.assign({
+            petugas_id: selectedPetugas.id,
+            kegiatan_id: act.id,
+            role: selectedPetugas.projectRoles?.[projName] || 'PCL',
+            sls_assignments: selectedPetugas.assignments?.[projName]?.sls || [],
+            pengawas: selectedPetugas.assignments?.[projName]?.pengawas || ''
+          });
+        }
+      }
+      
+      for (const projName of toUnassign) {
+        const act = activities.find(a => a.name === projName);
+        if (act) {
+          await api.petugas.unassign({
+            petugas_id: selectedPetugas.id,
+            kegiatan_id: act.id
+          });
+        }
+      }
+      
+      await refreshData();
+      
+      // Update selectedPetugas state locally to reflect the changes
+      setSelectedPetugas(prev => {
+        const nextRoles = { ...(prev.projectRoles || {}) };
         tempProjects.forEach(proj => {
-          if (!nextRoles[proj]) {
-            nextRoles[proj] = "PCL"; // default role
-          }
+          if (!nextRoles[proj]) nextRoles[proj] = "PCL";
         });
         Object.keys(nextRoles).forEach(proj => {
-          if (!tempProjects.includes(proj)) {
-            delete nextRoles[proj];
-          }
+          if (!tempProjects.includes(proj)) delete nextRoles[proj];
         });
-        return { ...p, projects: tempProjects, projectRoles: nextRoles };
-      }
-      return p;
-    }));
-    setSelectedPetugas(prev => {
-      const nextRoles = { ...(prev.projectRoles || {}) };
-      tempProjects.forEach(proj => {
-        if (!nextRoles[proj]) nextRoles[proj] = "PCL";
+        return { ...prev, projects: tempProjects, projectRoles: nextRoles };
       });
-      Object.keys(nextRoles).forEach(proj => {
-        if (!tempProjects.includes(proj)) delete nextRoles[proj];
-      });
-      return { ...prev, projects: tempProjects, projectRoles: nextRoles };
-    });
-    setShowAssignModal(false);
+      
+      setShowAssignModal(false);
+    } catch (err) {
+      alert("Gagal memperbarui penugasan kegiatan: " + err.message);
+    }
   };
 
-  const handleRoleChange = (newRole) => {
-    setPetugas(prev => prev.map(p => {
-      if (p.name === selectedPetugas.name) {
-        const nextRoles = { ...(p.projectRoles || {}), [selectedProject]: newRole };
-        return { ...p, projectRoles: nextRoles };
-      }
-      return p;
-    }));
-    setSelectedPetugas(prev => {
-      const nextRoles = { ...(prev.projectRoles || {}), [selectedProject]: newRole };
-      return { ...prev, projectRoles: nextRoles };
-    });
-  };
-
-  const handleAssignmentChange = (type, value) => {
-    setPetugas(prev => prev.map(p => {
-      if (p.name === selectedPetugas.name) {
-        const currentAssignments = p.assignments || {};
-        const projectAssignment = currentAssignments[selectedProject] || { sls: [], pengawas: "" };
-        
-        let nextAssignment = { ...projectAssignment };
-        if (type === "sls") {
-          const isChecked = projectAssignment.sls?.includes(value);
-          nextAssignment.sls = isChecked 
-            ? projectAssignment.sls.filter(s => s !== value)
-            : [...(projectAssignment.sls || []), value];
-        } else if (type === "pengawas") {
-          nextAssignment.pengawas = value;
-        }
-        
-        return {
-          ...p,
-          assignments: {
-            ...currentAssignments,
-            [selectedProject]: nextAssignment
-          }
-        };
-      }
-      return p;
-    }));
+  const handleRoleChange = async (newRole) => {
+    if (!selectedPetugas || !activeActivity) return;
     
-    setSelectedPetugas(prev => {
-      const currentAssignments = prev.assignments || {};
-      const projectAssignment = currentAssignments[selectedProject] || { sls: [], pengawas: "" };
+    try {
+      const currentAss = selectedPetugas.assignments?.[selectedProject] || {};
+      const payload = {
+        petugas_id: selectedPetugas.id,
+        kegiatan_id: activeActivity.id,
+        role: newRole,
+        sls_assignments: currentAss.sls || [],
+        pengawas: currentAss.pengawas || ''
+      };
       
-      let nextAssignment = { ...projectAssignment };
+      const res = await api.petugas.assign(payload);
+      if (res && res.success) {
+        await refreshData();
+        setSelectedPetugas(prev => {
+          const nextRoles = { ...(prev.projectRoles || {}), [selectedProject]: newRole };
+          return { ...prev, projectRoles: nextRoles };
+        });
+      }
+    } catch (err) {
+      alert("Gagal mengubah role petugas: " + err.message);
+    }
+  };
+
+  const handleAssignmentChange = async (type, value) => {
+    if (!selectedPetugas || !activeActivity) return;
+    
+    try {
+      const currentAss = selectedPetugas.assignments?.[selectedProject] || { sls: [], pengawas: "" };
+      let nextSls = [...(currentAss.sls || [])];
+      let nextPengawas = currentAss.pengawas || "";
+      
       if (type === "sls") {
-        const isChecked = projectAssignment.sls?.includes(value);
-        nextAssignment.sls = isChecked 
-          ? projectAssignment.sls.filter(s => s !== value)
-          : [...(projectAssignment.sls || []), value];
+        const isChecked = nextSls.includes(value);
+        nextSls = isChecked ? nextSls.filter(s => s !== value) : [...nextSls, value];
       } else if (type === "pengawas") {
-        nextAssignment.pengawas = value;
+        nextPengawas = value;
       }
       
-      return {
-        ...prev,
-        assignments: {
-          ...currentAssignments,
-          [selectedProject]: nextAssignment
-        }
+      const payload = {
+        petugas_id: selectedPetugas.id,
+        kegiatan_id: activeActivity.id,
+        role: selectedPetugas.projectRoles?.[selectedProject] || 'PCL',
+        sls_assignments: nextSls,
+        pengawas: nextPengawas
       };
+      
+      const res = await api.petugas.assign(payload);
+      if (res && res.success) {
+        await refreshData();
+        
+        setSelectedPetugas(prev => {
+          const currentAssignments = prev.assignments || {};
+          const nextAssignment = {
+            sls: nextSls,
+            pengawas: nextPengawas
+          };
+          return {
+            ...prev,
+            assignments: {
+              ...currentAssignments,
+              [selectedProject]: nextAssignment
+            }
+          };
+        });
+      }
+    } catch (err) {
+      alert("Gagal memperbarui penugasan wilayah: " + err.message);
+    }
+  };
+
+  const handlePmlSupervisionChange = async (pmlId, pmlName, newPclId) => {
+    try {
+      const currentPcl = petugas.find(p => p.projects?.includes(selectedProject) && p.assignments?.[selectedProject]?.pengawas === pmlName);
+      if (currentPcl && currentPcl.id !== parseInt(newPclId)) {
+        await api.petugas.assign({
+          petugas_id: currentPcl.id,
+          kegiatan_id: activeActivity.id,
+          role: 'PCL',
+          sls_assignments: currentPcl.assignments?.[selectedProject]?.sls || [],
+          pengawas: ''
+        });
+      }
+      
+      if (newPclId) {
+        const newPcl = petugas.find(p => p.id === parseInt(newPclId));
+        if (newPcl) {
+          await api.petugas.assign({
+            petugas_id: newPcl.id,
+            kegiatan_id: activeActivity.id,
+            role: 'PCL',
+            sls_assignments: newPcl.assignments?.[selectedProject]?.sls || [],
+            pengawas: pmlName
+          });
+        }
+      }
+      
+      await api.petugas.assign({
+        petugas_id: pmlId,
+        kegiatan_id: activeActivity.id,
+        role: 'PML',
+        sls_assignments: [],
+        pengawas: ''
+      });
+      
+      await refreshData();
+      if (selectedPetugas && selectedPetugas.id === pmlId) {
+        setSelectedPetugas(prev => ({
+          ...prev,
+          projects: prev.projects,
+          projectRoles: { ...(prev.projectRoles || {}), [selectedProject]: 'PML' }
+        }));
+      }
+    } catch (err) {
+      alert("Gagal memperbarui hubungan pengawasan: " + err.message);
+    }
+  };
+
+  const handleLocationDropdownChange = async (desaVal, slsVal, subSlsVal) => {
+    setSelectedDesaCode(desaVal);
+    setSelectedSlsCode(slsVal);
+    setSelectedSubSlsCode(subSlsVal);
+
+    if (!selectedPetugas || !activeActivity) return;
+
+    try {
+      const finalVal = subSlsVal || slsVal;
+      const currentAss = selectedPetugas.assignments?.[selectedProject] || {};
+      const payload = {
+        petugas_id: selectedPetugas.id,
+        kegiatan_id: activeActivity.id,
+        role: selectedPetugas.projectRoles?.[selectedProject] || 'PCL',
+        sls_assignments: finalVal ? [finalVal] : [],
+        pengawas: currentAss.pengawas || ''
+      };
+      const res = await api.petugas.assign(payload);
+      if (res && res.success) {
+        await refreshData();
+        setSelectedPetugas(prev => {
+          const currentAssignments = prev.assignments || {};
+          return {
+            ...prev,
+            assignments: {
+              ...currentAssignments,
+              [selectedProject]: {
+                sls: finalVal ? [finalVal] : [],
+                pengawas: currentAss.pengawas || ''
+              }
+            }
+          };
+        });
+      }
+    } catch (err) {
+      alert("Gagal memperbarui wilayah tugas: " + err.message);
+    }
+  };
+
+  const getSupervisedPcl = (pmlName) => {
+    return petugas.find(p => 
+      p.projects?.includes(selectedProject) && 
+      p.projectRoles?.[selectedProject] === "PCL" && 
+      p.assignments?.[selectedProject]?.pengawas === pmlName
+    );
+  };
+
+  const handleInlineLocationSave = async (officerId, locationValue) => {
+    const p = petugas.find(x => x.id === officerId);
+    if (!p || !activeActivity) return;
+    try {
+      const currentAss = p.assignments?.[selectedProject] || {};
+      const payload = {
+        petugas_id: officerId,
+        kegiatan_id: activeActivity.id,
+        role: p.projectRoles?.[selectedProject] || 'PCL',
+        sls_assignments: locationValue ? [locationValue] : [],
+        pengawas: currentAss.pengawas || ''
+      };
+      const res = await api.petugas.assign(payload);
+      if (res && res.success) {
+        await refreshData();
+      }
+    } catch (err) {
+      alert("Gagal memperbarui wilayah tugas: " + err.message);
+    }
+  };
+
+  const handleRowDesaChange = (officerId, desaVal) => {
+    setRowSelections(prev => ({
+      ...prev,
+      [officerId]: { desa: desaVal, sls: "", subSls: "" }
+    }));
+    handleInlineLocationSave(officerId, "");
+  };
+
+  const handleRowSlsChange = (officerId, slsVal) => {
+    const hasSubSls = allWilayah.some(w => w.sls === slsVal && w.sub_sls);
+    setRowSelections(prev => {
+      const updated = {
+        ...prev,
+        [officerId]: { ...prev[officerId], sls: slsVal, subSls: hasSubSls ? "" : "0" }
+      };
+      if (!hasSubSls) {
+        handleInlineLocationSave(officerId, slsVal);
+      } else {
+        handleInlineLocationSave(officerId, "");
+      }
+      return updated;
     });
+  };
+
+  const handleRowSubSlsChange = (officerId, subSlsVal) => {
+    setRowSelections(prev => {
+      const updated = {
+        ...prev,
+        [officerId]: { ...prev[officerId], subSls: subSlsVal }
+      };
+      const finalValue = (subSlsVal === "0") ? updated[officerId].sls : (subSlsVal || updated[officerId].sls);
+      handleInlineLocationSave(officerId, finalValue);
+      return updated;
+    });
+  };
+
+  const handleLocalAssignSubmit = async (e) => {
+    e.preventDefault();
+    if (selectedModalOfficerIds.length === 0 || !activeActivity) return;
+
+    try {
+      for (const id of selectedModalOfficerIds) {
+        const role = modalOfficerRoles[id] || "PCL";
+        const payload = {
+          petugas_id: parseInt(id),
+          kegiatan_id: activeActivity.id,
+          role: role,
+          sls_assignments: [],
+          pengawas: ""
+        };
+        await api.petugas.assign(payload);
+      }
+      await refreshData();
+      setShowAddModal(false);
+      setSelectedModalOfficerIds([]);
+      setModalOfficerRoles({});
+      setModalSearch("");
+    } catch (err) {
+      alert("Gagal menugaskan petugas: " + err.message);
+    }
   };
 
   // Count helper untuk badges status di tab
@@ -689,7 +1000,7 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                 </div>
                 <div>
                   <p className="text-xs text-slate-400 font-medium">Jumlah Desa</p>
-                  <p className="mono text-xl font-bold text-amber-600">{getDesaData().length}</p>
+                  <p className="mono text-xl font-bold text-amber-600">{dbDesa.length}</p>
                 </div>
               </div>
             </>
@@ -798,7 +1109,7 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                         );
                       })
                     ) : (
-                      ["Nama", "Wilayah Tugas", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"].map(col => {
+                      ["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"].map(col => {
                         const isVisible = visibleColsLocal.includes(col);
                         const isPrimary = col === "Nama" || col === "Aksi";
                         return (
@@ -888,8 +1199,9 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                                 </div>
                               </th>
                             ))
-                        : ["Nama", "Wilayah Tugas", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"]
+                        : ["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"]
                             .filter(h => visibleColsLocal.includes(h))
+                            .filter(h => projectStatus !== 'draft' || !["Progress Pencacahan", "Sync Terakhir", "Status"].includes(h))
                             .map(h => (
                               <th 
                                 key={h} 
@@ -926,7 +1238,10 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                   </thead>
                   <tbody>
                     {filteredAndSearched.map((p, idx) => {
-                      const pct = p.target > 0 ? Math.round((p.selesai / p.target) * 100) : 0;
+                      const activityAss = p.assignments?.[selectedProject] || {};
+                      const targetVal = isGlobal ? p.target : (activityAss.target || 0);
+                      const selesaiVal = isGlobal ? p.selesai : (activityAss.selesai || 0);
+                      const pct = targetVal > 0 ? Math.round((selesaiVal / targetVal) * 100) : 0;
                       const isSelected = selectedPetugas?.name === p.name;
                       const isPetugasAktifGlobal = p.projects && p.projects.some(proj => activeProjectNames.includes(proj));
                       return (
@@ -1011,15 +1326,152 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                             </>
                           ) : (
                             <>
-                              {visibleColsLocal.includes("Wilayah Tugas") && (
+                              {visibleColsLocal.includes("Petugas") && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
-                                  <div className="flex items-center gap-1 text-slate-600 text-xs whitespace-nowrap">
-                                    <MapPin size={12} className="text-slate-400" />
-                                    <span className="font-medium">Desa {p.desa}</span>
-                                  </div>
+                                  {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
+                                    <select
+                                      value={p.projectRoles?.[selectedProject] || "PCL"}
+                                      onChange={async (e) => {
+                                        const newRole = e.target.value;
+                                        try {
+                                          const currentAss = p.assignments?.[selectedProject] || {};
+                                          const payload = {
+                                            petugas_id: p.id,
+                                            kegiatan_id: activeActivity.id,
+                                            role: newRole,
+                                            sls_assignments: newRole === "PML" ? [] : (currentAss.sls || []),
+                                            pengawas: newRole === "PML" ? "" : (currentAss.pengawas || "")
+                                          };
+                                          const res = await api.petugas.assign(payload);
+                                          if (res && res.success) {
+                                            await refreshData();
+                                          }
+                                        } catch (err) {
+                                          alert("Gagal mengubah role petugas: " + err.message);
+                                        }
+                                      }}
+                                      className="px-2 py-1 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 font-semibold cursor-pointer"
+                                    >
+                                      <option value="PCL">PCL</option>
+                                      <option value="PML">PML</option>
+                                    </select>
+                                  ) : (
+                                    <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg inline-block whitespace-nowrap ${
+                                      (p.projectRoles?.[selectedProject] || "PCL") === "PML" 
+                                        ? "bg-purple-50 text-purple-600 border border-purple-100/30" 
+                                        : "bg-blue-50 text-blue-600 border border-blue-100/30"
+                                    }`}>
+                                      {p.projectRoles?.[selectedProject] || "PCL"}
+                                    </span>
+                                  )}
                                 </td>
                               )}
-                              {visibleColsLocal.includes("Progress Pencacahan") && (
+                              
+                              {visibleColsLocal.includes("Lokus") && (
+                                <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
+                                  {(() => {
+                                    const role = p.projectRoles?.[selectedProject] || "PCL";
+                                    if (role === "PCL") {
+                                      if (projectStatus === "draft" || projectStatus === "uji_coba") {
+                                        const selections = rowSelections[p.id] || { desa: "", sls: "", subSls: "" };
+                                        return (
+                                          <div className="flex flex-col sm:flex-row gap-1">
+                                            {/* Desa Dropdown */}
+                                            <select
+                                              value={selections.desa || ""}
+                                              onChange={e => handleRowDesaChange(p.id, e.target.value)}
+                                              className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer max-w-[120px]"
+                                            >
+                                              <option value="">-- Desa --</option>
+                                              {(activeActivity?.lokus?.desa || []).map(desaName => (
+                                                <option key={desaName} value={desaName}>{desaName}</option>
+                                              ))}
+                                            </select>
+
+                                            {/* SLS Dropdown */}
+                                            <select
+                                              value={selections.sls || ""}
+                                              onChange={e => handleRowSlsChange(p.id, e.target.value)}
+                                              disabled={!selections.desa}
+                                              className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
+                                            >
+                                              <option value="">-- SLS --</option>
+                                              {(activeActivity?.lokus?.sls || [])
+                                                .filter(slsName => {
+                                                  const matched = dbSlsHierarchy.find(s => s.name === slsName);
+                                                  return matched && matched.desa === selections.desa;
+                                                })
+                                                .map(slsName => (
+                                                  <option key={slsName} value={slsName}>{slsName.replace(` ${selections.desa}`, "")}</option>
+                                                ))}
+                                            </select>
+
+                                            {/* Sub SLS Dropdown */}
+                                            <select
+                                              value={selections.subSls || ""}
+                                              onChange={e => handleRowSubSlsChange(p.id, e.target.value)}
+                                              disabled={!selections.sls}
+                                              className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
+                                            >
+                                              <option value="">-- Sub SLS --</option>
+                                              {(() => {
+                                                const filteredList = (activeActivity?.lokus?.subSls || [])
+                                                  .filter(subName => {
+                                                    const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
+                                                    return matched && matched.sls === selections.sls;
+                                                  });
+                                                if (filteredList.length > 0) {
+                                                  return filteredList.map(subName => (
+                                                    <option key={subName} value={subName}>{subName}</option>
+                                                  ));
+                                                } else if (selections.sls) {
+                                                  return <option value="0">0</option>;
+                                                }
+                                                return null;
+                                              })()}
+                                            </select>
+                                          </div>
+                                        );
+                                      } else {
+                                        return (
+                                          <div className="flex items-center gap-1 text-slate-600 text-xs font-medium">
+                                            <MapPin size={12} className="text-slate-400" />
+                                            <span>{p.assignments?.[selectedProject]?.sls?.[0] || "Belum ditentukan"}</span>
+                                          </div>
+                                        );
+                                      }
+                                    } else {
+                                      // Role is PML
+                                      if (projectStatus === "draft" || projectStatus === "uji_coba") {
+                                        return (
+                                          <select
+                                            value={getSupervisedPcl(p.name)?.id || ""}
+                                            onChange={e => handlePmlSupervisionChange(p.id, p.name, e.target.value)}
+                                            className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer max-w-[180px]"
+                                          >
+                                            <option value="">-- Pilih PCL --</option>
+                                            {petugas
+                                              .filter(x => x.projects?.includes(selectedProject) && x.projectRoles?.[selectedProject] === "PCL")
+                                              .map(x => (
+                                                <option key={x.id} value={x.id}>{x.name}</option>
+                                              ))}
+                                          </select>
+                                        );
+                                      } else {
+                                        return (
+                                          <div className="flex items-center gap-1.5 text-slate-600 text-xs font-medium">
+                                            <Users size={12} className="text-slate-400" />
+                                            <span>
+                                              {getSupervisedPcl(p.name)?.name || "Tidak ada PCL"}
+                                            </span>
+                                          </div>
+                                        );
+                                      }
+                                    }
+                                  })()}
+                                </td>
+                              )}
+                              {visibleColsLocal.includes("Progress Pencacahan") && projectStatus !== "draft" && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
                                   <div className="flex items-center gap-3 whitespace-nowrap">
                                     <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden max-w-[120px] flex-shrink-0">
@@ -1030,12 +1482,12 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                                         style={{ width: `${pct}%` }}
                                       />
                                     </div>
-                                    <span className="mono text-xs text-slate-600 font-bold whitespace-nowrap">{p.selesai}/{p.target}</span>
+                                    <span className="mono text-xs text-slate-600 font-bold whitespace-nowrap">{selesaiVal}/{targetVal}</span>
                                     <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">({pct}%)</span>
                                   </div>
                                 </td>
                               )}
-                              {visibleColsLocal.includes("Sync Terakhir") && (
+                              {visibleColsLocal.includes("Sync Terakhir") && projectStatus !== "draft" && (
                                 <td className="px-6 py-4 border-t border-slate-100 mono text-xs text-slate-500 whitespace-nowrap">
                                   <div className="flex items-center gap-1.5 whitespace-nowrap">
                                     <Smartphone size={12} className="text-slate-400"/>
@@ -1043,7 +1495,7 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                                   </div>
                                 </td>
                               )}
-                              {visibleColsLocal.includes("Status") && (
+                              {visibleColsLocal.includes("Status") && projectStatus !== "draft" && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
                                   <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-lg inline-flex items-center gap-1.5 whitespace-nowrap ${
                                     p.status === "done" ? "bg-emerald-50 text-emerald-700" : "bg-blue-50 text-blue-700"
@@ -1237,95 +1689,159 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                       <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
                         <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Konfigurasi Penugasan ({selectedProject})</p>
                         
-                        {/* Peran Petugas */}
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Peran Petugas</label>
-                          <select
-                            value={selectedPetugas.projectRoles?.[selectedProject] || "PCL"}
-                            onChange={e => handleRoleChange(e.target.value)}
-                            className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
-                          >
-                            <option value="PCL">PCL (Pendata)</option>
-                            <option value="PML">PML (Pengawas/Pemeriksa)</option>
-                          </select>
-                        </div>
+                        {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
+                          <>
+                            {/* Peran Petugas */}
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Peran Petugas</label>
+                              <select
+                                value={selectedPetugas.projectRoles?.[selectedProject] || "PCL"}
+                                onChange={e => handleRoleChange(e.target.value)}
+                                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
+                              >
+                                <option value="PCL">PCL (Pendata)</option>
+                                <option value="PML">PML (Pengawas/Pemeriksa)</option>
+                              </select>
+                            </div>
 
-                        {/* Pengawas PML Dropdown (Hanya jika peran adalah PCL) */}
-                        {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PCL" && (
-                          <div>
-                            <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Pengawas (PML)</label>
-                            <select
-                              value={selectedPetugas.assignments?.[selectedProject]?.pengawas || ""}
-                              onChange={e => handleAssignmentChange("pengawas", e.target.value)}
-                              className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
-                            >
-                              <option value="">-- Pilih Pengawas --</option>
-                              {petugas
-                                .filter(p => p.projects?.includes(selectedProject) && p.projectRoles?.[selectedProject] === "PML" && p.name !== selectedPetugas.name)
-                                .map(p => (
-                                  <option key={p.name} value={p.name}>{p.name}</option>
-                                ))
-                              }
-                            </select>
+                            {/* If role is PCL: Desa, SLS, Sub-SLS dropdowns, plus PML dropdown */}
+                            {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PCL" && (
+                              <>
+                                {/* Pengawas (PML) Dropdown */}
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Pengawas (PML)</label>
+                                  <select
+                                    value={selectedPetugas.assignments?.[selectedProject]?.pengawas || ""}
+                                    onChange={e => handleAssignmentChange("pengawas", e.target.value)}
+                                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
+                                  >
+                                    <option value="">-- Pilih Pengawas --</option>
+                                    {petugas
+                                      .filter(p => p.projects?.includes(selectedProject) && p.projectRoles?.[selectedProject] === "PML" && p.name !== selectedPetugas.name)
+                                      .map(p => (
+                                        <option key={p.name} value={p.name}>{p.name}</option>
+                                      ))
+                                    }
+                                  </select>
+                                </div>
+
+                                {/* Desa Dropdown */}
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Desa Tugas</label>
+                                  <select
+                                    value={selectedDesaCode}
+                                    onChange={e => handleLocationDropdownChange(e.target.value, "", "")}
+                                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
+                                  >
+                                    <option value="">-- Pilih Desa --</option>
+                                    {(activeActivity?.lokus?.desa || []).map(desaName => (
+                                      <option key={desaName} value={desaName}>{desaName}</option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                {/* SLS Dropdown */}
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">SLS Tugas</label>
+                                  <select
+                                    value={selectedSlsCode}
+                                    onChange={e => handleLocationDropdownChange(selectedDesaCode, e.target.value, "")}
+                                    disabled={!selectedDesaCode}
+                                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <option value="">-- Pilih SLS --</option>
+                                    {(activeActivity?.lokus?.sls || [])
+                                      .filter(slsName => {
+                                        const matched = dbSlsHierarchy.find(s => s.name === slsName);
+                                        return matched && matched.desa === selectedDesaCode;
+                                      })
+                                      .map(slsName => (
+                                        <option key={slsName} value={slsName}>{slsName.replace(` ${selectedDesaCode}`, "")}</option>
+                                      ))}
+                                  </select>
+                                </div>
+
+                                {/* Sub-SLS Dropdown */}
+                                <div>
+                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Sub SLS Tugas</label>
+                                  <select
+                                    value={selectedSubSlsCode}
+                                    onChange={e => handleLocationDropdownChange(selectedDesaCode, selectedSlsCode, e.target.value)}
+                                    disabled={!selectedSlsCode}
+                                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <option value="">-- Pilih Sub SLS (Opsional) --</option>
+                                    {(activeActivity?.lokus?.subSls || [])
+                                      .filter(subName => {
+                                        const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
+                                        return matched && matched.sls === selectedSlsCode;
+                                      })
+                                      .map(subName => (
+                                        <option key={subName} value={subName}>{subName}</option>
+                                      ))}
+                                  </select>
+                                </div>
+                              </>
+                            )}
+
+                            {/* If role is PML: PCL dropdown */}
+                            {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PML" && (
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">PCL yang Diawasi</label>
+                                <select
+                                  value={
+                                    petugas.find(
+                                      p => p.projects?.includes(selectedProject) && 
+                                      p.assignments?.[selectedProject]?.pengawas === selectedPetugas.name
+                                    )?.id || ""
+                                  }
+                                  onChange={e => handlePmlSupervisionChange(selectedPetugas.id, selectedPetugas.name, e.target.value)}
+                                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
+                                >
+                                  <option value="">-- Pilih PCL --</option>
+                                  {petugas
+                                    .filter(p => p.projects?.includes(selectedProject) && p.projectRoles?.[selectedProject] === "PCL")
+                                    .map(p => (
+                                      <option key={p.id} value={p.id}>{p.name}</option>
+                                    ))}
+                                </select>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-600 font-medium">
+                            <div>
+                              <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Peran</p>
+                              <span className="font-semibold text-slate-700">
+                                {selectedPetugas.projectRoles?.[selectedProject] === "PML" ? "PML (Pengawas)" : "PCL (Pendata)"}
+                              </span>
+                            </div>
+                            
+                            {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PCL" ? (
+                              <>
+                                <div>
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Wilayah Tugas</p>
+                                  <span className="font-semibold text-slate-700">
+                                    {selectedPetugas.assignments?.[selectedProject]?.sls?.[0] || "-"}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Pengawas (PML)</p>
+                                  <span className="font-semibold text-slate-700">
+                                    {selectedPetugas.assignments?.[selectedProject]?.pengawas || "Belum ada pengawas"}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <div>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">PCL yang Diawasi</p>
+                                <span className="font-semibold text-slate-700">
+                                  {petugas.find(p => p.projects?.includes(selectedProject) && p.assignments?.[selectedProject]?.pengawas === selectedPetugas.name)?.name || "Belum ada PCL yang diawasi"}
+                                </span>
+                              </div>
+                            )}
                           </div>
                         )}
-
-                        {/* Wilayah Tugas SLS/Sub-SLS */}
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Wilayah Tugas (SLS / Sub-SLS)</label>
-                          {(() => {
-                            const lokus = activeActivity?.lokus || { kecamatan: [], desa: [], sls: [], subSls: [] };
-                            const selectedSls = lokus.sls || [];
-                            const selectedSubSls = lokus.subSls || [];
-                            
-                            if (selectedSls.length === 0) {
-                              return <p className="text-xs text-slate-400 italic">Belum ada wilayah tugas (Lokus) yang dipilih pada kegiatan ini.</p>;
-                            }
-
-                            return (
-                              <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1 border border-slate-100 rounded-lg p-2.5 bg-slate-50/50 scrollbar-thin">
-                                {selectedSls.map(slsName => {
-                                  const isSlsChecked = selectedPetugas.assignments?.[selectedProject]?.sls?.includes(slsName);
-                                  // Find subSls that belong to this sls and are also in activeActivity lokus
-                                  const subSlsList = MOCK_SUB_SLS_HIERARCHY.filter(sub => sub.sls === slsName && selectedSubSls.includes(sub.name));
-
-                                  return (
-                                    <div key={slsName} className="space-y-1.5">
-                                      <label className="flex items-center gap-2 text-xs text-slate-700 font-semibold cursor-pointer">
-                                        <input 
-                                          type="checkbox"
-                                          checked={!!isSlsChecked}
-                                          onChange={() => handleAssignmentChange("sls", slsName)}
-                                          className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer"
-                                        />
-                                        <span>{slsName}</span>
-                                      </label>
-                                      
-                                      {subSlsList.length > 0 && (
-                                        <div className="pl-5 space-y-1 border-l border-slate-200/60 ml-1.5">
-                                          {subSlsList.map(sub => {
-                                            const isSubChecked = selectedPetugas.assignments?.[selectedProject]?.sls?.includes(sub.name);
-                                            return (
-                                              <label key={sub.name} className="flex items-center gap-2 text-[11px] text-slate-500 font-medium cursor-pointer">
-                                                <input 
-                                                  type="checkbox"
-                                                  checked={!!isSubChecked}
-                                                  onChange={() => handleAssignmentChange("sls", sub.name)}
-                                                  className="rounded text-blue-600 focus:ring-blue-500/20 w-3 h-3 cursor-pointer"
-                                                />
-                                                <span>{sub.name}</span>
-                                              </label>
-                                            );
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })()}
-                        </div>
                       </div>
                     )}
                   </div>
@@ -1354,7 +1870,7 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
       </div>
 
       {/* Add Petugas Modal */}
-      {showAddModal && (
+      {showAddModal && isGlobal && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6"
           style={{ animation: 'fadeIn 0.25s ease' }}
           onClick={() => setShowAddModal(false)}
@@ -1435,7 +1951,7 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                     onChange={e => setAssignedDesa(e.target.value)}
                     className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer"
                   >
-                    {getDesaData().map(d => {
+                    {dbDesa.map(d => {
                        const simpleName = d.name.replace("Desa ", "");
                        return (
                          <option key={simpleName} value={simpleName}>
@@ -1460,6 +1976,135 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                   className="flex-1 py-3 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 border-0 cursor-pointer transition-all active:scale-[0.98]"
                 >
                   Daftarkan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add Petugas Modal (Local view - Assignment style) */}
+      {showAddModal && !isGlobal && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-custom-fade"
+          onClick={() => {
+            setShowAddModal(false);
+            setSelectedModalOfficerIds([]);
+            setModalOfficerRoles({});
+            setModalSearch("");
+          }}
+        >
+          <div className="bg-white rounded-2xl p-8 w-full shadow-lg animate-spring-zoom"
+            style={{ maxWidth: 480 }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5 bg-blue-50">
+              <UserPlus size={24} className="text-blue-600"/>
+            </div>
+
+            <h3 className="text-xl font-bold text-slate-900 mb-1">
+              Tugaskan Petugas ke Kegiatan
+            </h3>
+            <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+              Pilih petugas dari database master dan atur peran tugasnya.
+            </p>
+
+            <form onSubmit={handleLocalAssignSubmit} className="space-y-4">
+              {/* Fitur Search Petugas */}
+              <div className="flex items-center gap-2 bg-slate-50 px-3.5 py-2.5 rounded-xl border border-slate-100 focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
+                <Search size={14} className="text-slate-400"/>
+                <input 
+                  value={modalSearch}
+                  onChange={e => setModalSearch(e.target.value)}
+                  className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-semibold" 
+                  placeholder="Cari nama petugas..."
+                />
+                {modalSearch && (
+                  <button type="button" onClick={() => setModalSearch("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-600 cursor-pointer">
+                    <X size={12}/>
+                  </button>
+                )}
+              </div>
+
+              {/* List Petugas */}
+              <div className="space-y-2 mb-6 max-h-[250px] overflow-y-auto pr-1 scrollbar-thin">
+                {unassignedOfficers
+                  .filter(p => p.name.toLowerCase().includes(modalSearch.toLowerCase()))
+                  .map(p => {
+                    const isChecked = selectedModalOfficerIds.includes(p.id);
+                    const role = modalOfficerRoles[p.id] || "PCL";
+                    return (
+                      <div
+                        key={p.id}
+                        className={`flex items-center justify-between p-3.5 rounded-xl border transition-all ${
+                          isChecked 
+                            ? 'border-blue-200 bg-blue-50/20' 
+                            : 'border-slate-100 bg-slate-50/50 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isChecked) {
+                                setSelectedModalOfficerIds(prev => prev.filter(id => id !== p.id));
+                              } else {
+                                setSelectedModalOfficerIds(prev => [...prev, p.id]);
+                              }
+                            }}
+                            className={`w-5 h-5 rounded-md flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
+                              isChecked ? 'bg-blue-600 text-white' : 'border border-slate-200 bg-white'
+                            }`}
+                          >
+                            {isChecked && <Check size={12} strokeWidth={3}/>}
+                          </button>
+                          <div>
+                            <p className="text-xs font-bold text-slate-800">{p.name}</p>
+                            <p className="text-[10px] text-slate-400">Desa {p.desa}</p>
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <select
+                            value={role}
+                            onChange={e => {
+                              const newRole = e.target.value;
+                              setModalOfficerRoles(prev => ({ ...prev, [p.id]: newRole }));
+                            }}
+                            className="px-2 py-1 text-[11px] border border-slate-200 rounded-lg bg-white text-slate-700 font-semibold cursor-pointer focus:border-blue-500 outline-none"
+                          >
+                            <option value="PCL">PCL</option>
+                            <option value="PML">PML</option>
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                {unassignedOfficers.filter(p => p.name.toLowerCase().includes(modalSearch.toLowerCase())).length === 0 && (
+                  <div className="py-8 text-center text-slate-400 text-xs font-medium">
+                    Tidak ada petugas master yang ditemukan
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    setSelectedModalOfficerIds([]);
+                    setModalOfficerRoles({});
+                    setModalSearch("");
+                  }}
+                  className="flex-1 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 cursor-pointer transition-all border-0"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={selectedModalOfficerIds.length === 0}
+                  className="flex-1 py-3 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 border-0 cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Tugaskan ({selectedModalOfficerIds.length})
                 </button>
               </div>
             </form>

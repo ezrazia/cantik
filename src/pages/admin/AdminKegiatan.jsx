@@ -5,7 +5,7 @@ import {
   Users, Briefcase, ChevronRight, UserPlus, UserMinus, Eye, FileText, CheckCircle, ArrowLeft, ShieldAlert, ChevronDown,
   Save
 } from "lucide-react";
-import { getDesaData } from "../../constants/mockData";
+import { api } from "../../services/api";
 
 const MOCK_KECAMATAN = ["Sesayap", "Sesayap Hilir", "Tana Lia", "Betayau", "Muruk Rian"];
 
@@ -55,7 +55,7 @@ MOCK_DESA_HIERARCHY.forEach(d => {
  * @param {Function} props.setPetugas
  * @returns {React.ReactElement}
  */
-function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activities, setActivities, petugas, setPetugas }) {
+function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activities, setActivities, petugas, setPetugas, refreshData }) {
   const [selectedActivity, setSelectedActivity] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -68,6 +68,53 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
   const [officerRolesMap, setOfficerRolesMap] = useState({}); // { [officerName]: "PML" | "PCL" }
 
   const [tempLokus, setTempLokus] = useState(null);
+  const [allWilayah, setAllWilayah] = useState([]);
+
+  // States for publish validation
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+
+  useEffect(() => {
+    const fetchWilayah = async () => {
+      try {
+        const list = await api.wilayah.getAll();
+        setAllWilayah(list);
+      } catch (err) {
+        console.error("Gagal mengambil data wilayah:", err);
+      }
+    };
+    fetchWilayah();
+  }, []);
+
+  const dbKecamatan = allWilayah.length > 0 
+    ? Array.from(new Set(allWilayah.map(w => w.kecamatan))).sort()
+    : MOCK_KECAMATAN;
+
+  const dbDesaHierarchy = allWilayah.length > 0
+    ? Array.from(new Set(allWilayah.map(w => w.desa)))
+        .map(desaName => {
+          const matched = allWilayah.find(w => w.desa === desaName);
+          return { name: desaName, kecamatan: matched ? matched.kecamatan : "" };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : MOCK_DESA_HIERARCHY;
+
+  const dbSlsHierarchy = allWilayah.length > 0
+    ? Array.from(new Set(allWilayah.filter(w => w.sls).map(w => w.sls)))
+        .map(slsName => {
+          const matched = allWilayah.find(w => w.sls === slsName);
+          return { name: slsName, desa: matched ? matched.desa : "" };
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : MOCK_SLS_HIERARCHY;
+
+  const dbSubSlsHierarchy = allWilayah.length > 0
+    ? allWilayah
+        .filter(w => w.sub_sls)
+        .map(w => ({ name: w.sub_sls, sls: w.sls }))
+        .sort((a, b) => a.name.localeCompare(b.name))
+    : MOCK_SUB_SLS_HIERARCHY;
 
   useEffect(() => {
     if (selectedActivity) {
@@ -89,15 +136,15 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
 
     let nextLokus = { ...currentLokus, [type]: nextValues };
     if (type === "kecamatan") {
-      const allowedDesas = MOCK_DESA_HIERARCHY.filter(d => nextValues.includes(d.kecamatan)).map(d => d.name);
+      const allowedDesas = dbDesaHierarchy.filter(d => nextValues.includes(d.kecamatan)).map(d => d.name);
       nextLokus.desa = (currentLokus.desa || []).filter(d => allowedDesas.includes(d));
     }
     if (type === "desa" || type === "kecamatan") {
-      const allowedSls = MOCK_SLS_HIERARCHY.filter(s => nextLokus.desa.includes(s.desa)).map(s => s.name);
+      const allowedSls = dbSlsHierarchy.filter(s => nextLokus.desa.includes(s.desa)).map(s => s.name);
       nextLokus.sls = (currentLokus.sls || []).filter(s => allowedSls.includes(s));
     }
     if (type === "sls" || type === "desa" || type === "kecamatan") {
-      const allowedSub = MOCK_SUB_SLS_HIERARCHY.filter(sub => nextLokus.sls.includes(sub.sls)).map(sub => sub.name);
+      const allowedSub = dbSubSlsHierarchy.filter(sub => nextLokus.sls.includes(sub.sls)).map(sub => sub.name);
       nextLokus.subSls = (currentLokus.subSls || []).filter(sub => allowedSub.includes(sub));
     }
 
@@ -108,9 +155,26 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     triggerConfirm(
       "save_lokus",
       { activityName: selectedActivity.name },
-      () => {
-        setActivities(prev => prev.map(a => a.name === selectedActivity.name ? { ...a, lokus: tempLokus } : a));
-        setSelectedActivity(prev => ({ ...prev, lokus: tempLokus }));
+      async () => {
+        try {
+          const res = await api.kegiatan.update(selectedActivity.id, {
+            name: selectedActivity.name,
+            description: selectedActivity.description || selectedActivity.desc,
+            progress: selectedActivity.progress,
+            color: selectedActivity.color,
+            text_color: selectedActivity.text_color,
+            bg_color: selectedActivity.bg_color,
+            start_date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : null,
+            status: selectedActivity.status,
+            lokus: tempLokus
+          });
+          if (res && res.success) {
+            await refreshData();
+            setSelectedActivity(prev => ({ ...prev, lokus: tempLokus }));
+          }
+        } catch (err) {
+          alert("Gagal menyimpan Lokus: " + err.message);
+        }
       }
     );
   };
@@ -134,7 +198,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
   // Filter & Search Logic untuk kegiatan
   const filteredActivities = activities.filter(act => 
     act.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    act.desc.toLowerCase().includes(searchQuery.toLowerCase())
+    (act.description || act.desc || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   // Cari petugas yang di-assign ke kegiatan saat ini
@@ -182,26 +246,34 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     triggerConfirm(
       "add_activity",
       newActivity,
-      () => {
-        const colors = ["bg-blue-600", "bg-purple-600", "bg-emerald-600", "bg-amber-600", "bg-rose-600", "bg-indigo-600"];
-        const color = colors[activities.length % colors.length];
-        const textColor = color.replace("bg-", "text-");
-        const bgColor = color.replace("bg-", "bg-") + "/10"; // custom transparency background
+      async () => {
+        try {
+          const colors = ["bg-blue-600", "bg-purple-600", "bg-emerald-600", "bg-amber-600", "bg-rose-600", "bg-indigo-600"];
+          const color = colors[activities.length % colors.length];
+          const textColor = color.replace("bg-", "text-");
+          const bgColor = color.replace("bg-", "bg-") + "/10";
 
-        const activityToAdd = {
-          name: newActivity.name.trim(),
-          desc: newActivity.desc.trim(),
-          progress: 0,
-          color,
-          textColor,
-          bgColor,
-          date: newActivity.date,
-          status: newActivity.status
-        };
+          const payload = {
+            name: newActivity.name.trim(),
+            description: newActivity.desc.trim(),
+            progress: 0,
+            color,
+            text_color: textColor,
+            bg_color: bgColor,
+            start_date: newActivity.date || null,
+            status: newActivity.status,
+            lokus: { kecamatan: [], desa: [], sls: [], subSls: [] }
+          };
 
-        setActivities(prev => [...prev, activityToAdd]);
-        setNewActivity({ name: "", desc: "", date: "", status: "draft" });
-        setShowAddModal(false);
+          const res = await api.kegiatan.create(payload);
+          if (res && res.success) {
+            await refreshData();
+            setNewActivity({ name: "", desc: "", date: "", status: "draft" });
+            setShowAddModal(false);
+          }
+        } catch (err) {
+          alert("Gagal menambahkan kegiatan: " + err.message);
+        }
       }
     );
   };
@@ -210,8 +282,8 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
   const handleEditOpen = () => {
     setEditForm({
       name: selectedActivity.name,
-      desc: selectedActivity.desc,
-      date: selectedActivity.date || "",
+      desc: selectedActivity.description || "",
+      date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : "",
       status: selectedActivity.status
     });
     setShowEditModal(true);
@@ -227,47 +299,40 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     triggerConfirm(
       isTransitioningFromUjiCobaToPublished ? "transition_warning" : "edit_activity",
       editForm,
-      () => {
-        const oldName = selectedActivity.name;
-        const newName = editForm.name.trim();
-
-        // Update kegiatan
-        setActivities(prev => prev.map(act => 
-          act.name === oldName 
-            ? { ...act, name: newName, desc: editForm.desc.trim(), date: editForm.date, status: editForm.status }
-            : act
-        ));
-
-        // Update project name and clean if transition
-        setPetugas(prev => prev.map(p => {
-          let nextProjects = p.projects || [];
-          let nextRoles = { ...(p.projectRoles || {}) };
-
-          if (isTransitioningFromUjiCobaToPublished) {
-            // Hapus penugasan dummy entirely
-            nextProjects = nextProjects.filter(proj => proj !== oldName);
-            delete nextRoles[oldName];
-          } else if (oldName !== newName) {
-            // Rename assignment
-            nextProjects = nextProjects.map(proj => proj === oldName ? newName : proj);
-            if (nextRoles[oldName]) {
-              nextRoles[newName] = nextRoles[oldName];
-              delete nextRoles[oldName];
+      async () => {
+        try {
+          const payload = {
+            name: editForm.name.trim(),
+            description: editForm.desc.trim(),
+            start_date: editForm.date || null,
+            status: editForm.status
+          };
+          
+          const res = await api.kegiatan.update(selectedActivity.id, payload);
+          if (res && res.success) {
+            // Jika status berubah dari uji_coba ke published, hapus penugasan dummy di backend
+            if (isTransitioningFromUjiCobaToPublished) {
+              const assigned = petugas.filter(p => p.projects?.includes(selectedActivity.name));
+              for (const p of assigned) {
+                await api.petugas.unassign({ petugas_id: p.id, kegiatan_id: selectedActivity.id });
+              }
             }
+            
+            await refreshData();
+            
+            setSelectedActivity(prev => ({
+              ...prev,
+              name: editForm.name.trim(),
+              description: editForm.desc.trim(),
+              start_date: editForm.date,
+              status: editForm.status
+            }));
+            
+            setShowEditModal(false);
           }
-
-          return { ...p, projects: nextProjects, projectRoles: nextRoles };
-        }));
-
-        setSelectedActivity(prev => ({
-          ...prev,
-          name: newName,
-          desc: editForm.desc.trim(),
-          date: editForm.date,
-          status: editForm.status
-        }));
-        
-        setShowEditModal(false);
+        } catch (err) {
+          alert("Gagal memperbarui kegiatan: " + err.message);
+        }
       }
     );
   };
@@ -277,23 +342,16 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     triggerConfirm(
       "delete_activity",
       selectedActivity,
-      () => {
-        const nameToDelete = selectedActivity.name;
-        // Hapus kegiatan
-        setActivities(prev => prev.filter(act => act.name !== nameToDelete));
-
-        // Cabut penugasan dari semua petugas
-        setPetugas(prev => prev.map(p => ({
-          ...p,
-          projects: p.projects ? p.projects.filter(proj => proj !== nameToDelete) : [],
-          projectRoles: p.projectRoles ? (() => {
-            const r = { ...p.projectRoles };
-            delete r[nameToDelete];
-            return r;
-          })() : {}
-        })));
-
-        setSelectedActivity(null);
+      async () => {
+        try {
+          const res = await api.kegiatan.delete(selectedActivity.id);
+          if (res && res.success) {
+            await refreshData();
+            setSelectedActivity(null);
+          }
+        } catch (err) {
+          alert("Gagal menghapus kegiatan: " + err.message);
+        }
       }
     );
   };
@@ -305,30 +363,30 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     triggerConfirm(
       "assign_officers_bulk",
       { count: selectedOfficerNames.length, activityName: selectedActivity.name },
-      () => {
-        setPetugas(prev => prev.map(p => {
-          if (selectedOfficerNames.includes(p.name)) {
-            const role = officerRolesMap[p.name] || "PCL";
-            const currentProjects = p.projects || [];
-            const nextProjects = currentProjects.includes(selectedActivity.name)
-              ? currentProjects
-              : [...currentProjects, selectedActivity.name];
-            
-            const nextRoles = {
-              ...(p.projectRoles || {}),
-              [selectedActivity.name]: role
-            };
-
-            return { ...p, projects: nextProjects, projectRoles: nextRoles };
+      async () => {
+        try {
+          for (const officerName of selectedOfficerNames) {
+            const p = petugas.find(o => o.name === officerName);
+            if (p) {
+              const role = officerRolesMap[officerName] || "PCL";
+              await api.petugas.assign({
+                petugas_id: p.id,
+                kegiatan_id: selectedActivity.id,
+                role,
+                sls_assignments: p.assignments?.[selectedActivity.name]?.sls || [],
+                pengawas: p.assignments?.[selectedActivity.name]?.pengawas || ''
+              });
+            }
           }
-          return p;
-        }));
-
-        // Reset states
-        setSelectedOfficerNames([]);
-        setOfficerRolesMap({});
-        setShowAssignModal(false);
-        setAssignSearch("");
+          await refreshData();
+          
+          setSelectedOfficerNames([]);
+          setOfficerRolesMap({});
+          setShowAssignModal(false);
+          setAssignSearch("");
+        } catch (err) {
+          alert("Gagal menugaskan petugas: " + err.message);
+        }
       }
     );
   };
@@ -338,16 +396,154 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     triggerConfirm(
       "unassign_officer",
       { officerName, activityName: selectedActivity.name },
-      () => {
-        setPetugas(prev => prev.map(p => {
-          if (p.name === officerName) {
-            const nextProjects = (p.projects || []).filter(proj => proj !== selectedActivity.name);
-            const nextRoles = { ...(p.projectRoles || {}) };
-            delete nextRoles[selectedActivity.name];
-            return { ...p, projects: nextProjects, projectRoles: nextRoles };
+      async () => {
+        try {
+          const p = petugas.find(o => o.name === officerName);
+          if (p) {
+            await api.petugas.unassign({
+              petugas_id: p.id,
+              kegiatan_id: selectedActivity.id
+            });
+            await refreshData();
           }
-          return p;
-        }));
+        } catch (err) {
+          alert("Gagal membatalkan penugasan: " + err.message);
+        }
+      }
+    );
+  };
+
+  // 6. Aksi Publish Kegiatan (dengan validasi lengkap)
+  const handlePublishClick = async () => {
+    if (!selectedActivity) return;
+    setIsValidating(true);
+    setValidationErrors([]);
+    
+    try {
+      const errors = [];
+      
+      // 1. Cek Form Builder tidak kosong
+      const formRes = await api.form.getStructure(selectedActivity.id);
+      if (!formRes || !formRes.success || !formRes.blocks || formRes.blocks.length === 0 || !formRes.questions || formRes.questions.length === 0) {
+        errors.push("Kuesioner (Form Builder) masih kosong. Pastikan sudah membuat minimal satu blok dan satu pertanyaan.");
+      }
+
+      // Cari petugas yang terdaftar di kegiatan saat ini
+      const assigned = petugas.filter(p => p.projects && p.projects.includes(selectedActivity.name));
+
+      // 2. Cek "semua sls hingga subnya sudah dapat PCL"
+      const lokus = selectedActivity.lokus || { kecamatan: [], desa: [], sls: [], subSls: [] };
+      const pcls = assigned.filter(p => p.projectRoles?.[selectedActivity.name] === "PCL");
+      
+      const assignedLocations = new Set();
+      pcls.forEach(p => {
+        const slsList = p.assignments?.[selectedActivity.name]?.sls || [];
+        slsList.forEach(s => assignedLocations.add(s));
+      });
+
+      const slsListInLokus = lokus.sls || [];
+      const subSlsListInLokus = lokus.subSls || [];
+
+      slsListInLokus.forEach(s => {
+        const selectedSubs = subSlsListInLokus.filter(subName => {
+          const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
+          return matched && matched.sls === s;
+        });
+
+        if (selectedSubs.length > 0) {
+          selectedSubs.forEach(sub => {
+            if (!assignedLocations.has(sub)) {
+              errors.push(`Sub-SLS "${sub}" belum ditugaskan ke PCL manapun.`);
+            }
+          });
+        } else {
+          if (!assignedLocations.has(s)) {
+            errors.push(`SLS "${s}" belum ditugaskan ke PCL manapun.`);
+          }
+        }
+      });
+
+      // 3. Cek "tiap PCL sudah mendapat PML"
+      pcls.forEach(p => {
+        const pengawas = p.assignments?.[selectedActivity.name]?.pengawas;
+        if (!pengawas || pengawas.trim() === "") {
+          errors.push(`PCL "${p.name}" belum memiliki Pengawas (PML).`);
+        }
+      });
+
+      if (errors.length > 0) {
+        setValidationErrors(errors);
+        setShowValidationModal(true);
+      } else {
+        const isFromUjiCoba = selectedActivity.status === "uji_coba";
+        triggerConfirm(
+          isFromUjiCoba ? "transition_warning" : "publish_activity",
+          { name: selectedActivity.name },
+          async () => {
+            try {
+              const payload = {
+                name: selectedActivity.name,
+                description: selectedActivity.description || selectedActivity.desc,
+                progress: selectedActivity.progress,
+                color: selectedActivity.color,
+                text_color: selectedActivity.text_color,
+                bg_color: selectedActivity.bg_color,
+                start_date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : null,
+                status: "published",
+                lokus: selectedActivity.lokus
+              };
+              const res = await api.kegiatan.update(selectedActivity.id, payload);
+              if (res && res.success) {
+                if (isFromUjiCoba) {
+                  const assigned = petugas.filter(p => p.projects?.includes(selectedActivity.name));
+                  for (const p of assigned) {
+                    await api.petugas.unassign({ petugas_id: p.id, kegiatan_id: selectedActivity.id });
+                  }
+                }
+                await refreshData();
+                setSelectedActivity(prev => ({ ...prev, status: "published" }));
+              }
+            } catch (err) {
+              alert("Gagal mempublikasikan kegiatan: " + err.message);
+            }
+          }
+        );
+      }
+    } catch (err) {
+      alert("Error saat validasi: " + err.message);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
+  // 7. Aksi Selesaikan Kegiatan (Destructive lock)
+  const handleFinishClick = () => {
+    if (!selectedActivity) return;
+
+    triggerConfirm(
+      "finish_activity",
+      { name: selectedActivity.name },
+      async () => {
+        try {
+          const payload = {
+            name: selectedActivity.name,
+            description: selectedActivity.description || selectedActivity.desc,
+            progress: selectedActivity.progress,
+            color: selectedActivity.color,
+            text_color: selectedActivity.text_color,
+            bg_color: selectedActivity.bg_color,
+            start_date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : null,
+            status: "selesai",
+            lokus: selectedActivity.lokus
+          };
+          const res = await api.kegiatan.update(selectedActivity.id, payload);
+          if (res && res.success) {
+            await refreshData();
+            setSelectedActivity(prev => ({ ...prev, status: "selesai" }));
+          }
+        } catch (err) {
+          alert("Gagal menyelesaikan kegiatan: " + err.message);
+        }
       }
     );
   };
@@ -516,13 +712,13 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                       </div>
                       <h3 className="text-sm font-bold text-slate-800 tracking-tight leading-snug">{act.name}</h3>
                       <p className="text-xs text-slate-400 font-medium leading-relaxed mt-2 mb-4 line-clamp-2">
-                        {act.desc}
+                        {act.description || act.desc}
                       </p>
                     </div>
 
                     <div className="flex items-center justify-between pt-3 border-t border-slate-50 text-[10px] text-slate-400 font-medium">
                       <span className="flex items-center gap-1.5">
-                        <Calendar size={12}/> {act.date ? new Date(act.date).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric' }) : "-"}
+                        <Calendar size={12}/> {act.start_date ? new Date(act.start_date).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric' }) : "-"}
                       </span>
                       <span className="text-blue-600 font-semibold flex items-center gap-0.5 hover:translate-x-0.5 transition-transform">
                         Buka Detail <ChevronRight size={13}/>
@@ -561,7 +757,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   {getStatusBadge(selectedActivity.status)}
                   <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
-                    <Calendar size={11}/> Mulai: {selectedActivity.date ? new Date(selectedActivity.date).toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' }) : "-"}
+                    <Calendar size={11}/> Mulai: {selectedActivity.start_date ? new Date(selectedActivity.start_date).toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' }) : "-"}
                   </span>
                 </div>
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight leading-snug">{selectedActivity.name}</h1>
@@ -569,19 +765,47 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
 
               {/* Top Quick Actions */}
               <div className="flex items-center gap-2">
-                <button 
-                  onClick={handleEditOpen}
-                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl border-0 cursor-pointer transition-all"
-                >
-                  <Edit size={13}/> Edit Info & Status
-                </button>
-                <button 
-                  onClick={handleDeleteActivity}
-                  className="w-10 h-9.5 flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl border border-red-100 cursor-pointer transition-all bg-transparent"
-                  title="Hapus Kegiatan"
-                >
-                  <Trash2 size={15}/>
-                </button>
+                {selectedActivity.status === "selesai" ? (
+                  <span className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-slate-500 bg-slate-100 rounded-xl border border-slate-200">
+                    <CheckCircle size={13} className="text-slate-400" /> Kegiatan Selesai
+                  </span>
+                ) : (
+                  <>
+                    {/* Publish / Published Button */}
+                    {(selectedActivity.status === "draft" || selectedActivity.status === "uji_coba") ? (
+                      <button
+                        onClick={handlePublishClick}
+                        disabled={isValidating}
+                        className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-xl border-0 cursor-pointer transition-all active:scale-[0.98]"
+                      >
+                        {isValidating ? "Memvalidasi..." : "Publish Kegiatan"}
+                      </button>
+                    ) : selectedActivity.status === "published" ? (
+                      <button
+                        onClick={handleFinishClick}
+                        className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-250 rounded-xl cursor-pointer transition-all group"
+                        title="Klik untuk menyelesaikan kegiatan"
+                      >
+                        <Check size={13} className="text-emerald-600 group-hover:scale-110 transition-transform" /> Published
+                      </button>
+                    ) : null}
+
+                    {/* Edit & Delete Buttons */}
+                    <button 
+                      onClick={handleEditOpen}
+                      className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl border-0 cursor-pointer transition-all"
+                    >
+                      <Edit size={13}/> Edit Info & Status
+                    </button>
+                    <button 
+                      onClick={handleDeleteActivity}
+                      className="w-10 h-9.5 flex items-center justify-center text-red-500 hover:text-red-700 hover:bg-red-50 rounded-xl border border-red-100 cursor-pointer transition-all bg-transparent"
+                      title="Hapus Kegiatan"
+                    >
+                      <Trash2 size={15}/>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -607,7 +831,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
                   <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Deskripsi & Ruang Lingkup</h3>
                   <div className="text-sm text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">
-                    {selectedActivity.desc}
+                    {selectedActivity.description || selectedActivity.desc}
                   </div>
                 </div>
 
@@ -660,7 +884,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                     <div className="flex flex-col">
                       <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Kecamatan</span>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
-                        {MOCK_KECAMATAN.map(kec => {
+                        {dbKecamatan.map(kec => {
                           const isChecked = (tempLokus?.kecamatan || []).includes(kec);
                           const isDraft = selectedActivity.status === "draft";
                           return (
@@ -686,7 +910,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                       <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Desa</span>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {(tempLokus?.kecamatan || []).length > 0 ? (
-                          MOCK_DESA_HIERARCHY
+                          dbDesaHierarchy
                             .filter(d => (tempLokus?.kecamatan || []).includes(d.kecamatan))
                             .map(d => {
                               const isChecked = (tempLokus?.desa || []).includes(d.name);
@@ -717,7 +941,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                       <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">SLS</span>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {(tempLokus?.desa || []).length > 0 ? (
-                          MOCK_SLS_HIERARCHY
+                          dbSlsHierarchy
                             .filter(s => (tempLokus?.desa || []).includes(s.desa))
                             .map(s => {
                               const isChecked = (tempLokus?.sls || []).includes(s.name);
@@ -733,7 +957,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                                     onChange={() => handleLokusChange("sls", s.name)}
                                     className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
                                   />
-                                  <span className="truncate">{s.name.replace(` ${s.desa}`, '')}</span>
+                                  <span className="truncate">{s.name}</span>
                                 </label>
                               );
                             })
@@ -749,7 +973,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {(tempLokus?.sls || []).length > 0 ? (
                           (() => {
-                            const subOptions = MOCK_SUB_SLS_HIERARCHY.filter(sub => (tempLokus?.sls || []).includes(sub.sls));
+                            const subOptions = dbSubSlsHierarchy.filter(sub => (tempLokus?.sls || []).includes(sub.sls));
                             const isDraft = selectedActivity.status === "draft";
                             if (subOptions.length > 0) {
                               return subOptions.map(sub => {
@@ -770,7 +994,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                                 );
                               });
                             } else {
-                              return <span className="text-[10px] text-slate-350 italic block py-2">Tidak ada Sub SLS</span>;
+                               return <span className="text-[10px] text-slate-350 italic block py-2">Tidak ada Sub SLS</span>;
                             }
                           })()
                         ) : (
@@ -831,45 +1055,97 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
                   {assignedOfficers.map(p => {
                     const role = p.projectRoles?.[selectedActivity.name] || "PCL";
+                    const isPublishedOrSelesai = selectedActivity.status === "published" || selectedActivity.status === "selesai";
+                    
+                    let supervisedPcls = [];
+                    let pmlTarget = 0;
+                    let pmlSelesai = 0;
+                    let pmlPct = 0;
+                    
+                    if (role === "PML") {
+                      supervisedPcls = assignedOfficers.filter(o => o.projectRoles?.[selectedActivity.name] === "PCL" && o.assignments?.[selectedActivity.name]?.pengawas === p.name);
+                      pmlTarget = supervisedPcls.reduce((acc, curr) => acc + (curr.assignments?.[selectedActivity.name]?.target || 0), 0);
+                      pmlSelesai = supervisedPcls.reduce((acc, curr) => acc + (curr.assignments?.[selectedActivity.name]?.selesai || 0), 0);
+                      pmlPct = pmlTarget > 0 ? Math.round((pmlSelesai / pmlTarget) * 100) : 0;
+                    }
+
                     return (
-                      <div key={p.name} className="flex items-center justify-between p-3.5 border border-slate-100 hover:border-slate-200 bg-white rounded-xl transition-all shadow-sm">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-9 h-9 rounded-xl bg-slate-50 border border-slate-100 text-slate-600 text-xs font-bold flex items-center justify-center flex-shrink-0">
-                            {p.name.split(' ').map(n=>n[0]).join('')}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-semibold text-slate-800 truncate block max-w-[120px] md:max-w-none">{p.name}</span>
-                              
-                              {/* Dummy Badge */}
-                              {selectedActivity.status === "uji_coba" && (
-                                <span className="text-[8px] font-bold px-1.5 py-0.2 bg-red-50 text-red-500 rounded border border-red-100">Dummy</span>
-                              )}
+                      <div key={p.name} className="flex flex-col p-3.5 border border-slate-100 hover:border-slate-200 bg-white rounded-xl transition-all shadow-sm">
+                        {/* Top row: Avatar, Info, Role, Actions */}
+                        <div className="flex items-center justify-between w-full">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-9 h-9 rounded-xl bg-slate-50 border border-slate-100 text-slate-600 text-xs font-bold flex items-center justify-center flex-shrink-0">
+                              {p.name.split(' ').map(n=>n[0]).join('')}
                             </div>
-                            <span className="block text-[10px] text-slate-400 font-medium mt-0.5">Desa {p.desa}</span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold text-slate-800 truncate block max-w-[120px] md:max-w-none">{p.name}</span>
+                                
+                                {/* Dummy Badge */}
+                                {selectedActivity.status === "uji_coba" && (
+                                  <span className="text-[8px] font-bold px-1.5 py-0.2 bg-red-50 text-red-500 rounded border border-red-100">Dummy</span>
+                                )}
+                              </div>
+                              <span className="block text-[10px] text-slate-400 font-medium mt-0.5">Desa {p.desa}</span>
+                            </div>
+                          </div>
+
+                          {/* Role & Actions */}
+                          <div className="flex items-center gap-2.5">
+                            <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-lg border uppercase ${
+                              role === "PML" 
+                                ? "bg-purple-50 text-purple-600 border-purple-100" 
+                                : "bg-blue-50 text-blue-600 border-blue-100"
+                            }`}>
+                              {role === "PML" ? "PML" : "PCL"}
+                            </span>
+
+                            {selectedActivity.status !== "selesai" && (
+                              <button 
+                                onClick={() => handleUnassignOfficer(p.name)}
+                                className="w-7 h-7 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 flex items-center justify-center border-0 cursor-pointer transition-all bg-transparent"
+                                title="Cabut Penugasan"
+                              >
+                                <UserMinus size={13}/>
+                              </button>
+                            )}
                           </div>
                         </div>
 
-                        {/* Role & Actions */}
-                        <div className="flex items-center gap-2.5">
-                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-lg border uppercase ${
-                            role === "PML" 
-                              ? "bg-purple-50 text-purple-600 border-purple-100" 
-                              : "bg-blue-50 text-blue-600 border-blue-100"
-                          }`}>
-                            {role === "PML" ? "PML (Pengawas)" : "PCL (Pendata)"}
-                          </span>
+                        {/* Bottom row: Progress (PCL) */}
+                        {isPublishedOrSelesai && role === "PCL" && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-50 w-full">
+                            <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium mb-1.5">
+                              <span className="text-slate-500 truncate max-w-[150px]">Lokus: {p.assignments?.[selectedActivity.name]?.sls?.[0] || "-"}</span>
+                              <span className="mono font-bold text-slate-600">
+                                {p.assignments?.[selectedActivity.name]?.selesai || 0}/{p.assignments?.[selectedActivity.name]?.target || 0}
+                              </span>
+                            </div>
+                            {(() => {
+                              const targetVal = p.assignments?.[selectedActivity.name]?.target || 0;
+                              const selesaiVal = p.assignments?.[selectedActivity.name]?.selesai || 0;
+                              const pct = targetVal > 0 ? Math.round((selesaiVal / targetVal) * 100) : 0;
+                              return (
+                                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                  <div className="bg-blue-600 h-full rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
 
-                          {selectedActivity.status !== "selesai" && (
-                            <button 
-                              onClick={() => handleUnassignOfficer(p.name)}
-                              className="w-7 h-7 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 flex items-center justify-center border-0 cursor-pointer transition-all bg-transparent"
-                              title="Cabut Penugasan"
-                            >
-                              <UserMinus size={13}/>
-                            </button>
-                          )}
-                        </div>
+                        {/* Bottom row: Progress (PML) */}
+                        {isPublishedOrSelesai && role === "PML" && (
+                          <div className="mt-2.5 pt-2 border-t border-slate-50 w-full">
+                            <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium mb-1.5">
+                              <span className="text-slate-500">{supervisedPcls.length} PCL Diawasi</span>
+                              <span className="mono font-bold text-slate-600">{pmlSelesai}/{pmlTarget}</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-purple-600 h-full rounded-full transition-all duration-300" style={{ width: `${pmlPct}%` }} />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -1274,6 +1550,28 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
               </p>
             )}
 
+            {showConfirmModal.type === "publish_activity" && (
+              <div>
+                <p className="text-xs text-slate-400 mb-2 leading-relaxed">
+                  Anda akan mempublikasikan kegiatan <strong>{showConfirmModal.data.name}</strong>.
+                </p>
+                <div className="p-3 bg-blue-50 text-blue-700 text-[11px] font-medium rounded-xl border border-blue-100 mb-6 leading-relaxed">
+                  ℹ️ Info: Status kegiatan akan berubah menjadi <strong>Published</strong>. Lokus wilayah tugas tidak akan bisa diubah lagi.
+                </div>
+              </div>
+            )}
+
+            {showConfirmModal.type === "finish_activity" && (
+              <div>
+                <p className="text-xs text-slate-400 mb-2 leading-relaxed">
+                  Apakah Anda yakin ingin menyelesaikan kegiatan <strong>{showConfirmModal.data.name}</strong>?
+                </p>
+                <div className="p-3 bg-red-50 text-red-700 text-[11px] font-bold rounded-xl border border-red-100 mb-6 leading-relaxed">
+                  ⚠️ PENTING: Tindakan ini permanen! Setelah diselesaikan, seluruh data kegiatan (Lokus & Petugas) tidak akan bisa diedit atau diubah lagi.
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button 
                 type="button"
@@ -1289,7 +1587,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                   setShowConfirmModal(null);
                 }}
                 className={`flex-1 py-3 rounded-xl text-xs font-semibold text-white cursor-pointer transition-all active:scale-[0.98] border-0 ${
-                  showConfirmModal.type === "delete_activity" || showConfirmModal.type === "unassign_officer" || showConfirmModal.type === "transition_warning"
+                  showConfirmModal.type === "delete_activity" || showConfirmModal.type === "unassign_officer" || showConfirmModal.type === "transition_warning" || showConfirmModal.type === "finish_activity"
                     ? "bg-red-600 hover:bg-red-700"
                     : "bg-blue-600 hover:bg-blue-700"
                 }`}
@@ -1297,6 +1595,45 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 Ya, Konfirmasi
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ======================================================== */}
+      {/* MODAL: DETAIL ERROR VALIDASI PUBLISH */}
+      {/* ======================================================== */}
+      {showValidationModal && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6 animate-fade"
+          onClick={() => setShowValidationModal(false)}
+        >
+          <div className="bg-white rounded-2xl p-8 w-full shadow-lg animate-zoom"
+            style={{ maxWidth: 500 }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="w-12 h-12 rounded-xl flex items-center justify-center mb-5 bg-red-50 text-red-600">
+              <ShieldAlert size={24}/>
+            </div>
+
+            <h3 className="text-lg font-bold text-slate-900 mb-1">
+              Gagal Mempublikasikan Kegiatan
+            </h3>
+            <p className="text-xs text-slate-400 mb-4 leading-relaxed">
+              Ada beberapa kondisi yang belum terpenuhi sebelum kegiatan ini dipublikasikan:
+            </p>
+
+            <div className="bg-red-50/50 border border-red-100 rounded-xl p-4 max-h-[240px] overflow-y-auto scrollbar-thin mb-6">
+              <ul className="list-disc pl-4 space-y-2 text-[11px] font-semibold text-red-700 leading-relaxed">
+                {validationErrors.map((err, idx) => (
+                  <li key={idx}>{err}</li>
+                ))}
+              </ul>
+            </div>
+
+            <button 
+              onClick={() => setShowValidationModal(false)}
+              className="w-full py-3 rounded-xl text-xs font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 transition-all border-0 cursor-pointer"
+            >
+              Tutup & Lengkapi
+            </button>
           </div>
         </div>
       )}

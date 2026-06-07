@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layouts/AdminLayout';
-import { getDesaData, getPetugasData } from '../../constants/mockData';
+import { api } from '../../services/api';
 import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer } from 'recharts';
 import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown } from "lucide-react";
 import useDropdown from '../../hooks/useDropdown';
@@ -14,6 +15,28 @@ import useDropdown from '../../hooks/useDropdown';
 function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activities, petugas }) {
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const status = activeActivity ? activeActivity.status : "draft";
+
+  const [desaStats, setDesaStats] = useState([]);
+  const [dashboardStats, setDashboardStats] = useState(null);
+
+  useEffect(() => {
+    if (!activeActivity) return;
+    
+    const fetchStats = async () => {
+      try {
+        const [desaData, dashData] = await Promise.all([
+          api.desa.getStats(activeActivity.id),
+          api.dashboard.getStats(activeActivity.id)
+        ]);
+        setDesaStats(desaData);
+        setDashboardStats(dashData);
+      } catch (err) {
+        console.error("Gagal mengambil stats dashboard:", err);
+      }
+    };
+
+    fetchStats();
+  }, [selectedProject, activeActivity]);
 
   const getStatusConfig = () => {
     switch (status) {
@@ -38,27 +61,29 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     ? ["Semua Desa", ...activeDesas.map(d => `Desa ${d}`)]
     : ["Semua Desa", "Desa Tideng Pale", "Desa Sesayap Hilir", "Desa Limbu Sedulun"];
 
-  const officersList = petugas || getPetugasData();
+  const officersList = petugas || [];
   const activeProjectOfficers = officersList.filter(p => p.projects?.includes(selectedProject));
 
   const filteredPetugas = villageDropdown.selected === "Semua Desa" 
     ? activeProjectOfficers
     : activeProjectOfficers.filter(p => p.desa === villageDropdown.selected.replace("Desa ", ""));
 
-  const colors = ["#2563eb", "#0891b2", "#7c3aed", "#10b981", "#f59e0b", "#ec4899"];
-  const desaDataList = activeDesas.map((desaName, idx) => {
-    const desaOfficers = activeProjectOfficers.filter(p => p.desa === desaName);
-    const target = desaOfficers.reduce((sum, p) => sum + (p.target || 0), 0) || 15;
-    const selesai = desaOfficers.reduce((sum, p) => sum + (p.selesai || 0), 0) || 0;
-    return {
-      name: `Desa ${desaName}`,
-      target,
-      selesai,
-      color: colors[idx % colors.length]
-    };
-  });
-
-  const finalDesaData = desaDataList.length > 0 ? desaDataList : getDesaData();
+  const finalDesaData = desaStats.length > 0 
+    ? desaStats.map(d => ({
+        name: `Desa ${d.name}`,
+        target: d.target,
+        selesai: d.selesai,
+        color: d.color || "#2563eb"
+      }))
+    : activeDesas.map((desaName, idx) => {
+        const colors = ["#2563eb", "#0891b2", "#7c3aed", "#10b981"];
+        return {
+          name: `Desa ${desaName}`,
+          target: 15,
+          selesai: 0,
+          color: colors[idx % colors.length]
+        };
+      });
 
   const filteredDesa = villageDropdown.selected === "Semua Desa"
     ? finalDesaData
@@ -66,8 +91,15 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
 
   const total   = filteredDesa.reduce((a,b)=>a+b.target,0);
   const selesai = filteredDesa.reduce((a,b)=>a+b.selesai,0);
-  const review  = Math.round(selesai * 0.3);
-  const ditolak = Math.round(selesai * 0.1);
+  
+  // Use backend stats for overall view or fallback to estimated proportions if a specific village is filtered
+  const review = villageDropdown.selected === "Semua Desa" && dashboardStats
+    ? dashboardStats.summary.pending
+    : Math.round(selesai * 0.3);
+    
+  const ditolak = villageDropdown.selected === "Semua Desa" && dashboardStats
+    ? dashboardStats.summary.rejected
+    : Math.round(selesai * 0.1);
 
   const stats = [
     { icon: FileText, l: "Total Target", v: total, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
@@ -83,14 +115,16 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     { name: "Draft",     value: (total - selesai - review - ditolak) > 0 ? (total - selesai - review - ditolak) : 0,  color: "#94a3b8" },
   ];
 
-  const CHART_DATA = [
-    { h: "Sen", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.15) },
-    { h: "Sel", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.2) },
-    { h: "Rab", k: Math.round(selesai * 0.25), t: Math.round(ditolak * 0.15) },
-    { h: "Kam", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.2) },
-    { h: "Jum", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.1) },
-    { h: "Sab", k: Math.round(selesai * 0.05), t: Math.round(ditolak * 0.2) },
-  ];
+  const CHART_DATA = dashboardStats?.chartData?.length > 0
+    ? dashboardStats.chartData
+    : [
+        { h: "Sen", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.15) },
+        { h: "Sel", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.2) },
+        { h: "Rab", k: Math.round(selesai * 0.25), t: Math.round(ditolak * 0.15) },
+        { h: "Kam", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.2) },
+        { h: "Jum", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.1) },
+        { h: "Sab", k: Math.round(selesai * 0.05), t: Math.round(ditolak * 0.2) },
+      ];
 
   return (
     <AdminLayout tab="admin-dash" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>

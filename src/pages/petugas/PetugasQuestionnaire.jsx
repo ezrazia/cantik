@@ -1,27 +1,35 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info } from "lucide-react";
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import useAutoSave from "../../hooks/useAutoSave";
-import { getRtListByActivityAndOfficer, saveRtItem } from "../../constants/mockData";
+import { api } from "../../services/api";
 
 /**
  * Halaman pengisian kuesioner petugas — clean & BPS standard.
- * Menyediakan alur: Pilih Kegiatan -> Daftar Prelist -> Isi/Tambah Kuesioner (Blok I - V)
+ * Menyediakan alur: Pilih Kegiatan -> Daftar Prelist -> Isi/Tambah Kuesioner (Dinamis per Blok)
  *
  * @param {Object} props
  * @param {(screen: string) => void} props.onNavigate
  * @param {Array} props.petugas
  * @param {Array} props.activities
+ * @param {Object} props.currentUser
+ * @param {boolean} props.isOffline
  * @returns {React.ReactElement}
  */
-function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
+function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, isOffline }) {
   const [view, setView] = useState("select_activity"); // select_activity | prelist | form
   const [selectedActivity, setSelectedActivity] = useState(null);
   const [localPrelist, setLocalPrelist] = useState([]);
   const [selectedRtItem, setSelectedRtItem] = useState(null);
-  const [activeTab, setActiveTab] = useState("Blok I"); // Blok I | Blok II | Blok III | Blok IV | Blok V
+  
+  // Dynamic form schema states
+  const [blocks, setBlocks] = useState([]);
+  const [questions, setQuestions] = useState([]);
+  const [loadingForm, setLoadingForm] = useState(false);
+
+  const [activeTab, setActiveTab] = useState(""); // Block kode (e.g. "Blok I", "Blok II")
   const [selectedLogItem, setSelectedLogItem] = useState(null);
   const [warningMessage, setWarningMessage] = useState(null);
   const [rejectionNoteItem, setRejectionNoteItem] = useState(null);
@@ -48,130 +56,187 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
   };
 
   const { saved, markUnsaved } = useAutoSave(1100);
+  
+  // Unified questionnaire state
   const [ans, setAns] = useState({
-    // Blok I (Lokasi)
+    kode: "",
+    krt: "",
+    alamat: "",
     kecamatan: "",
     desa: "",
     sls: "",
-    alamat: "",
-    
-    // Blok II (Perumahan)
-    r201: "1", // Status Kepemilikan
-    r202: "",  // Luas Lantai
-    r203: "1", // Jenis Lantai
-    r204: "1", // Jenis Dinding
-
-    // Blok III (Anggota RT)
-    r301: "",  // Nama KRT
-    r302: "1", // Hubungan
-    r303: "1", // Jenis Kelamin
-    r304: "",  // Umur
-    r305: "1", // Status Perkawinan
-    r307: "1", // Bekerja
-    r308: "",  // Lapangan Usaha
-
-    // Blok IV (Sosial Ekonomi)
-    r401: "1", // Sumber Penerangan
-    r402: "1", // Bahan Bakar Masak
-    r403: "1", // Sumber Air Minum
-
-    // Blok V (Kepemilikan Aset)
-    r501: "1", // Tabungan/Emas
-    r502: "1", // Motor
-    r503: "2", // Laptop
-    r504: "1", // HP Aktif
+    sub_sls: "",
+    is_prelist: false,
+    values: {} // Object map { [question_id]: value }
   });
 
-  // Find current petugas Budi Santoso
-  const currentPetugas = petugas?.find(p => p.name === "Budi Santoso") || {
-    name: "Budi Santoso",
-    desa: "Tideng Pale",
-    projects: ["Desa Cantik 2026", "Pendataan PLS 2026"],
-    projectRoles: { "Desa Cantik 2026": "PCL", "Pendataan PLS 2026": "PML" }
-  };
+  const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
 
-  // Get activities assigned to Budi Santoso
-  const officerActivities = (currentPetugas.projects || []).map(projName => {
-    const act = activities?.find(a => a.name === projName) || {
-      name: projName,
-      desc: "Deskripsi kegiatan survei.",
-      progress: 0,
-      color: "bg-blue-600",
-      textColor: "text-blue-600",
-      bgColor: "bg-blue-50",
-      date: new Date().toISOString().split('T')[0]
-    };
-    return {
-      ...act,
-      role: currentPetugas.projectRoles?.[projName] || "PCL"
-    };
-  });
+  const officerActivities = (currentPetugas.projects || [])
+    .map(projName => {
+      const act = activities?.find(a => a.name === projName);
+      if (!act) return null;
+      return {
+        ...act,
+        role: currentPetugas.projectRoles?.[projName] || "PCL"
+      };
+    })
+    .filter(act => act && act.status !== "draft" && act.status !== "selesai");
 
-  // Fetch prelist when activity is selected
+  // Fetch form structure and prelist when activity changes
   useEffect(() => {
-    if (selectedActivity) {
-      const data = getRtListByActivityAndOfficer(selectedActivity.name, currentPetugas.name);
-      setLocalPrelist(data);
-    }
-  }, [selectedActivity, currentPetugas.name]);
+    if (!selectedActivity) return;
+
+    let isMounted = true;
+    const loadFormStructure = async () => {
+      setLoadingForm(true);
+      if (isOffline) {
+        const cached = localStorage.getItem(`form_structure_${selectedActivity.id}`);
+        if (cached && isMounted) {
+          try {
+            const data = JSON.parse(cached);
+            setBlocks(data.blocks || []);
+            setQuestions(data.questions || []);
+          } catch (e) {
+            console.error("Gagal parse cached form structure:", e);
+          }
+        }
+      } else {
+        try {
+          const res = await api.form.getStructure(selectedActivity.id);
+          if (res.success && isMounted) {
+            setBlocks(res.blocks || []);
+            setQuestions(res.questions || []);
+            localStorage.setItem(`form_structure_${selectedActivity.id}`, JSON.stringify({
+              blocks: res.blocks,
+              questions: res.questions
+            }));
+          }
+        } catch (e) {
+          console.error("Gagal fetch form structure:", e);
+          const cached = localStorage.getItem(`form_structure_${selectedActivity.id}`);
+          if (cached && isMounted) {
+            try {
+              const data = JSON.parse(cached);
+              setBlocks(data.blocks || []);
+              setQuestions(data.questions || []);
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      }
+      setLoadingForm(false);
+    };
+
+    const loadPrelist = async () => {
+      if (isOffline) {
+        const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+        if (cached && isMounted) {
+          try {
+            const list = JSON.parse(cached);
+            setLocalPrelist(list.filter(d => d.kegiatan_id === selectedActivity.id));
+          } catch (e) {
+            console.error("Gagal parse offline_docs:", e);
+          }
+        }
+      } else {
+        try {
+          const docs = await api.dokumen.getByPetugas(currentUser.id);
+          if (isMounted) {
+            setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+            localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+          }
+        } catch (e) {
+          console.error("Gagal fetch prelist:", e);
+          const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+          if (cached && isMounted) {
+            try {
+              const list = JSON.parse(cached);
+              setLocalPrelist(list.filter(d => d.kegiatan_id === selectedActivity.id));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }
+      }
+    };
+
+    loadFormStructure();
+    loadPrelist();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedActivity, isOffline, currentUser.id]);
 
   const isReadOnly = 
     isPml ||
-    selectedRtItem?.reviewStatus === "approved" || 
-    (selectedRtItem?.status === "tersimpan" && selectedRtItem?.reviewStatus !== "rejected") ||
+    selectedRtItem?.review_status === "approved" || 
+    (selectedRtItem?.status === "tersimpan" && selectedRtItem?.review_status !== "rejected") ||
     selectedRtItem?.status === "terkirim";
 
-  const setVal = (k, v) => {
-    if (isReadOnly) return; // block edits if read-only
-    setAns(p => ({ ...p, [k]: v }));
-    markUnsaved();
+  // Evaluate if a question is visible based on skip logics and parent rules
+  const isQuestionVisible = (q) => {
+    if (q.parent_id) {
+      const parentVal = ans.values[q.parent_id];
+      if (parentVal === undefined || parentVal === null || parentVal === '') return false;
+    }
+
+    // Check if any other question in the form has skip logic target pointing here
+    const skippers = questions.filter(quest => quest.skip_target === q.id);
+    for (const skipper of skippers) {
+      const skipperVal = ans.values[skipper.id];
+      // Skip logic: if skipper value matches condition, hide this target question
+      if (skipperVal !== undefined && skipperVal !== null && skipperVal !== '' && String(skipperVal) === String(skipper.skip_logic)) {
+        return false;
+      }
+    }
+
+    return true;
   };
 
-  const validateBlock = (block, a) => {
-    if (block === "Blok I") {
-      if (!a.kecamatan || !a.desa) {
-        if (!a.kecamatan && !a.desa) return 'empty';
-        return 'error';
+  // Status mapping for visual tabs
+  const validateBlock = (blockKode) => {
+    const block = blocks.find(b => b.kode === blockKode);
+    if (!block) return 'empty';
+    
+    const blockQuestions = questions.filter(q => q.blok_id === block.id);
+    let hasEmptyRequired = false;
+    let hasValidationError = false;
+    let hasFilledAny = false;
+    
+    for (const q of blockQuestions) {
+      if (!isQuestionVisible(q)) continue;
+      
+      const val = ans.values[q.id];
+      if (val !== undefined && val !== null && val !== '') {
+        hasFilledAny = true;
+        // Range validation if applicable
+        if (q.type === 'number' && q.validation && q.validation.startsWith('range:')) {
+          const rangePart = q.validation.replace('range:', '').trim();
+          const [min, max] = rangePart.split('-').map(Number);
+          const numVal = Number(val);
+          if (!isNaN(numVal) && (numVal < min || numVal > max)) {
+            hasValidationError = true;
+          }
+        }
+      } else if (q.required) {
+        hasEmptyRequired = true;
       }
-      if (!a.sls || !a.alamat) return 'warning';
-      return 'safe';
     }
     
-    if (block === "Blok II") {
-      if (!a.r202) return 'empty';
-      const luas = parseFloat(a.r202);
-      if (isNaN(luas) || luas <= 0) return 'error';
-      if (a.r201 === "1" && a.r204 === "4") return 'warning';
-      if (luas < 12 || luas > 500) return 'warning';
-      return 'safe';
+    // Check main location headers in the first block if label matches Lokasi
+    if (blockKode === "Blok I" || blockKode === blocks[0]?.kode) {
+      if (!ans.kode || !ans.kecamatan || !ans.desa) {
+        hasEmptyRequired = true;
+      }
     }
     
-    if (block === "Blok III") {
-      if (!a.r301 && !a.r304) return 'empty';
-      if (!a.r301 || !a.r304) return 'error';
-      
-      const age = parseInt(a.r304);
-      if (isNaN(age) || age < 0 || age > 120) return 'error';
-      
-      if (age < 15 && a.r305 !== "1") return 'warning';
-      if (age < 15 && a.r307 === "1") return 'warning';
-      if (a.r307 === "1" && !a.r308) return 'warning';
-      
-      return 'safe';
-    }
-    
-    if (block === "Blok IV") {
-      if (!a.r401 || !a.r402 || !a.r403) return 'error';
-      if (a.r401 === "3" && (a.r402 === "1" || a.r402 === "2")) return 'warning';
-      return 'safe';
-    }
-    
-    if (block === "Blok V") {
-      if (!a.r501 || !a.r502 || !a.r503 || !a.r504) return 'error';
-      return 'safe';
-    }
-    
-    return 'empty';
+    if (!hasFilledAny && blockKode !== "Blok I" && blockKode !== blocks[0]?.kode) return 'empty';
+    if (hasValidationError) return 'error';
+    if (hasEmptyRequired) return 'warning';
+    return 'safe';
   };
 
   const handleSelectActivity = (act) => {
@@ -179,80 +244,114 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
     setView("prelist");
   };
 
-  const handleEditItem = (item) => {
-    const hasBeenSent = item.status === "terkirim" || item.reviewStatus === "approved" || item.reviewStatus === "rejected";
+  const handleEditItem = async (item) => {
+    const hasBeenSent = item.status === "terkirim" || item.review_status === "approved" || item.review_status === "rejected";
     if (isPml && !hasBeenSent) {
       setWarningMessage("Dokumen ini belum dikirim ke server oleh PCL, sehingga tidak dapat diperiksa oleh PML.");
       return;
     }
     setSelectedRtItem(item);
     
-    // load from lastSentData if PML is viewing a document (so they see the sent version instead of offline draft changes)
-    const dataSource = (isPml && item.lastSentData) ? item.lastSentData : item;
+    let docDetail = null;
+    if (isOffline) {
+      const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+      if (cached) {
+        try {
+          const list = JSON.parse(cached);
+          docDetail = list.find(d => d.kode === item.kode);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    } else {
+      try {
+        const res = await api.dokumen.getDetail(item.id);
+        if (res.success) {
+          docDetail = {
+            ...res.dokumen,
+            values: res.values
+          };
+        }
+      } catch (e) {
+        console.error("Gagal load detail kuesioner dari server:", e);
+      }
+    }
+
+    const finalDoc = docDetail || item;
 
     setAns({
-      kecamatan: dataSource.kecamatan || "",
-      desa: dataSource.desa || "",
-      sls: dataSource.sls || "",
-      alamat: dataSource.alamat || "",
-      
-      r201: dataSource.r201 || "1",
-      r202: dataSource.r202 || "",
-      r203: dataSource.r203 || "1",
-      r204: dataSource.r204 || "1",
-
-      r301: dataSource.krt || "",
-      r302: dataSource.r302 || "1",
-      r303: dataSource.gender || "1",
-      r304: dataSource.umur || "",
-      r305: dataSource.perkawinan || "1",
-      r307: dataSource.bekerja || "1",
-      r308: dataSource.lapanganUsaha || "",
-
-      r401: dataSource.r401 || "1",
-      r402: dataSource.r402 || "1",
-      r403: dataSource.r403 || "1",
-
-      r501: dataSource.r501 || "1",
-      r502: dataSource.r502 || "1",
-      r503: dataSource.r503 || "2",
-      r504: dataSource.r504 || "1",
+      kode: finalDoc.kode || "",
+      krt: finalDoc.krt || "",
+      alamat: finalDoc.alamat || "",
+      kecamatan: finalDoc.kecamatan || "",
+      desa: finalDoc.desa || "",
+      sls: finalDoc.sls || "",
+      sub_sls: finalDoc.sub_sls || "",
+      is_prelist: !!finalDoc.is_prelist,
+      values: finalDoc.values || {}
     });
-    setActiveTab("Blok I");
+
+    if (blocks.length > 0) {
+      setActiveTab(blocks[0].kode);
+    } else {
+      setActiveTab("Blok I");
+    }
     setView("form");
   };
 
   const handleAddNew = () => {
     setSelectedRtItem(null);
-    setAns({
-      kecamatan: "",
-      desa: currentPetugas.desa || "",
-      sls: "",
-      alamat: "",
-      
-      r201: "1",
-      r202: "",
-      r203: "1",
-      r204: "1",
 
-      r301: "",
-      r302: "1",
-      r303: "1",
-      r304: "",
-      r305: "1",
-      r307: "1",
-      r308: "",
+    // Initial pre-fill location from activity info and petugas defaults
+    let defaultKec = "";
+    let defaultDesa = currentPetugas.desa || "";
+    
+    if (selectedActivity.lokus) {
+      let lokus = selectedActivity.lokus;
+      if (typeof lokus === 'string') {
+        try { lokus = JSON.parse(lokus); } catch (e) { lokus = null; }
+      }
+      if (lokus) {
+        defaultKec = lokus.kecamatan?.[0] || "";
+        if (!defaultDesa) defaultDesa = lokus.desa?.[0] || "";
+      }
+    }
 
-      r401: "1",
-      r402: "1",
-      r403: "1",
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const newKode = `NEW-${currentUser.id}-${randomSuffix}`;
 
-      r501: "1",
-      r502: "1",
-      r503: "2",
-      r504: "1",
+    // Fill EAV questions that map to location defaults
+    const initialValues = {};
+    questions.forEach(q => {
+      const lower = q.label.toLowerCase();
+      if (lower.includes("provinsi")) {
+        initialValues[q.id] = "Kalimantan Utara";
+      } else if (lower.includes("kabupaten") || lower.includes("kota")) {
+        initialValues[q.id] = "Tana Tidung";
+      } else if (lower.includes("kecamatan")) {
+        initialValues[q.id] = defaultKec;
+      } else if (lower.includes("desa") || lower.includes("kelurahan")) {
+        initialValues[q.id] = defaultDesa;
+      }
     });
-    setActiveTab("Blok I");
+
+    setAns({
+      kode: newKode,
+      krt: "",
+      alamat: "",
+      kecamatan: defaultKec,
+      desa: defaultDesa,
+      sls: "",
+      sub_sls: "",
+      is_prelist: false,
+      values: initialValues
+    });
+
+    if (blocks.length > 0) {
+      setActiveTab(blocks[0].kode);
+    } else {
+      setActiveTab("Blok I");
+    }
     setView("form");
   };
 
@@ -268,57 +367,95 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
     );
   };
 
-  const executeSave = () => {
+  const executeSave = async () => {
     const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
-    let newLogs = [];
-    if (selectedRtItem) {
-      newLogs = [...(selectedRtItem.logs || []), `${timestamp}: Kuesioner disimpan oleh PCL (Tersimpan)`];
-    } else {
-      newLogs = [
-        `${timestamp}: Kuesioner dibuat (Draft)`,
-        `${timestamp}: Kuesioner disimpan oleh PCL (Tersimpan)`
-      ];
+    let currentLogs = selectedRtItem?.logs || [];
+    if (typeof currentLogs === 'string') {
+      try { currentLogs = JSON.parse(currentLogs); } catch { currentLogs = []; }
     }
+    
+    const newLogs = selectedRtItem
+      ? [...currentLogs, `${timestamp}: Kuesioner disimpan oleh PCL (Tersimpan)`]
+      : [`${timestamp}: Kuesioner dibuat (Draft)`, `${timestamp}: Kuesioner disimpan oleh PCL (Tersimpan)`];
 
-    const itemToSave = {
+    const payload = {
       id: selectedRtItem?.id,
-      activityName: selectedActivity.name,
-      petugasName: currentPetugas.name,
-      krt: ans.r301 || "Tanpa Nama",
+      kode: ans.kode,
+      kegiatan_id: selectedActivity.id,
+      petugas_id: currentUser.id,
+      krt: ans.krt || "Tanpa Nama KRT",
       alamat: ans.alamat,
-      status: "tersimpan",
-      sync: false,
       kecamatan: ans.kecamatan,
       desa: ans.desa,
       sls: ans.sls,
-      r201: ans.r201,
-      r202: ans.r202,
-      r203: ans.r203,
-      r204: ans.r204,
-      r302: ans.r302,
-      gender: ans.r303,
-      umur: ans.r304,
-      perkawinan: ans.r305,
-      bekerja: ans.r307,
-      lapanganUsaha: ans.r308,
-      r401: ans.r401,
-      r402: ans.r402,
-      r403: ans.r403,
-      r501: ans.r501,
-      r502: ans.r502,
-      r503: ans.r503,
-      r504: ans.r504,
-      reviewStatus: selectedRtItem?.reviewStatus || "draft",
-      logs: newLogs
+      sub_sls: ans.sub_sls,
+      status: "tersimpan",
+      is_prelist: ans.is_prelist,
+      values: ans.values,
+      log_message: selectedRtItem ? "Kuesioner diperbarui PCL (Tersimpan)" : "Kuesioner baru disimpan PCL (Tersimpan)"
     };
 
-    saveRtItem(itemToSave);
+    if (isOffline) {
+      const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+      let cachedList = [];
+      if (cached) {
+        try { cachedList = JSON.parse(cached); } catch { cachedList = []; }
+      }
 
-    // Refresh prelist
-    const updated = getRtListByActivityAndOfficer(selectedActivity.name, currentPetugas.name);
-    setLocalPrelist(updated);
+      const localDoc = {
+        ...payload,
+        id: selectedRtItem?.id || null,
+        review_status: selectedRtItem?.review_status || "draft",
+        sync: false,
+        logs: newLogs
+      };
 
-    setView("prelist");
+      const idx = cachedList.findIndex(d => d.kode === ans.kode);
+      if (idx > -1) {
+        cachedList[idx] = localDoc;
+      } else {
+        cachedList.push(localDoc);
+      }
+
+      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
+      setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+      setView("prelist");
+    } else {
+      try {
+        const res = await api.dokumen.save(payload);
+        if (res.success) {
+          const docs = await api.dokumen.getByPetugas(currentUser.id);
+          setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+          setView("prelist");
+        } else {
+          alert("Gagal menyimpan ke server: " + res.message);
+        }
+      } catch (e) {
+        console.error("Save online error, fallback to offline local saving", e);
+        alert("Gagal terhubung ke server. Data dialihkan disimpan offline.");
+        
+        // Offline fallback
+        const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+        let cachedList = [];
+        if (cached) { try { cachedList = JSON.parse(cached); } catch { cachedList = []; } }
+
+        const localDoc = {
+          ...payload,
+          id: selectedRtItem?.id || null,
+          review_status: selectedRtItem?.review_status || "draft",
+          sync: false,
+          logs: newLogs
+        };
+
+        const idx = cachedList.findIndex(d => d.kode === ans.kode);
+        if (idx > -1) { cachedList[idx] = localDoc; } else { cachedList.push(localDoc); }
+
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
+        setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+        setView("prelist");
+      }
+    }
   };
 
   const handleCancelSave = () => {
@@ -330,26 +467,59 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
     );
   };
 
-  const executeCancelSave = () => {
+  const executeCancelSave = async () => {
     const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const newLogs = [...(selectedRtItem.logs || []), `${timestamp}: Kuesioner batal disimpan oleh PCL (Kembali ke Draft)`];
+    let currentLogs = selectedRtItem.logs || [];
+    if (typeof currentLogs === 'string') {
+      try { currentLogs = JSON.parse(currentLogs); } catch { currentLogs = []; }
+    }
+    const newLogs = [...currentLogs, `${timestamp}: Kuesioner batal disimpan oleh PCL (Kembali ke Draft)`];
 
-    const updatedItem = {
-      ...selectedRtItem,
-      status: "draft",
-      logs: newLogs
-    };
+    if (isOffline) {
+      const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+      let cachedList = [];
+      if (cached) { try { cachedList = JSON.parse(cached); } catch { cachedList = []; } }
 
-    saveRtItem(updatedItem);
+      const updatedLocalDoc = {
+        ...selectedRtItem,
+        status: "draft",
+        logs: newLogs
+      };
 
-    // Refresh state
-    setSelectedRtItem(updatedItem);
-    const updated = getRtListByActivityAndOfficer(selectedActivity.name, currentPetugas.name);
-    setLocalPrelist(updated);
+      const idx = cachedList.findIndex(d => d.kode === selectedRtItem.kode);
+      if (idx > -1) {
+        cachedList[idx] = updatedLocalDoc;
+      }
+      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
+      setSelectedRtItem(updatedLocalDoc);
+      setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+    } else {
+      try {
+        const payload = {
+          id: selectedRtItem.id,
+          kode: selectedRtItem.kode,
+          kegiatan_id: selectedRtItem.kegiatan_id,
+          petugas_id: selectedRtItem.petugas_id,
+          status: "draft",
+          log_message: "Batal simpan dokumen (Kembali ke Draft)"
+        };
+        const res = await api.dokumen.save(payload);
+        if (res.success) {
+          const docs = await api.dokumen.getByPetugas(currentUser.id);
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+          const updatedItem = docs.find(d => d.id === selectedRtItem.id);
+          setSelectedRtItem(updatedItem);
+          setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Terjadi kesalahan jaringan.");
+      }
+    }
   };
 
   const handlePmlApprove = () => {
-    if (!selectedRtItem) return;
+    if (!selectedRtItem || isOffline) return;
     askConfirmation(
       "Approve Dokumen",
       "Apakah Anda yakin ingin menyetujui dokumen kuesioner ini?",
@@ -357,25 +527,23 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
     );
   };
 
-  const executePmlApprove = () => {
-    const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const newLogs = [...(selectedRtItem.logs || []), `${timestamp}: Dokumen disetujui (Approved) oleh PML (${currentPetugas.name})`];
-
-    const updatedItem = {
-      ...selectedRtItem,
-      reviewStatus: "approved",
-      logs: newLogs
-    };
-
-    saveRtItem(updatedItem);
-    
-    const updated = getRtListByActivityAndOfficer(selectedActivity.name, currentPetugas.name);
-    setLocalPrelist(updated);
-    setView("prelist");
+  const executePmlApprove = async () => {
+    try {
+      const res = await api.dokumen.review(selectedRtItem.id, 'approved');
+      if (res.success) {
+        const docs = await api.dokumen.getByPetugas(currentUser.id);
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+        setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+        setView("prelist");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Gagal mereview dokumen secara online.");
+    }
   };
 
   const handlePmlRejectClick = () => {
-    if (!selectedRtItem) return;
+    if (!selectedRtItem || isOffline) return;
     setRejectionNote("");
     setRejectionNoteItem(selectedRtItem);
   };
@@ -389,65 +557,46 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
     );
   };
 
-  const executePmlReject = () => {
-    const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const newLogs = [...(selectedRtItem.logs || []), `${timestamp}: Ditolak (Rejected) oleh PML (${currentPetugas.name}): ${rejectionNote}`];
-
-    const updatedItem = {
-      ...selectedRtItem,
-      status: "draft",
-      reviewStatus: "rejected",
-      logs: newLogs
-    };
-
-    saveRtItem(updatedItem);
-    
-    const updated = getRtListByActivityAndOfficer(selectedActivity.name, currentPetugas.name);
-    setLocalPrelist(updated);
-    setView("prelist");
+  const executePmlReject = async () => {
+    try {
+      const res = await api.dokumen.review(selectedRtItem.id, 'rejected', rejectionNote);
+      if (res.success) {
+        const docs = await api.dokumen.getByPetugas(currentUser.id);
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+        setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+        setView("prelist");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Gagal mereview dokumen secara online.");
+    }
   };
 
-  const skipped = ans.r307 === "2";
-
-  const getActiveIndex = (tab) => {
-    if (tab === "Blok I") return 0;
-    if (tab === "Blok II") return 1;
-    if (tab === "Blok III") return 2;
-    if (tab === "Blok IV") return 3;
-    return 4; // Blok V
-  };
-
-  const getBlockLabel = (tab) => {
-    if (tab === "Blok I") return "Keterangan Tempat Tinggal";
-    if (tab === "Blok II") return "Keterangan Perumahan";
-    if (tab === "Blok III") return "Keterangan Anggota RT";
-    if (tab === "Blok IV") return "Keterangan Sosial Ekonomi";
-    return "Keterangan Kepemilikan Aset";
+  const getActiveIndex = (tabKode) => {
+    return blocks.findIndex(b => b.kode === tabKode);
   };
 
   const handlePrevTab = () => {
     const idx = getActiveIndex(activeTab);
     if (idx > 0) {
-      const prevTabs = ["Blok I", "Blok II", "Blok III", "Blok IV", "Blok V"];
-      setActiveTab(prevTabs[idx - 1]);
+      setActiveTab(blocks[idx - 1].kode);
     }
   };
 
   const handleNextTab = () => {
     const idx = getActiveIndex(activeTab);
-    if (idx < 4) {
-      const nextTabs = ["Blok I", "Blok II", "Blok III", "Blok IV", "Blok V"];
-      setActiveTab(nextTabs[idx + 1]);
+    if (idx < blocks.length - 1) {
+      setActiveTab(blocks[idx + 1].kode);
     }
   };
 
-  const BLOCKS = [
-    { l: "Blok I", done: !!(ans.kecamatan && ans.desa) },
-    { l: "Blok II", done: !!(ans.r202) },
-    { l: "Blok III", done: !!(ans.r301 && ans.r304) },
-    { l: "Blok IV", done: true },
-    { l: "Blok V", done: true, cond: true },
-  ];
+  const activeBlockIndex = getActiveIndex(activeTab);
+  const isFirstBlock = activeBlockIndex === 0;
+  const isLastBlock = activeBlockIndex === blocks.length - 1;
+
+  // Filter questions for the active block
+  const activeBlock = blocks.find(b => b.kode === activeTab);
+  const activeQuestions = activeBlock ? questions.filter(q => q.blok_id === activeBlock.id) : [];
 
   return (
     <PetugasLayout activeTab="questionnaire" onNavigate={onNavigate}>
@@ -468,7 +617,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
           {/* VIEW 1: SELECT ACTIVITY */}
           {view === "select_activity" && (
             <div className="flex-1 bg-white view-transition">
-              <div className="px-6 pt-12 pb-6 border-b border-slate-100">
+              <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100">
                 <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Pengisian Kuesioner</p>
                 <h2 className="text-xl font-bold text-slate-900 mt-1 tracking-tight">Pilih Kegiatan</h2>
                 <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">Pilih salah satu kegiatan aktif untuk mulai mengelola kuesioner.</p>
@@ -476,21 +625,26 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
               <div className="p-6 space-y-3">
                 {officerActivities.map(act => (
                   <button key={act.name} onClick={() => handleSelectActivity(act)}
-                    className="w-full bg-white rounded-2xl p-5 border border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md group relative overflow-hidden">
+                    className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md group relative overflow-hidden">
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${act.color || 'bg-blue-600'}`} />
                     <div className="flex items-start justify-between w-full">
                       <div className="flex-1 min-w-0 pr-4">
                         <h4 className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors truncate">{act.name}</h4>
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{act.desc}</p>
+                        <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{act.description}</p>
                       </div>
                       <div className="flex-shrink-0">
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${act.role === 'PML' ? 'bg-purple-50 text-purple-700 border border-purple-100/50' : 'bg-blue-50 text-blue-700 border border-blue-100/50'}`}>
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${act.role === 'PML' ? 'bg-purple-50 text-purple-700 border border-solid border-purple-100/50' : 'bg-blue-50 text-blue-700 border border-solid border-blue-100/50'}`}>
                           {act.role === 'PML' ? 'Pengawas (PML)' : 'Pencacah (PCL)'}
                         </span>
                       </div>
                     </div>
                   </button>
                 ))}
+                {officerActivities.length === 0 && (
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl py-12 text-center">
+                    <p className="text-xs text-slate-400 font-semibold">Belum ditugaskan ke kegiatan survei apapun.</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -498,9 +652,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
           {/* VIEW 2: PRELIST */}
           {view === "prelist" && selectedActivity && (
             <div className="flex-1 bg-white view-transition">
-              <div className="px-6 pt-12 pb-6 border-b border-slate-100 flex items-center gap-3">
+              <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex items-center gap-3">
                 <button onClick={() => setView("select_activity")}
-                  className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-slate-100 cursor-pointer rounded-lg flex items-center justify-center text-slate-400 transition-all flex-shrink-0">
+                  className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-solid border-slate-100 cursor-pointer rounded-lg flex items-center justify-center text-slate-400 transition-all flex-shrink-0">
                   <ArrowLeft size={16} />
                 </button>
                 <div className="flex-1 min-w-0">
@@ -514,70 +668,79 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                   <span className="text-xs text-slate-400 font-semibold">{localPrelist.length} Rumah Tangga</span>
                   {!isPml && (
                     <button onClick={handleAddNew}
-                      className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm">
+                      disabled={loadingForm || blocks.length === 0}
+                      className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                    >
                       <Plus size={14} /> Tambah Baru
                     </button>
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  {localPrelist.map((item, i) => (
-                    <button key={item.id} onClick={() => handleEditItem(item)}
-                      className="w-full bg-white rounded-xl p-4 border border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-blue-200 hover:shadow-sm group">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0 ${
-                        item.status === "terkirim" ? "bg-blue-50 text-blue-600" :
-                        item.status === "tersimpan" ? "bg-emerald-50 text-emerald-600" :
-                        "bg-slate-50 text-slate-400"
-                      }`}>{i + 1}</div>
-                      
-                      <div className="flex-1 min-w-0">
-                        {/* Only display KRT name as requested */}
-                        <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{item.krt}</p>
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        {/* Status Badge 1: Completion Status */}
-                        <Badge status={item.reviewStatus === "rejected" ? "draft" : item.status}/>
+                {loadingForm ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-slate-400">
+                    <RefreshCw className="animate-spin mb-2" size={24} />
+                    <p className="text-xs font-semibold">Memuat formulir...</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {localPrelist.map((item, i) => (
+                      <div key={item.kode} onClick={() => handleEditItem(item)}
+                        className="w-full bg-white rounded-xl p-4 border border-solid border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-blue-200 hover:shadow-sm group">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0 ${
+                          item.status === "terkirim" ? "bg-blue-50 text-blue-600" :
+                          item.status === "tersimpan" ? "bg-emerald-50 text-emerald-600" :
+                          "bg-slate-50 text-slate-400"
+                        }`}>{i + 1}</div>
                         
-                        {/* Status Badge 2: Review Status (no black outlines) */}
-                        {item.reviewStatus === "approved" ? (
-                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                            Approved
-                          </span>
-                        ) : item.reviewStatus === "rejected" ? (
-                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-rose-500" />
-                            Rejected
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-slate-50 text-slate-600 flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-slate-400" />
-                            Draft
-                          </span>
-                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{item.krt || "Tanpa Nama KRT"}</p>
+                          <p className="text-xs text-slate-450 mt-0.5 font-medium truncate">{item.alamat || "Alamat belum diisi"}</p>
+                        </div>
 
-                        {/* Activity Log Trigger Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedLogItem(item);
-                          }}
-                          className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer flex-shrink-0"
-                          title="Log Aktivitas"
-                        >
-                          <MessageSquare size={14} />
-                        </button>
+                        <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                          {/* Completion Badge */}
+                          <Badge status={item.review_status === "rejected" ? "rejected" : item.status}/>
+                          
+                          {/* Review status badge */}
+                          {item.review_status === "approved" ? (
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 flex items-center gap-1">
+                              <span className="w-1 h-1 rounded-full bg-emerald-500" />
+                              Approved
+                            </span>
+                          ) : item.review_status === "rejected" ? (
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 flex items-center gap-1">
+                              <span className="w-1 h-1 rounded-full bg-rose-500" />
+                              Rejected
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-slate-50 text-slate-650 flex items-center gap-1">
+                              <span className="w-1 h-1 rounded-full bg-slate-400" />
+                              Draft
+                            </span>
+                          )}
+
+                          {/* Activity Logs trigger */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedLogItem(item);
+                            }}
+                            className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer flex-shrink-0"
+                            title="Log Aktivitas"
+                          >
+                            <MessageSquare size={14} />
+                          </button>
+                        </div>
                       </div>
-                    </button>
-                  ))}
-                  {localPrelist.length === 0 && (
-                    <div className="bg-slate-50 rounded-xl py-12 text-center border border-dashed border-slate-200">
-                      <p className="text-xs text-slate-500 font-semibold">Prelist Kosong</p>
-                      <p className="text-[10px] text-slate-400 mt-1">Klik Tambah Baru untuk mengisi kuesioner baru</p>
-                    </div>
-                  )}
-                </div>
+                    ))}
+                    {localPrelist.length === 0 && (
+                      <div className="bg-slate-50 rounded-xl py-12 text-center border border-dashed border-slate-200">
+                        <p className="text-xs text-slate-550 font-semibold">Prelist Kosong</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Klik Tambah Baru untuk mengisi kuesioner baru</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -586,19 +749,19 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
           {view === "form" && selectedActivity && (
             <div className="bg-slate-50 min-h-screen flex flex-col rounded-2xl overflow-hidden mt-4 shadow-sm view-transition">
               
-              {/* Contextual Form Banner */}
+              {/* Status Header Banners */}
               {(() => {
-                if (selectedRtItem?.reviewStatus === "approved") {
+                if (selectedRtItem?.review_status === "approved") {
                   return (
-                    <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-3 flex items-center gap-2.5 text-emerald-800">
+                    <div className="bg-emerald-50 border-b border-solid border-emerald-100 px-6 py-3 flex items-center gap-2.5 text-emerald-800">
                       <ShieldCheck size={16} className="text-emerald-600" />
                       <p className="text-xs font-semibold">Dokumen telah disetujui (Approved) dan tidak dapat diubah kembali.</p>
                     </div>
                   );
                 }
-                if (selectedRtItem?.reviewStatus === "rejected") {
+                if (selectedRtItem?.review_status === "rejected") {
                   return (
-                    <div className="bg-rose-50 border-b border-rose-100 px-6 py-3 flex items-center gap-2.5 text-rose-800">
+                    <div className="bg-rose-50 border-b border-solid border-rose-100 px-6 py-3 flex items-center gap-2.5 text-rose-800">
                       <XCircle size={16} className="text-rose-600" />
                       <p className="text-xs font-semibold">Dokumen ditolak (Rejected) oleh PML. Silakan perbaiki sesuai catatan pengawas.</p>
                     </div>
@@ -606,7 +769,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 }
                 if (selectedRtItem?.status === "terkirim") {
                   return (
-                    <div className="bg-blue-50 border-b border-blue-100 px-6 py-3 flex items-center gap-2.5 text-blue-800">
+                    <div className="bg-blue-50 border-b border-solid border-blue-100 px-6 py-3 flex items-center gap-2.5 text-blue-800">
                       <CheckCircle size={16} className="text-blue-600" />
                       <p className="text-xs font-semibold">Dokumen telah terkirim (Terkirim) ke server dan bersifat read-only.</p>
                     </div>
@@ -615,14 +778,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 if (selectedRtItem?.status === "tersimpan") {
                   if (isPml) {
                     return (
-                      <div className="bg-amber-50 border-b border-amber-100 px-6 py-3 flex items-center gap-2.5 text-amber-800">
+                      <div className="bg-amber-50 border-b border-solid border-amber-100 px-6 py-3 flex items-center gap-2.5 text-amber-800">
                         <AlertCircle size={16} className="text-amber-600" />
                         <p className="text-xs font-semibold">Dokumen disimpan oleh PCL tetapi belum dikirim ke server.</p>
                       </div>
                     );
                   }
                   return (
-                    <div className="bg-teal-50 border-b border-teal-100 px-6 py-3 flex items-center gap-2.5 text-teal-800">
+                    <div className="bg-teal-50 border-b border-solid border-teal-100 px-6 py-3 flex items-center gap-2.5 text-teal-800">
                       <Info size={16} className="text-teal-600" />
                       <p className="text-xs font-semibold">Dokumen disimpan (Tersimpan) dan bersifat read-only. Klik "Batal Simpan" di langkah terakhir untuk mengedit.</p>
                     </div>
@@ -630,7 +793,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 }
                 if (isPml) {
                   return (
-                    <div className="bg-slate-50 border-b border-slate-100 px-6 py-3 flex items-center gap-2.5 text-slate-700">
+                    <div className="bg-slate-50 border-b border-solid border-slate-105 px-6 py-3 flex items-center gap-2.5 text-slate-700">
                       <Info size={16} className="text-slate-500" />
                       <p className="text-xs font-semibold">Mode Pemeriksaan Pengawas (PML). Jawaban tidak dapat diubah.</p>
                     </div>
@@ -639,19 +802,19 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 return null;
               })()}
 
-              {/* Header */}
-              <div className="bg-white border-b border-slate-100 px-6 pt-8 pb-5">
+              {/* Form header */}
+              <div className="bg-white border-b border-solid border-slate-100 px-6 pt-8 pb-5">
                 <div className="flex items-center gap-3 mb-5">
                   <button onClick={() => setView("prelist")}
-                    className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-slate-100 cursor-pointer rounded-lg flex items-center justify-center flex-shrink-0 transition-all text-slate-400">
+                    className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-solid border-slate-100 cursor-pointer rounded-lg flex items-center justify-center flex-shrink-0 transition-all text-slate-400">
                     <ArrowLeft size={16} />
                   </button>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-slate-400 font-medium truncate">
-                      {selectedRtItem ? `${selectedRtItem.id} · ${selectedRtItem.krt}` : "Baru · Tambah Kuesioner"}
+                      {selectedRtItem ? `${selectedRtItem.kode} · ${selectedRtItem.krt}` : "Baru · Tambah Kuesioner"}
                     </p>
                     <h2 className="text-base font-bold text-slate-900 truncate">
-                      {activeTab} – {getBlockLabel(activeTab)}
+                      {activeTab} – {activeBlock?.title || "Isi Kuesioner"}
                     </h2>
                   </div>
                   <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg flex-shrink-0 transition-all ${
@@ -662,30 +825,32 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 </div>
 
                 {/* Progress bar */}
-                <div className="space-y-2">
-                  <div className="flex gap-1.5">
-                    {BLOCKS.map((b, i) => {
-                      const isCompleted = i < getActiveIndex(activeTab);
-                      const isCurrent = b.l === activeTab;
-                      return (
-                        <div key={i} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${
-                          isCurrent ? "bg-blue-400 animate-pulse" : isCompleted ? "bg-blue-600" : "bg-slate-100"
-                        }`}/>
-                      );
-                    })}
+                {blocks.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex gap-1.5">
+                      {blocks.map((b, i) => {
+                        const isCompleted = i < activeBlockIndex;
+                        const isCurrent = b.kode === activeTab;
+                        return (
+                          <div key={b.kode} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${
+                            isCurrent ? "bg-blue-400 animate-pulse" : isCompleted ? "bg-blue-600" : "bg-slate-100"
+                          }`}/>
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium">
+                      <span>Langkah {activeBlockIndex + 1} dari {blocks.length}</span>
+                      <span className="text-blue-600 font-semibold">{activeTab} ({activeBlock?.title})</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium">
-                    <span>Langkah {getActiveIndex(activeTab) + 1} dari 5</span>
-                    <span className="text-blue-600 font-semibold">{activeTab} ({getBlockLabel(activeTab)})</span>
-                  </div>
-                </div>
+                )}
               </div>
 
-              {/* Block tabs */}
-              <div className="flex gap-2 px-6 py-4 overflow-x-auto bg-white border-b border-slate-50">
-                {BLOCKS.map((b, i) => {
-                  const isActive = b.l === activeTab;
-                  const status = validateBlock(b.l, ans);
+              {/* Block Tab Header Toggles */}
+              <div className="flex gap-2 px-6 py-4 overflow-x-auto bg-white border-b border-solid border-slate-50">
+                {blocks.map((b) => {
+                  const isActive = b.kode === activeTab;
+                  const status = validateBlock(b.kode);
                   
                   let tabStyle = "";
                   let icon = null;
@@ -708,330 +873,212 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                   }
                   
                   return (
-                    <button key={i} onClick={() => setActiveTab(b.l)}
-                      className={`flex-shrink-0 px-3.5 py-2 rounded-lg text-xs font-semibold border cursor-pointer transition-all flex items-center ${tabStyle}`}>
+                    <button key={b.kode} onClick={() => setActiveTab(b.kode)}
+                      className={`flex-shrink-0 px-3.5 py-2 rounded-lg text-xs font-semibold border border-solid cursor-pointer transition-all flex items-center ${tabStyle}`}>
                       {icon}
-                      {b.l}{b.cond && <span className="ml-1 opacity-50">*</span>}
+                      {b.kode}
                     </button>
                   );
                 })}
               </div>
 
-              {/* Questions Container */}
+              {/* Questions Render Panel */}
               <div className="px-6 py-6 space-y-4 flex-1">
                 
-                {/* BLOK I: Lokasi */}
-                {activeTab === "Blok I" && (
-                  <>
-                    <QCard r="101" label="Provinsi" required>
-                      <input value="Kalimantan Utara" disabled
-                        className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-500 cursor-not-allowed"/>
-                    </QCard>
-
-                    <QCard r="102" label="Kabupaten / Kota" required>
-                      <input value="Tana Tidung" disabled
-                        className="w-full px-4 py-3 text-sm bg-slate-50 border border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-500 cursor-not-allowed"/>
-                    </QCard>
-
-                    <QCard r="103" label="Kecamatan" required>
-                      <input value={ans.kecamatan} onChange={e => setVal("kecamatan", e.target.value)}
-                        placeholder="Contoh: Sesayap" disabled={isReadOnly}
-                        className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                    </QCard>
-
-                    <QCard r="104" label="Desa / Kelurahan" required>
-                      <input value={ans.desa} onChange={e => setVal("desa", e.target.value)}
-                        placeholder="Contoh: Tideng Pale" disabled={isReadOnly}
-                        className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                    </QCard>
-
-                    <QCard r="105" label="Satuan Lingkungan Setempat (SLS) / RT">
-                      <input value={ans.sls} onChange={e => setVal("sls", e.target.value)}
-                        placeholder="Contoh: SLS 01 Tideng Pale" disabled={isReadOnly}
-                        className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                    </QCard>
-
-                    <QCard r="106" label="Alamat / Jalan">
-                      <input value={ans.alamat} onChange={e => setVal("alamat", e.target.value)}
-                        placeholder="Contoh: Jl. Melati No. 12" disabled={isReadOnly}
-                        className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                    </QCard>
-                  </>
+                {/* Prepend code input at the top of Block I */}
+                {isFirstBlock && (
+                  <QCard r="kode" label="Kode Dokumen / Nomor Urut RT" required hint="Kode unik identifikasi rumah tangga">
+                    <input 
+                      type="text" 
+                      value={ans.kode} 
+                      onChange={e => {
+                        setAns(p => ({ ...p, kode: e.target.value }));
+                        markUnsaved();
+                      }}
+                      placeholder="Contoh: RT-001" 
+                      disabled={isReadOnly || (selectedRtItem && selectedRtItem.status !== 'draft')}
+                      className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                    />
+                  </QCard>
                 )}
 
-                {/* BLOK II: Perumahan */}
-                {activeTab === "Blok II" && (
-                  <>
-                    <QCard r="201" label="Status Kepemilikan Bangunan Tempat Tinggal" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Milik Sendiri"], ["2", "Kontrak/Sewa"], ["3", "Bebas Sewa"], ["4", "Lainnya"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r201", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r201 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
+                {activeQuestions.map((q) => {
+                  if (!isQuestionVisible(q)) return null;
 
-                    <QCard r="202" label="Luas Lantai Bangunan (m²)" required>
-                      <div className="flex items-center gap-3">
-                        <input type="number" value={ans.r202} onChange={e => setVal("r202", e.target.value)}
-                          placeholder="Luas lantai" disabled={isReadOnly}
-                          className="w-32 px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                        <span className="text-xs text-slate-400 font-medium">Meter Persegi</span>
-                      </div>
-                    </QCard>
+                  const isTextType = q.type === 'text';
+                  const isNumberType = q.type === 'number';
+                  const isTextAreaType = q.type === 'textarea';
+                  const isChoiceType = q.type === 'select' || q.type === 'radio';
 
-                    <QCard r="203" label="Jenis Lantai Terluas" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Keramik/Ubin"], ["2", "Semen/Plester"], ["3", "Kayu/Papan"], ["4", "Tanah"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r203", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r203 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
+                  return (
+                    <QCard 
+                      key={q.id} 
+                      r={`${q.id}`} 
+                      label={q.label} 
+                      required={!!q.required} 
+                      hint={q.validation}
+                      skipInfo={q.skip_logic ? `Kondisi skip: jika bernilai ${q.skip_logic}` : null}
+                    >
+                      {/* 1. TEXT INPUTS */}
+                      {isTextType && (
+                        <input 
+                          type="text"
+                          value={ans.values[q.id] || ""}
+                          placeholder={`Isi ${q.label}`}
+                          disabled={isReadOnly}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const newValues = { ...ans.values, [q.id]: val };
+                            
+                            // Heuristic updates
+                            let headerUpdates = {};
+                            const lowerLabel = q.label.toLowerCase();
+                            if (lowerLabel.includes("kecamatan")) {
+                              headerUpdates.kecamatan = val;
+                            } else if (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) {
+                              headerUpdates.desa = val;
+                            } else if (lowerLabel.includes("sls") || lowerLabel.includes("rt ")) {
+                              headerUpdates.sls = val;
+                            } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
+                              headerUpdates.alamat = val;
+                            } else if (lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) {
+                              headerUpdates.krt = val;
+                            } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls")) {
+                              headerUpdates.sub_sls = val;
+                            }
+                            
+                            setAns(p => ({
+                              ...p,
+                              ...headerUpdates,
+                              values: newValues
+                            }));
+                            markUnsaved();
+                          }}
+                          className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                        />
+                      )}
 
-                    <QCard r="204" label="Jenis Dinding Terluas" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Tembok"], ["2", "Semi Tembok"], ["3", "Kayu/Papan"], ["4", "Bambu/Lainnya"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r204", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r204 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
-                  </>
-                )}
+                      {/* 2. NUMBER INPUTS */}
+                      {isNumberType && (
+                        <div className="flex items-center gap-3">
+                          <input 
+                            type="number"
+                            value={ans.values[q.id] || ""}
+                            placeholder="Contoh: 12"
+                            disabled={isReadOnly}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              const newValues = { ...ans.values, [q.id]: val };
+                              
+                              // Heuristic update for age
+                              let headerUpdates = {};
+                              const lowerLabel = q.label.toLowerCase();
+                              if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
+                                headerUpdates.umur = val;
+                              }
+                              
+                              setAns(p => ({
+                                ...p,
+                                ...headerUpdates,
+                                values: newValues
+                              }));
+                              markUnsaved();
+                            }}
+                            className="w-32 px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                          />
+                          <span className="text-xs text-slate-400 font-medium">Satuan Angka</span>
+                        </div>
+                      )}
 
-                {/* BLOK III: Anggota RT */}
-                {activeTab === "Blok III" && (
-                  <>
-                    <QCard r="301" label="Nama Kepala Rumah Tangga" required>
-                      <input value={ans.r301} onChange={e => setVal("r301", e.target.value)}
-                        placeholder="Contoh: Ahmad Subagyo" disabled={isReadOnly}
-                        className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                    </QCard>
+                      {/* 3. TEXTAREA INPUTS */}
+                      {isTextAreaType && (
+                        <textarea
+                          value={ans.values[q.id] || ""}
+                          placeholder={`Masukkan detail ${q.label}`}
+                          disabled={isReadOnly}
+                          onChange={(e) => {
+                            setAns(p => ({
+                              ...p,
+                              values: { ...p.values, [q.id]: e.target.value }
+                            }));
+                            markUnsaved();
+                          }}
+                          className="w-full h-20 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none disabled:bg-slate-50"
+                        />
+                      )}
 
-                    <QCard r="302" label="Hubungan dengan KRT" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Kepala Keluarga"], ["2", "Istri"], ["3", "Anak"], ["4", "Lainnya"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r302", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r302 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="303" label="Jenis Kelamin" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Laki-laki"], ["2", "Perempuan"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r303", v)} disabled={isReadOnly}
-                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-medium transition-all ${
-                              ans.r303 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${ans.r303 === v ? "border-blue-600" : "border-slate-200"}`}>
-                              {ans.r303 === v && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
-                            </div>
-                            {v}. {l}
-                          </button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="304" label="Umur (tahun)" required hint="Nilai valid: 0 – 120 tahun">
-                      <div className="flex items-center gap-3">
-                        <input type="number" value={ans.r304} min={0} max={120}
-                          onChange={e => setVal("r304", e.target.value)} disabled={isReadOnly}
-                          className="mono w-28 px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"/>
-                        <span className="text-xs text-slate-400 font-medium">Tahun</span>
-                      </div>
-                      {ans.r304 && (parseInt(ans.r304) < 0 || parseInt(ans.r304) > 120) && (
-                        <div className="flex items-center gap-2 mt-2 text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">
-                          <AlertTriangle size={13} className="flex-shrink-0"/> Nilai di luar rentang (0–120)
+                      {/* 4. SELECTION / RADIO INPUTS */}
+                      {isChoiceType && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {(q.options || []).map((opt) => {
+                            const isSelected = String(ans.values[q.id]) === String(opt.value);
+                            return (
+                              <button 
+                                key={opt.value} 
+                                type="button" 
+                                onClick={() => {
+                                  if (isReadOnly) return;
+                                  const val = opt.value;
+                                  const newValues = { ...ans.values, [q.id]: val };
+                                  
+                                  // Heuristic maps for choice answers
+                                  let headerUpdates = {};
+                                  const lowerLabel = q.label.toLowerCase();
+                                  if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
+                                    headerUpdates.gender = val;
+                                  } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
+                                    headerUpdates.perkawinan = val;
+                                  } else if (lowerLabel.includes("bekerja")) {
+                                    headerUpdates.bekerja = val;
+                                  }
+                                  
+                                  setAns(p => ({
+                                    ...p,
+                                    ...headerUpdates,
+                                    values: newValues
+                                  }));
+                                  markUnsaved();
+                                }}
+                                disabled={isReadOnly}
+                                className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
+                                  isSelected 
+                                    ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
+                                    : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
+                                } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
+                              >
+                                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                                  isSelected ? "border-blue-600" : "border-slate-200"
+                                }`}>
+                                  {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                                </div>
+                                {opt.value}. {opt.label}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </QCard>
+                  );
+                })}
 
-                    <QCard r="305" label="Status Perkawinan" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Belum Kawin"], ["2", "Kawin"], ["3", "Cerai Hidup"], ["4", "Cerai Mati"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r305", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r305 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="307" label="Bekerja seminggu yang lalu?" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r307", v)} disabled={isReadOnly}
-                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-medium transition-all ${
-                              ans.r307 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${ans.r307 === v ? "border-blue-600" : "border-slate-200"}`}>
-                              {ans.r307 === v && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
-                            </div>
-                            {v}. {l}
-                          </button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <div style={{ opacity: skipped ? 0.4 : 1, transition: "opacity .3s ease" }}>
-                      <QCard r="308" label="Lapangan Usaha Utama"
-                        skipInfo={skipped ? "Dilewati otomatis" : "Aktif jika Ya"}>
-                        <input value={ans.r308} disabled={skipped || isReadOnly} onChange={e => setVal("r308", e.target.value)}
-                          className={`w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${skipped ? "cursor-not-allowed opacity-50" : ""}`}
-                          placeholder={skipped ? "Dilewati" : "Contoh: Pertanian, Perdagangan..."}/>
-                      </QCard>
-                    </div>
-
-                    {/* Consistency warning */}
-                    <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
-                      <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5"/>
-                      <div>
-                        <p className="text-xs font-semibold text-amber-800">Peringatan Konsistensi</p>
-                        <p className="text-xs text-amber-600 mt-0.5 leading-relaxed">
-                          {ans.r304 && ans.r305 ? `Umur ${ans.r304} tahun dengan status ${
-                            ans.r305 === "1" ? "Belum Kawin" : ans.r305 === "2" ? "Kawin" : "Cerai"
-                          } sudah sesuai.` : "Mohon isi Umur dan Status Perkawinan."}
-                        </p>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* BLOK IV: Sosial Ekonomi */}
-                {activeTab === "Blok IV" && (
-                  <>
-                    <QCard r="401" label="Sumber Penerangan Utama" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Listrik PLN"], ["2", "Listrik non-PLN"], ["3", "Bukan Listrik"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r401", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r401 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="402" label="Bahan Bakar Utama Memasak" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Gas LPG 3kg"], ["2", "Gas LPG >3kg"], ["3", "Minyak Tanah"], ["4", "Kayu Bakar"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r402", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r402 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="403" label="Sumber Air Minum Utama" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Isi Ulang/Kemasan"], ["2", "Leding/PAM"], ["3", "Sumur Terlindungi"], ["4", "Air Hujan/Sungai"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r403", v)} disabled={isReadOnly}
-                            className={`py-3 px-4 text-xs rounded-xl border font-medium transition-all text-left ${
-                              ans.r403 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>{v}. {l}</button>
-                        ))}
-                      </div>
-                    </QCard>
-                  </>
-                )}
-
-                {/* BLOK V: Kepemilikan Aset */}
-                {activeTab === "Blok V" && (
-                  <>
-                    <QCard r="501" label="Apakah rumah tangga memiliki tabungan/perhiasan emas?" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r501", v)} disabled={isReadOnly}
-                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-medium transition-all ${
-                              ans.r501 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${ans.r501 === v ? "border-blue-600" : "border-slate-200"}`}>
-                              {ans.r501 === v && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
-                            </div>
-                            {v}. {l}
-                          </button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="502" label="Apakah memiliki sepeda motor aktif?" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r502", v)} disabled={isReadOnly}
-                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-medium transition-all ${
-                              ans.r502 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${ans.r502 === v ? "border-blue-600" : "border-slate-200"}`}>
-                              {ans.r502 === v && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
-                            </div>
-                            {v}. {l}
-                          </button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="503" label="Apakah memiliki komputer / laptop yang masih berfungsi?" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r503", v)} disabled={isReadOnly}
-                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-medium transition-all ${
-                              ans.r503 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${ans.r503 === v ? "border-blue-600" : "border-slate-200"}`}>
-                              {ans.r503 === v && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
-                            </div>
-                            {v}. {l}
-                          </button>
-                        ))}
-                      </div>
-                    </QCard>
-
-                    <QCard r="504" label="Apakah memiliki HP/smartphone aktif dalam rumah tangga?" required>
-                      <div className="grid grid-cols-2 gap-2">
-                        {[["1", "Ya"], ["2", "Tidak"]].map(([v, l]) => (
-                          <button key={v} type="button" onClick={() => setVal("r504", v)} disabled={isReadOnly}
-                            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border text-xs font-medium transition-all ${
-                              ans.r504 === v ? "border-blue-500 bg-blue-50 text-blue-700" : "border-slate-100 bg-white text-slate-500 hover:border-slate-200"
-                            } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}>
-                            <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${ans.r504 === v ? "border-blue-600" : "border-slate-200"}`}>
-                              {ans.r504 === v && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
-                            </div>
-                            {v}. {l}
-                          </button>
-                        ))}
-                      </div>
-                    </QCard>
-                  </>
-                )}
-
-                {/* Inline Action Buttons (Decreased vertical padding) */}
+                {/* Bottom navigation buttons */}
                 <div className="flex gap-3 pt-6 pb-4">
-                  {activeTab !== "Blok I" ? (
+                  {!isFirstBlock ? (
                     <button type="button" onClick={handlePrevTab}
-                      className="px-5 py-3 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
+                      className="px-5 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
                       <ChevronLeft size={14}/> Sebelumnya
                     </button>
                   ) : (
                     <button type="button" onClick={() => setView("prelist")}
-                      className="px-5 py-3 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
+                      className="px-5 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
                       <ArrowLeft size={14}/> Batal
                     </button>
                   )}
 
-                  {activeTab === "Blok V" ? (
+                  {isLastBlock ? (
                     <div className="flex-1 flex gap-2">
                       {isPml ? (
-                        selectedRtItem?.reviewStatus === "approved" ? (
+                        selectedRtItem?.review_status === "approved" ? (
                           <button type="button" onClick={() => setView("prelist")}
                             className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
                             Kembali ke Prelist
@@ -1039,7 +1086,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                         ) : (
                           <>
                             <button type="button" onClick={handlePmlRejectClick}
-                              className="px-6 py-3 border border-red-200 bg-rose-50 hover:bg-rose-100 rounded-xl text-xs text-rose-700 font-bold cursor-pointer transition-all flex items-center justify-center gap-1">
+                              className="px-6 py-3 border border-solid border-red-200 bg-rose-50 hover:bg-rose-100 rounded-xl text-xs text-rose-700 font-bold cursor-pointer transition-all flex items-center justify-center gap-1">
                               Reject
                             </button>
                             <button type="button" onClick={handlePmlApprove}
@@ -1050,9 +1097,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                         )
                       ) : isReadOnly ? (
                         <>
-                          {(selectedRtItem?.status === "tersimpan" && selectedRtItem?.reviewStatus !== "approved") && (
+                          {(selectedRtItem?.status === "tersimpan" && selectedRtItem?.review_status !== "approved") && (
                             <button type="button" onClick={handleCancelSave}
-                              className="px-4 py-3 border border-red-200 bg-rose-50 hover:bg-rose-100 rounded-xl text-xs text-rose-700 font-bold cursor-pointer transition-all flex items-center justify-center gap-1">
+                              className="px-4 py-3 border border-solid border-red-200 bg-rose-50 hover:bg-rose-100 rounded-xl text-xs text-rose-700 font-bold cursor-pointer transition-all flex items-center justify-center gap-1">
                               Batal Simpan
                             </button>
                           )}
@@ -1075,6 +1122,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                     </button>
                   )}
                 </div>
+
               </div>
             </div>
           )}
@@ -1092,14 +1140,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 to { transform: scale(1); opacity: 1; }
               }
             `}</style>
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-6 py-4 bg-slate-50 border-b border-solid border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">Log Aktivitas</h3>
-                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedLogItem.krt} ({selectedLogItem.id})</p>
+                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedLogItem.krt} ({selectedLogItem.kode})</p>
               </div>
               <button 
                 onClick={() => setSelectedLogItem(null)}
-                className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-all cursor-pointer"
+                className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-650 transition-all cursor-pointer"
               >
                 <X size={16} />
               </button>
@@ -1107,21 +1155,21 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
             
             <div className="px-6 py-6 max-h-[380px] overflow-y-auto space-y-4">
               {selectedLogItem.logs && selectedLogItem.logs.length > 0 ? (
-                <div className="relative pl-6 border-l border-slate-200 space-y-5">
+                <div className="relative pl-6 border-l border-solid border-slate-200 space-y-5">
                   {selectedLogItem.logs.map((log, index) => {
                     const parts = log.split(": ");
                     const time = parts[0] || "";
                     const desc = parts.slice(1).join(": ") || "";
                     
                     let circleColor = "bg-slate-300 ring-slate-100";
-                    let textColor = "text-slate-600";
+                    let textColor = "text-slate-650";
                     
                     if (desc.includes("disetujui") || desc.includes("Approved")) {
                       circleColor = "bg-emerald-500 ring-emerald-100";
                       textColor = "text-emerald-800 font-semibold";
                     } else if (desc.includes("Ditolak") || desc.includes("Rejected")) {
-                      circleColor = "bg-rose-500 ring-rose-105";
-                      textColor = "text-rose-800 font-medium bg-rose-50 p-2.5 rounded-lg border border-rose-100 mt-1 block leading-relaxed";
+                      circleColor = "bg-rose-500 ring-rose-100";
+                      textColor = "text-rose-800 font-medium bg-rose-50 p-2.5 rounded-lg border border-solid border-rose-100 mt-1 block leading-relaxed";
                     } else if (desc.includes("kirim") || desc.includes("Terkirim")) {
                       circleColor = "bg-blue-500 ring-blue-100";
                       textColor = "text-blue-800 font-semibold";
@@ -1148,7 +1196,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
               )}
             </div>
             
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+            <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end">
               <button 
                 onClick={() => setSelectedLogItem(null)}
                 className="px-4.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all"
@@ -1164,12 +1212,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
       {rejectionNoteItem && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden" style={{ animation: "scaleUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
-            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+            <div className="px-6 py-4 bg-slate-50 border-b border-solid border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-800">Catatan Rejection</h3>
-                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{rejectionNoteItem.krt} ({rejectionNoteItem.id})</p>
+                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{rejectionNoteItem.krt} ({rejectionNoteItem.kode})</p>
               </div>
-              <button onClick={() => setRejectionNoteItem(null)} className="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-400 cursor-pointer">
+              <button onClick={() => setRejectionNoteItem(null)} className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-450 cursor-pointer">
                 <X size={16} />
               </button>
             </div>
@@ -1179,11 +1227,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 value={rejectionNote}
                 onChange={(e) => setRejectionNote(e.target.value)}
                 placeholder="Contoh: Keterangan Umur tidak sesuai dengan Status Perkawinan..."
-                className="w-full h-24 p-3 border border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none"
+                className="w-full h-24 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none"
               />
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-              <button onClick={() => setRejectionNoteItem(null)} className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer">
+            <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end gap-2">
+              <button onClick={() => setRejectionNoteItem(null)} className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-655 font-semibold text-xs rounded-xl cursor-pointer">
                 Batal
               </button>
               <button 
@@ -1236,10 +1284,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities }) {
                 <p className="text-xs text-slate-500 mt-2 font-medium leading-relaxed">{confirmDialog.message}</p>
               </div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-2 justify-end">
+            <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex gap-2 justify-end">
               <button 
                 onClick={() => setConfirmDialog(p => ({ ...p, isOpen: false }))}
-                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
+                className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
               >
                 Batal
               </button>

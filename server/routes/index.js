@@ -1,10 +1,13 @@
-/**
- * @module server/routes
- * Definisi route utama untuk API backend.
- * Semua endpoint API didaftarkan di sini.
- */
-
 import { Router } from 'express';
+import authRoutes from './auth.js';
+import petugasRoutes from './petugas.js';
+import kegiatanRoutes from './kegiatan.js';
+import wilayahRoutes from './wilayah.js';
+import formRoutes from './form.js';
+import dokumenRoutes from './dokumen.js';
+import desaRoutes from './desa.js';
+import dashboardRoutes from './dashboard.js';
+import tabulasiRoutes from './tabulasi.js';
 
 const router = Router();
 
@@ -20,22 +23,15 @@ router.get('/health', (_req, res) => {
   });
 });
 
-/**
- * GET /api/petugas
- * Placeholder endpoint untuk data petugas.
- * TODO: Implementasi query ke database.
- */
-router.get('/petugas', (_req, res) => {
-  res.json({ message: 'Endpoint petugas - belum diimplementasi' });
-});
-
-/**
- * GET /api/responses
- * Placeholder endpoint untuk data respons/dokumen.
- * TODO: Implementasi query ke database.
- */
-router.get('/responses', (_req, res) => {
-  res.json({ message: 'Endpoint responses - belum diimplementasi' });
-});
+// Daftarkan sub-routes
+router.use('/auth', authRoutes);
+router.use('/petugas', petugasRoutes);
+router.use('/kegiatan', kegiatanRoutes);
+router.use('/wilayah', wilayahRoutes);
+router.use('/form', formRoutes);
+router.use('/dokumen', dokumenRoutes);
+router.use('/desa', desaRoutes);
+router.use('/dashboard', dashboardRoutes);
+router.use('/tabulasi', tabulasiRoutes);
 
 export default router;

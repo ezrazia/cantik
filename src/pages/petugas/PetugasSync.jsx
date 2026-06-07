@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { Upload, Download, CheckCircle, Clock, AlertCircle, RefreshCcw, AlertTriangle } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
-import { getRtList, saveRtItem } from "../../constants/mockData";
+import { api } from "../../services/api";
 
 /**
  * Halaman sinkronisasi Petugas — minimalis & interactive.
  *
  * @param {Object} props
  * @param {(screen: string) => void} props.onNavigate
+ * @param {Object} props.currentUser
+ * @param {boolean} props.isOffline
  * @returns {React.ReactElement}
  */
-function PetugasSync({ onNavigate }) {
+function PetugasSync({ onNavigate, currentUser, isOffline }) {
   const [localRtList, setLocalRtList] = useState([]);
   const [syncingAll, setSyncingAll] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({
@@ -21,13 +23,21 @@ function PetugasSync({ onNavigate }) {
   });
 
   const refreshList = () => {
-    const list = getRtList().filter(rt => rt.petugasName === "Budi Santoso");
-    setLocalRtList(list);
+    const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+    if (cached) {
+      try {
+        setLocalRtList(JSON.parse(cached));
+      } catch (e) {
+        console.error("Gagal parse cached offline docs:", e);
+      }
+    } else {
+      setLocalRtList([]);
+    }
   };
 
   useEffect(() => {
     refreshList();
-  }, []);
+  }, [currentUser.id]);
 
   const askConfirmation = (title, message, onConfirm) => {
     setConfirmDialog({
@@ -42,112 +52,123 @@ function PetugasSync({ onNavigate }) {
   };
 
   const antriKirim = localRtList.filter(rt => rt.status === "tersimpan");
-  const terkirim = localRtList.filter(rt => rt.status === "terkirim");
-  const ditolak = localRtList.filter(rt => rt.reviewStatus === "rejected" && rt.status === "draft");
+  const terkirim = localRtList.filter(rt => rt.status === "terkirim" && rt.review_status !== "rejected");
+  const ditolak = localRtList.filter(rt => rt.review_status === "rejected");
 
   // Show both in queue: ready to send (tersimpan) and synced (terkirim)
   const queueItems = localRtList.filter(rt => rt.status === "tersimpan" || rt.status === "terkirim");
 
   const handleSyncItem = (item) => {
+    if (isOffline) {
+      alert("Tidak dapat mengirim data saat offline. Silakan hubungkan internet terlebih dahulu.");
+      return;
+    }
     askConfirmation(
       "Kirim Dokumen",
-      `Apakah Anda yakin ingin mengirim dokumen ${item.krt} (${item.id}) ke server?`,
+      `Apakah Anda yakin ingin mengirim dokumen ${item.krt || 'KRT'} (${item.kode}) ke server BPS?`,
       () => executeSyncItem(item)
     );
   };
 
-  const executeSyncItem = (item) => {
-    const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
-    const existingLogs = item.logs || [];
-    const newLogs = [...existingLogs, `${timestamp}: Dokumen dikirim ke server (Terkirim)`];
-
-    const updatedItem = {
-      ...item,
-      status: "terkirim",
-      reviewStatus: item.reviewStatus === "rejected" ? "draft" : (item.reviewStatus || "draft"), // clear rejection to draft on sync
-      logs: newLogs,
-      lastSentData: {
+  const executeSyncItem = async (item) => {
+    setSyncingAll(true);
+    try {
+      // Create payload in format expected by backend sync
+      const payloadDoc = {
+        kode: item.kode,
+        kegiatan_id: item.kegiatan_id,
+        krt: item.krt,
+        alamat: item.alamat,
         kecamatan: item.kecamatan,
         desa: item.desa,
         sls: item.sls,
-        alamat: item.alamat,
-        r201: item.r201,
-        r202: item.r202,
-        r203: item.r203,
-        r204: item.r204,
-        krt: item.krt,
-        r302: item.r302,
-        gender: item.gender,
-        umur: item.umur,
-        perkawinan: item.perkawinan,
-        bekerja: item.bekerja,
-        lapanganUsaha: item.lapanganUsaha,
-        r401: item.r401,
-        r402: item.r402,
-        r403: item.r403,
-        r501: item.r501,
-        r502: item.r502,
-        r503: item.r503,
-        r504: item.r504,
-      }
-    };
+        sub_sls: item.sub_sls,
+        status: "terkirim",
+        is_prelist: item.is_prelist,
+        values: item.values || {}
+      };
 
-    saveRtItem(updatedItem);
-    refreshList();
+      const res = await api.dokumen.sync(currentUser.id, [payloadDoc]);
+      if (res.success) {
+        // Fetch fresh state from server
+        const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+        setLocalRtList(freshDocs);
+      } else {
+        alert("Gagal sinkronisasi: " + res.message);
+      }
+    } catch (e) {
+      console.error("Sync error:", e);
+      alert("Terjadi kesalahan jaringan saat mengirim data.");
+    } finally {
+      setSyncingAll(false);
+    }
   };
 
   const handleSyncAll = () => {
     if (antriKirim.length === 0) return;
+    if (isOffline) {
+      alert("Tidak dapat melakukan sinkronisasi saat offline.");
+      return;
+    }
     askConfirmation(
       "Kirim Semua Dokumen",
-      "Apakah Anda yakin ingin mengirim semua dokumen yang ada di antrean ke server?",
+      `Apakah Anda yakin ingin mengirim semua (${antriKirim.length}) dokumen yang ada di antrean ke server?`,
       executeSyncAll
     );
   };
 
-  const executeSyncAll = () => {
+  const executeSyncAll = async () => {
     setSyncingAll(true);
-    setTimeout(() => {
-      antriKirim.forEach(item => {
-        const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const existingLogs = item.logs || [];
-        const newLogs = [...existingLogs, `${timestamp}: Dokumen dikirim ke server (Terkirim)`];
+    try {
+      const payloadDocs = antriKirim.map(item => ({
+        kode: item.kode,
+        kegiatan_id: item.kegiatan_id,
+        krt: item.krt,
+        alamat: item.alamat,
+        kecamatan: item.kecamatan,
+        desa: item.desa,
+        sls: item.sls,
+        sub_sls: item.sub_sls,
+        status: "terkirim",
+        is_prelist: item.is_prelist,
+        values: item.values || {}
+      }));
 
-        const updatedItem = {
-          ...item,
-          status: "terkirim",
-          reviewStatus: item.reviewStatus === "rejected" ? "draft" : (item.reviewStatus || "draft"),
-          logs: newLogs,
-          lastSentData: {
-            kecamatan: item.kecamatan,
-            desa: item.desa,
-            sls: item.sls,
-            alamat: item.alamat,
-            r201: item.r201,
-            r202: item.r202,
-            r203: item.r203,
-            r204: item.r204,
-            krt: item.krt,
-            r302: item.r302,
-            gender: item.gender,
-            umur: item.umur,
-            perkawinan: item.perkawinan,
-            bekerja: item.bekerja,
-            lapanganUsaha: item.lapanganUsaha,
-            r401: item.r401,
-            r402: item.r402,
-            r403: item.r403,
-            r501: item.r501,
-            r502: item.r502,
-            r503: item.r503,
-            r504: item.r504,
-          }
-        };
-        saveRtItem(updatedItem);
-      });
-      refreshList();
+      const res = await api.dokumen.sync(currentUser.id, payloadDocs);
+      if (res.success) {
+        // Fetch fresh state from server
+        const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+        setLocalRtList(freshDocs);
+      } else {
+        alert("Gagal sinkronisasi massal: " + res.message);
+      }
+    } catch (e) {
+      console.error("Sync all error:", e);
+      alert("Terjadi kesalahan jaringan.");
+    } finally {
       setSyncingAll(false);
-    }, 800);
+    }
+  };
+
+  const handleDownloadData = async () => {
+    if (isOffline) {
+      alert("Anda sedang offline. Silakan online terlebih dahulu.");
+      return;
+    }
+    setSyncingAll(true);
+    try {
+      const docs = await api.dokumen.getByPetugas(currentUser.id);
+      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+      setLocalRtList(docs);
+      alert("Data berhasil diunduh dari server!");
+    } catch (e) {
+      console.error("Download error:", e);
+      alert("Gagal mengunduh data: " + e.message);
+    } finally {
+      setSyncingAll(false);
+    }
   };
 
   return (
@@ -155,14 +176,17 @@ function PetugasSync({ onNavigate }) {
       <div className="min-h-screen bg-white slide-up pb-28">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="px-6 pt-12 pb-6 border-b border-slate-100">
+          <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-400 font-medium">Sinkronisasi</p>
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight">Kirim & Unduh</h2>
               </div>
-              <button onClick={refreshList}
-                className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center border-0 cursor-pointer hover:bg-blue-100 transition-all">
+              <button 
+                onClick={refreshList}
+                disabled={syncingAll}
+                className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center border-0 cursor-pointer hover:bg-blue-100 transition-all disabled:opacity-50"
+              >
                 <RefreshCcw size={18} className={syncingAll ? "animate-spin" : ""} />
               </button>
             </div>
@@ -190,16 +214,20 @@ function PetugasSync({ onNavigate }) {
                 <div className="space-y-2">
                   <button 
                     onClick={handleSyncAll}
-                    disabled={antriKirim.length === 0 || syncingAll}
+                    disabled={antriKirim.length === 0 || syncingAll || isOffline}
                     className={`w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 border-0 cursor-pointer transition-all ${
-                      antriKirim.length === 0 || syncingAll
+                      antriKirim.length === 0 || syncingAll || isOffline
                         ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                         : "bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98]"
                     }`}
                   >
                     <Upload size={16} /> {syncingAll ? "Mengirim..." : "Kirim Semua Data"}
                   </button>
-                  <button className="w-full py-3.5 bg-white text-slate-600 border border-slate-200 rounded-xl font-medium text-sm flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 transition-all">
+                  <button 
+                    onClick={handleDownloadData}
+                    disabled={syncingAll || isOffline}
+                    className="w-full py-3.5 bg-white text-slate-600 border border-solid border-slate-200 rounded-xl font-medium text-sm flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 transition-all disabled:opacity-50"
+                  >
                     <Download size={16} /> Unduh Data Baru
                   </button>
                 </div>
@@ -209,7 +237,7 @@ function PetugasSync({ onNavigate }) {
                   <div>
                     <p className="text-xs font-semibold text-blue-800">Informasi</p>
                     <p className="text-xs text-blue-600 mt-0.5 leading-relaxed font-medium">
-                      Pastikan terhubung internet stabil sebelum mengirim data ke server BPS.
+                      {isOffline ? "Anda sedang offline. Hubungkan ke internet untuk melakukan sinkronisasi dengan server." : "Koneksi internet aktif. Anda siap melakukan kirim data hasil pencacahan."}
                     </p>
                   </div>
                 </div>
@@ -223,21 +251,22 @@ function PetugasSync({ onNavigate }) {
                 </div>
                 <div className="space-y-2">
                   {queueItems.map(item => (
-                    <div key={item.id} className="bg-white p-4 rounded-xl border border-slate-100 flex items-center gap-4 hover:border-slate-200 transition-all group">
+                    <div key={item.kode} className="bg-white p-4 rounded-xl border border-solid border-slate-100 flex items-center gap-4 hover:border-slate-200 transition-all group">
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                         item.status === 'terkirim' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
                       }`}>
                         {item.status === 'terkirim' ? <CheckCircle size={18} /> : <Clock size={18} />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{item.id} ({item.krt})</p>
+                        <p className="text-sm font-semibold text-slate-800 truncate">{item.kode} ({item.krt || "Nama KRT Kosong"})</p>
                         <p className="text-xs text-slate-400 mt-0.5 font-medium">{item.alamat || "Alamat belum diisi"}</p>
                       </div>
                       <div className="flex-shrink-0">
                         {item.status === 'tersimpan' ? (
                           <button 
                             onClick={() => handleSyncItem(item)}
-                            className="px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-xs font-bold border-0 cursor-pointer transition-all"
+                            disabled={syncingAll || isOffline}
+                            className="px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-xs font-bold border-0 cursor-pointer transition-all disabled:opacity-50"
                           >
                             Kirim
                           </button>
@@ -279,10 +308,10 @@ function PetugasSync({ onNavigate }) {
                 <p className="text-xs text-slate-500 mt-2 font-medium leading-relaxed">{confirmDialog.message}</p>
               </div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-2 justify-end">
+            <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex gap-2 justify-end">
               <button 
                 onClick={() => setConfirmDialog(p => ({ ...p, isOpen: false }))}
-                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
+                className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
               >
                 Batal
               </button>
@@ -301,3 +330,4 @@ function PetugasSync({ onNavigate }) {
 }
 
 export default PetugasSync;
+

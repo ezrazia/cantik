@@ -1,17 +1,58 @@
 import { WifiOff, Database } from "lucide-react";
 import { useState } from "react";
+import { api } from "../../services/api";
 
 /**
  * Halaman login minimalis untuk autentikasi pengguna.
  *
  * @param {Object} props
- * @param {(role: 'petugas'|'admin') => void} props.onLogin
+ * @param {(user: Object) => void} props.onLogin
  * @returns {React.ReactElement}
  */
 function LoginScreen({ onLogin }) {
   const [role, setRole] = useState("petugas");
-  const [username, setUsername] = useState("197804122005011001");
-  const [password, setPassword] = useState("••••••••");
+  const [username, setUsername] = useState("budi.santoso");
+  const [password, setPassword] = useState("petugas123");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleRoleChange = (selectedRole) => {
+    setRole(selectedRole);
+    setError("");
+    if (selectedRole === "admin") {
+      setUsername("admin");
+      setPassword("admin123");
+    } else {
+      setUsername("budi.santoso");
+      setPassword("petugas123");
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!username || !password) {
+      setError("Username dan password wajib diisi");
+      return;
+    }
+    setError("");
+    setLoading(true);
+    try {
+      let res;
+      if (role === "admin") {
+        res = await api.auth.loginAdmin(username, password);
+      } else {
+        res = await api.auth.loginPetugas(username, password);
+      }
+      if (res && res.success) {
+        onLogin(res.user);
+      } else {
+        setError(res.message || "Login gagal. Silakan coba lagi.");
+      }
+    } catch (err) {
+      setError(err.message || "Koneksi ke server gagal. Pastikan backend aktif.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6 slide-up">
@@ -31,7 +72,7 @@ function LoginScreen({ onLogin }) {
         {/* Role toggle */}
         <div className="bg-slate-50 rounded-xl p-1 flex mb-8">
           {[["petugas", "Petugas"], ["admin", "Admin"]].map(([v, l]) => (
-            <button key={v} onClick={() => setRole(v)}
+            <button key={v} onClick={() => handleRoleChange(v)}
               className={`flex-1 py-2.5 rounded-lg text-sm font-semibold border-0 cursor-pointer transition-all ${
                 role === v ? "bg-white text-blue-600 shadow-sm" : "bg-transparent text-slate-400 hover:text-slate-600"
               }`}>
@@ -40,10 +81,17 @@ function LoginScreen({ onLogin }) {
           ))}
         </div>
 
+        {/* Error message */}
+        {error && (
+          <div className="bg-red-50 text-red-600 text-xs font-semibold px-4 py-3 rounded-xl mb-6 border border-red-100">
+            {error}
+          </div>
+        )}
+
         {/* Form */}
         <div className="space-y-4 mb-6">
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-1">NIP / Username</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-1">Username</label>
             <input value={username} onChange={e => setUsername(e.target.value)}
               className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"/>
           </div>
@@ -61,9 +109,9 @@ function LoginScreen({ onLogin }) {
         </div>
 
         {/* Submit */}
-        <button onClick={() => onLogin(role)}
-          className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold border-0 cursor-pointer transition-all shadow-sm active:scale-[0.98]">
-          Masuk sebagai {role === "admin" ? "Administrator" : "Petugas Lapangan"}
+        <button onClick={handleLogin} disabled={loading}
+          className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold border-0 cursor-pointer transition-all shadow-sm active:scale-[0.98] disabled:bg-blue-400">
+          {loading ? "Menghubungkan..." : `Masuk sebagai ${role === "admin" ? "Administrator" : "Petugas Lapangan"}`}
         </button>
 
         <p className="text-center text-[11px] text-slate-300 mt-8 font-medium">

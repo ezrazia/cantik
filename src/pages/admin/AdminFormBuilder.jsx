@@ -1,5 +1,5 @@
 import AdminLayout from "../../components/layouts/AdminLayout";
-import { getFormQsInit } from "../../constants/mockData";
+import { api } from "../../services/api";
 import { useState, useEffect, useRef } from "react";
 import { 
   Hash, Eye, Save, Settings, Plus, ChevronDown, List, Type, 
@@ -58,30 +58,9 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
 
 function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activities }) {
   // Main Project Data Map
-  const [projectData, setProjectData] = useState({
-    "Desa Cantik 2026": {
-      blocks: [
-        { id: "Blok I", title: "Pengenalan Tempat" },
-        { id: "Blok II", title: "Keterangan RT" },
-        { id: "Blok III", title: "Keterangan Anggota" },
-        { id: "Blok IV", title: "Keterangan Perumahan" },
-        { id: "Blok V", title: "Keterangan Usaha" }
-      ],
-      questions: getFormQsInit().map((q, idx) => ({
-        id: q.id,
-        label: q.label,
-        type: q.type,
-        req: q.req,
-        val: q.val,
-        skip: q.skip,
-        blokId: "Blok III",
-        parentId: null,
-        skipTarget: q.id === 3 ? 6 : q.id === 7 ? 8 : null // default skip targets for demo
-      }))
-    }
-  });
+  const [projectData, setProjectData] = useState({});
 
-  const [activeBlok, setActiveBlok] = useState("Blok III");
+  const [activeBlok, setActiveBlok] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newQ, setNewQ] = useState({ label: "", type: "text", req: true });
@@ -132,70 +111,66 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const isDraft = activeActivity ? activeActivity.status === "draft" : false;
   const canEdit = selectedProject && isDraft;
 
-  // Initialize new project with default blocks and empty questions
-  useEffect(() => {
-    if (!selectedProject) return;
-    setProjectData(prev => {
-      if (prev[selectedProject]) return prev;
-      return {
-        ...prev,
-        [selectedProject]: {
-          blocks: [
-            { id: "Blok I", title: "Pengenalan Tempat" },
-            { id: "Blok II", title: "Keterangan RT" },
-            { id: "Blok III", title: "Keterangan Anggota" },
-            { id: "Blok IV", title: "Keterangan Perumahan" },
-            { id: "Blok V", title: "Keterangan Usaha" }
-          ],
-          questions: []
+  // Fetch structure from backend API
+  const fetchFormStructure = async () => {
+    if (!selectedProject || !activeActivity) return;
+    try {
+      const res = await api.form.getStructure(activeActivity.id);
+      if (res && res.success) {
+        const mappedBlocks = res.blocks.map(b => ({
+          id: b.kode,
+          dbId: b.id,
+          title: b.title,
+          sort_order: b.sort_order
+        }));
+
+        const mappedQuestions = res.questions.map(q => {
+          const correspondingBlock = res.blocks.find(b => b.id === q.blok_id);
+          return {
+            id: q.id,
+            label: q.label,
+            type: q.type,
+            req: !!q.required,
+            val: q.validation,
+            skip: q.skip_logic,
+            blokId: correspondingBlock ? correspondingBlock.kode : "",
+            parentId: q.parent_id,
+            skipTarget: q.skip_target,
+            options: q.options,
+            sort_order: q.sort_order
+          };
+        });
+
+        setProjectData(prev => ({
+          ...prev,
+          [selectedProject]: {
+            blocks: mappedBlocks,
+            questions: mappedQuestions
+          }
+        }));
+
+        // Set default active block if none is set
+        if (mappedBlocks.length > 0 && !activeBlok) {
+          setActiveBlok(mappedBlocks[0].id);
         }
-      };
-    });
-  }, [selectedProject]);
+      }
+    } catch (err) {
+      console.error("Gagal mengambil struktur kuesioner:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchFormStructure();
+  }, [selectedProject, activeActivity]);
 
   // Read active data
   const currentProjectData = projectData[selectedProject] || {
-    blocks: [
-      { id: "Blok I", title: "Pengenalan Tempat" },
-      { id: "Blok II", title: "Keterangan RT" },
-      { id: "Blok III", title: "Keterangan Anggota" },
-      { id: "Blok IV", title: "Keterangan Perumahan" },
-      { id: "Blok V", title: "Keterangan Usaha" }
-    ],
+    blocks: [],
     questions: []
   };
 
   const blocks = currentProjectData.blocks;
   const questions = currentProjectData.questions;
-
-  // Setters bound to active project
-  const setBlocks = (newBlocks) => {
-    setProjectData(prev => {
-      const current = prev[selectedProject] || { blocks: [], questions: [] };
-      const updated = typeof newBlocks === 'function' ? newBlocks(current.blocks) : newBlocks;
-      return {
-        ...prev,
-        [selectedProject]: {
-          ...current,
-          blocks: updated
-        }
-      };
-    });
-  };
-
-  const setQuestions = (newQuestions) => {
-    setProjectData(prev => {
-      const current = prev[selectedProject] || { blocks: [], questions: [] };
-      const updated = typeof newQuestions === 'function' ? newQuestions(current.questions) : newQuestions;
-      return {
-        ...prev,
-        [selectedProject]: {
-          ...current,
-          questions: updated
-        }
-      };
-    });
-  };
 
   // Keep active block valid if current list changes
   useEffect(() => {
@@ -219,24 +194,18 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       if (q.skipTarget) {
         const sourceEl = document.getElementById(`q-card-${q.id}`);
         const targetEl = document.getElementById(`q-card-${q.skipTarget}`);
+        
         if (sourceEl && targetEl) {
           const sourceRect = sourceEl.getBoundingClientRect();
           const targetRect = targetEl.getBoundingClientRect();
           
-          // Exit from right edge of the card
-          const x1 = sourceRect.right - containerRect.left;
-          const y1 = sourceRect.top - containerRect.top + sourceRect.height / 2;
+          const startX = sourceRect.right - containerRect.left;
+          const startY = (sourceRect.top + sourceRect.bottom) / 2 - containerRect.top;
           
-          // Enter from right edge of the card
-          const x2 = targetRect.right - containerRect.left;
-          const y2 = targetRect.top - containerRect.top + targetRect.height / 2;
+          const endX = targetRect.right - containerRect.left;
+          const endY = (targetRect.top + targetRect.bottom) / 2 - containerRect.top;
           
-          newArrows.push({
-            id: `${q.id}-${q.skipTarget}`,
-            x1, y1, x2, y2,
-            sourceCode: getQuestionCode(q, questions, blocks),
-            targetCode: getQuestionCode(questions.find(t => t.id === q.skipTarget), questions, blocks)
-          });
+          newArrows.push({ startX, startY, endX, endY, qCode: getQuestionCode(q, questions, blocks) });
         }
       }
     });
@@ -244,89 +213,49 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   };
 
   useEffect(() => {
-    const container = listContainerRef.current;
-    if (!container) return;
-    
     updateArrows();
-    
-    container.addEventListener("scroll", updateArrows);
     window.addEventListener("resize", updateArrows);
-    const timer = setTimeout(updateArrows, 100);
-    
-    return () => {
-      container.removeEventListener("scroll", updateArrows);
-      window.removeEventListener("resize", updateArrows);
-      clearTimeout(timer);
-    };
+    return () => window.removeEventListener("resize", updateArrows);
   }, [questions, activeBlok, blocks]);
 
   const typeIcon = { text: Type, number: Hash, radio: List, select: ChevronDown };
 
   // Add block logic
-  const handleConfirmAddBlock = () => {
-    if (!newBlockTitle.trim()) return;
-    
-    const activeIdx = blocks.findIndex(b => b.id === activeBlok);
-    const newBlock = {
-      id: "TEMP_ID",
-      title: newBlockTitle.trim()
-    };
-    
-    const updatedBlocks = [...blocks];
-    updatedBlocks.splice(activeIdx + 1, 0, newBlock);
-    
-    // Recalculate block names/IDs sequentially using Roman Numerals
-    const finalBlocks = updatedBlocks.map((b, idx) => ({
-      ...b,
-      id: `Blok ${getRoman(idx + 1)}`
-    }));
-    
-    // Shift block reference of questions
-    const updatedQuestions = questions.map(q => {
-      const oldBlockIdx = blocks.findIndex(b => b.id === q.blokId);
-      if (oldBlockIdx === -1) return q;
-      const newIdx = oldBlockIdx >= (activeIdx + 1) ? oldBlockIdx + 1 : oldBlockIdx;
-      return {
-        ...q,
-        blokId: `Blok ${getRoman(newIdx + 1)}`
-      };
-    });
-    
-    setBlocks(finalBlocks);
-    setQuestions(updatedQuestions);
-    
-    const newBlockId = `Blok ${getRoman(activeIdx + 2)}`;
-    setActiveBlok(newBlockId);
-    setNewBlockTitle("");
-    setShowAddBlock(false);
-    setIsConfirmAddBlockOpen(false);
+  const handleConfirmAddBlock = async () => {
+    if (!newBlockTitle.trim() || !activeActivity) return;
+    try {
+      const activeIdx = blocks.findIndex(b => b.id === activeBlok);
+      const nextSortOrder = activeIdx !== -1 ? (blocks[activeIdx].sort_order || 0) + 1 : blocks.length;
+      const nextRoman = getRoman(blocks.length + 1);
+      
+      await api.form.createBlock({
+        kegiatan_id: activeActivity.id,
+        kode: `Blok ${nextRoman}`,
+        title: newBlockTitle.trim(),
+        sort_order: nextSortOrder
+      });
+
+      await fetchFormStructure();
+      setActiveBlok(`Blok ${nextRoman}`);
+      setNewBlockTitle("");
+      setShowAddBlock(false);
+      setIsConfirmAddBlockOpen(false);
+    } catch (err) {
+      alert("Gagal menambahkan blok: " + err.message);
+    }
   };
 
   // Delete block logic
-  const handleDeleteBlock = (blockId) => {
-    const targetIdx = blocks.findIndex(b => b.id === blockId);
-    const updatedBlocks = blocks.filter(b => b.id !== blockId);
-    
-    const finalBlocks = updatedBlocks.map((b, idx) => ({
-      ...b,
-      id: `Blok ${getRoman(idx + 1)}`
-    }));
-    
-    const updatedQuestions = questions
-      .filter(q => q.blokId !== blockId)
-      .map(q => {
-        const oldBlockIdx = blocks.findIndex(b => b.id === q.blokId);
-        if (oldBlockIdx === -1) return q;
-        const newIdx = oldBlockIdx > targetIdx ? oldBlockIdx - 1 : oldBlockIdx;
-        return {
-          ...q,
-          blokId: `Blok ${getRoman(newIdx + 1)}`
-        };
-      });
-      
-    setBlocks(finalBlocks);
-    setQuestions(updatedQuestions);
-    setBlockToDelete(null);
+  const handleDeleteBlock = async (blockId) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block) return;
+    try {
+      await api.form.deleteBlock(block.dbId);
+      await fetchFormStructure();
+      setBlockToDelete(null);
+    } catch (err) {
+      alert("Gagal menghapus blok: " + err.message);
+    }
   };
 
   const handleStartEditBlock = (b, e) => {
@@ -335,69 +264,134 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     setEditingBlockTitle(b.title);
   };
 
-  const handleSaveEditBlock = (e) => {
+  const handleSaveEditBlock = async (e) => {
     e.stopPropagation();
     if (!editingBlockTitle.trim()) return;
-    setBlocks(prev => prev.map(b => b.id === editingBlockId ? { ...b, title: editingBlockTitle.trim() } : b));
-    setEditingBlockId(null);
+    const block = blocks.find(b => b.id === editingBlockId);
+    if (!block) return;
+    try {
+      await api.form.updateBlock(block.dbId, {
+        kode: block.id,
+        title: editingBlockTitle.trim(),
+        sort_order: block.sort_order
+      });
+      await fetchFormStructure();
+      setEditingBlockId(null);
+    } catch (err) {
+      alert("Gagal mengupdate blok: " + err.message);
+    }
   };
 
   // Add question
-  const addQ = () => {
-    if (!newQ.label) return;
-    const newId = Date.now();
-    setQuestions(p => [
-      ...p,
-      {
-        id: newId,
+  const addQ = async () => {
+    if (!newQ.label || !activeActivity) return;
+    const activeBlockObj = blocks.find(b => b.id === activeBlok);
+    if (!activeBlockObj) return;
+
+    try {
+      const blockQs = questions.filter(q => q.blokId === activeBlok);
+      const sortOrder = blockQs.length;
+
+      const res = await api.form.createQuestion({
+        blok_id: activeBlockObj.dbId,
         label: newQ.label,
         type: newQ.type,
-        req: newQ.req,
-        val: null,
-        skip: null,
-        blokId: activeBlok,
-        parentId: null,
-        skipTarget: null
+        required: newQ.req,
+        sort_order: sortOrder
+      });
+
+      await fetchFormStructure();
+      setNewQ({ label: "", type: "text", req: true });
+      setShowAdd(false);
+      if (res && res.success) {
+        setSelectedId(res.question.id);
       }
-    ]);
-    setNewQ({ label: "", type: "text", req: true });
-    setShowAdd(false);
-    setSelectedId(newId);
+    } catch (err) {
+      alert("Gagal menambahkan pertanyaan: " + err.message);
+    }
   };
 
   // Add sub-question
-  const handleAddSubQuestion = () => {
+  const handleAddSubQuestion = async () => {
     if (!newSubLabel.trim() || !addingSubParent) return;
-    const newId = Date.now();
-    setQuestions(p => [
-      ...p,
-      {
-        id: newId,
+    const activeBlockObj = blocks.find(b => b.id === activeBlok);
+    if (!activeBlockObj) return;
+
+    try {
+      const subQs = questions.filter(q => q.parentId === addingSubParent.id);
+      const sortOrder = subQs.length;
+
+      const res = await api.form.createQuestion({
+        blok_id: activeBlockObj.dbId,
+        parent_id: addingSubParent.id,
         label: newSubLabel.trim(),
         type: "text",
-        req: true,
-        val: null,
-        skip: null,
-        blokId: activeBlok,
-        parentId: addingSubParent.id,
-        skipTarget: null
+        required: true,
+        sort_order: sortOrder
+      });
+
+      await fetchFormStructure();
+      setNewSubLabel("");
+      setAddingSubParent(null);
+      if (res && res.success) {
+        setSelectedId(res.question.id);
       }
-    ]);
-    setNewSubLabel("");
-    setAddingSubParent(null);
-    setSelectedId(newId);
+    } catch (err) {
+      alert("Gagal menambahkan sub-pertanyaan: " + err.message);
+    }
   };
 
   // Delete question
-  const handleDeleteQuestion = (id) => {
-    // Delete this question and any child sub-questions
-    setQuestions(prev => prev.filter(q => q.id !== id && q.parentId !== id));
-    setSelectedId(null);
+  const handleDeleteQuestion = async (id) => {
+    try {
+      await api.form.deleteQuestion(id);
+      await fetchFormStructure();
+      setSelectedId(null);
+    } catch (err) {
+      alert("Gagal menghapus pertanyaan: " + err.message);
+    }
   };
 
   // Edit question properties
-  const handleUpdateQuestion = (key, value) => {
-    setQuestions(prev => prev.map(q => q.id === selectedId ? { ...q, [key]: value } : q));
+  const handleUpdateQuestion = async (key, value) => {
+    // Update locally first for smooth inputs
+    setProjectData(prev => {
+      const current = prev[selectedProject] || { blocks: [], questions: [] };
+      const updated = current.questions.map(q => q.id === selectedId ? { ...q, [key]: value } : q);
+      return {
+        ...prev,
+        [selectedProject]: {
+          ...current,
+          questions: updated
+        }
+      };
+    });
+
+    const questionObj = questions.find(q => q.id === selectedId);
+    if (!questionObj) return;
+    
+    const blockObj = blocks.find(b => b.id === questionObj.blokId);
+    if (!blockObj) return;
+
+    const dbPayload = {
+      blok_id: blockObj.dbId,
+      parent_id: questionObj.parentId,
+      label: key === 'label' ? value : questionObj.label,
+      type: key === 'type' ? value : questionObj.type,
+      required: key === 'req' ? value : questionObj.req,
+      options: key === 'options' ? value : questionObj.options,
+      validation: key === 'val' ? value : questionObj.val,
+      skip_logic: key === 'skip' ? value : questionObj.skip,
+      skip_target: key === 'skipTarget' ? value : questionObj.skipTarget,
+      sort_order: questionObj.sort_order
+    };
+
+    try {
+      await api.form.updateQuestion(selectedId, dbPayload);
+      fetchFormStructure();
+    } catch (err) {
+      console.error("Gagal mengupdate pertanyaan:", err);
+    }
   };
 
   // Drag and drop sorting handlers
@@ -409,7 +403,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     e.preventDefault();
   };
 
-  const handleDrop = (e, targetIdx) => {
+  const handleDrop = async (e, targetIdx) => {
     const sourceIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
     if (sourceIdx === targetIdx) return;
     
@@ -426,11 +420,31 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       const children = questions.filter(q => q.blokId === activeBlok && q.parentId === parent.id);
       reconstructedBlockQs.push(...children);
     });
-    
-    setQuestions([
-      ...questions.filter(q => q.blokId !== activeBlok),
-      ...reconstructedBlockQs
-    ]);
+
+    // Iterate over reconstructedBlockQs and update sort_order in database
+    const activeBlockObj = blocks.find(b => b.id === activeBlok);
+    if (!activeBlockObj) return;
+
+    try {
+      for (let i = 0; i < reconstructedBlockQs.length; i++) {
+        const q = reconstructedBlockQs[i];
+        await api.form.updateQuestion(q.id, {
+          blok_id: activeBlockObj.dbId,
+          parent_id: q.parentId,
+          label: q.label,
+          type: q.type,
+          required: q.req,
+          options: q.options,
+          validation: q.val,
+          skip_logic: q.skip,
+          skip_target: q.skipTarget,
+          sort_order: i
+        });
+      }
+      await fetchFormStructure();
+    } catch (err) {
+      console.error("Gagal menyimpan urutan drag & drop:", err);
+    }
   };
 
   const handleDownloadTemplate = () => {
