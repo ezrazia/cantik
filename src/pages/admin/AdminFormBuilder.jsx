@@ -394,6 +394,30 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     }
   };
 
+  const handleAddOption = (q, options) => {
+    const nextIndex = options.length;
+    const nextValue = q.type === 'select' 
+      ? String.fromCharCode(97 + nextIndex) // a, b, c...
+      : String(nextIndex + 1); // 1, 2, 3...
+    const newOptions = [...options, { value: nextValue, label: `Pilihan ${nextIndex + 1}` }];
+    handleUpdateQuestion("options", newOptions);
+  };
+
+  const handleUpdateOptionLabel = (options, idx, label) => {
+    const newOptions = options.map((opt, i) => i === idx ? { ...opt, label } : opt);
+    handleUpdateQuestion("options", newOptions);
+  };
+
+  const handleDeleteOption = (q, options, idx) => {
+    const newOptions = options.filter((_, i) => i !== idx).map((opt, i) => {
+      const newValue = q.type === 'select'
+        ? String.fromCharCode(97 + i)
+        : String(i + 1);
+      return { ...opt, value: newValue };
+    });
+    handleUpdateQuestion("options", newOptions);
+  };
+
   // Drag and drop sorting handlers
   const handleDragStart = (e, index) => {
     e.dataTransfer.setData("text/plain", index);
@@ -918,117 +942,313 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             )}
 
             {/* Properties Panel */}
-            {selected ? (
-              <div className="bg-white rounded-xl border border-slate-100 overflow-hidden sticky top-6 shadow-sm">
-                <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Properti Rincian</h3>
-                  <Settings size={14} className="text-slate-300 animate-spin-slow"/>
-                </div>
-                {!canEdit && (
-                  <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0"/>
-                    Properti hanya dapat direview (Mode Read-Only)
+            {selected ? (() => {
+              // Parse validation string/JSON
+              let parsedVal = { type: "unlimited", min: "", max: "", hint: "" };
+              if (selected.val) {
+                const trimmed = selected.val.trim();
+                if (trimmed.startsWith('{')) {
+                  try {
+                    parsedVal = { ...parsedVal, ...JSON.parse(trimmed) };
+                  } catch (e) {}
+                } else if (trimmed.startsWith('range:')) {
+                  const parts = trimmed.replace('range:', '').trim().split('-');
+                  parsedVal.type = "range";
+                  parsedVal.min = parts[0] || "";
+                  parsedVal.max = parts[1] || "";
+                } else if (trimmed.startsWith('min:')) {
+                  parsedVal.type = "min";
+                  parsedVal.min = trimmed.replace('min:', '').trim();
+                } else if (trimmed.startsWith('gt:')) {
+                  parsedVal.type = "gt";
+                  parsedVal.min = trimmed.replace('gt:', '').trim();
+                } else {
+                  parsedVal.hint = trimmed;
+                }
+              }
+
+              const updateValObj = (updates) => {
+                const nextVal = { ...parsedVal, ...updates };
+                handleUpdateQuestion("val", JSON.stringify(nextVal));
+              };
+
+              const optionsList = Array.isArray(selected.options) ? selected.options : [];
+
+              return (
+                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden sticky top-6 shadow-sm">
+                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Properti Rincian</h3>
+                    <Settings size={14} className="text-slate-300 animate-spin-slow"/>
                   </div>
-                )}
-                
-                <div className="p-5 space-y-4">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">No. Rincian</label>
-                    <input 
-                      value={`R.${getQuestionCode(selected, questions, blocks)}`} 
-                      readOnly
-                      className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-500 font-bold mono outline-none"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Label Pertanyaan</label>
-                    <textarea 
-                      value={selected.label} 
-                      readOnly={!canEdit}
-                      onChange={e => handleUpdateQuestion("label", e.target.value)}
-                      rows={2}
-                      className={`w-full px-3 py-2.5 text-xs border rounded-lg font-semibold outline-none resize-none focus:border-blue-500 ${
-                        canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"
-                      }`}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tipe Input</label>
-                      {canEdit ? (
-                        <select
-                          value={selected.type}
-                          onChange={e => handleUpdateQuestion("type", e.target.value)}
-                          className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
-                        >
-                          <option value="text">Text</option>
-                          <option value="number">Number</option>
-                          <option value="radio">Radio</option>
-                          <option value="select">Select</option>
-                        </select>
-                      ) : (
-                        <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type}</div>
-                      )}
+                  {!canEdit && (
+                    <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0"/>
+                      Properti hanya dapat direview (Mode Read-Only)
                     </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Wajib diisi</label>
-                      {canEdit ? (
-                        <select
-                          value={selected.req ? "Ya" : "Tidak"}
-                          onChange={e => handleUpdateQuestion("req", e.target.value === "Ya")}
-                          className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
-                        >
-                          <option value="Ya">Ya</option>
-                          <option value="Tidak">Tidak</option>
-                        </select>
-                      ) : (
-                        <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${
-                          selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"
-                        }`}>{selected.req ? "Ya" : "Tidak"}</div>
-                      )}
-                    </div>
-                  </div>
+                  )}
                   
-                  {/* Skip Logic (Alur Hubungan) Setting */}
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Lompat ke Rincian (Skip Logic)</label>
-                    {canEdit ? (
-                      <select
-                        value={selected.skipTarget || ""}
-                        onChange={e => handleUpdateQuestion("skipTarget", e.target.value ? parseInt(e.target.value, 10) : null)}
-                        className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-blue-600 outline-none cursor-pointer focus:border-blue-500"
-                      >
-                        <option value="">-- Tidak ada lompatan --</option>
-                        {orderedBlockQs
-                          .filter(x => x.id !== selected.id)
-                          .map(x => (
-                            <option key={x.id} value={x.id}>
-                              R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...
-                            </option>
-                          ))}
-                      </select>
-                    ) : (
-                      <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-medium">
-                        {selected.skipTarget 
-                          ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}`
-                          : "Tidak ada"
-                        }
+                  <div className="p-5 space-y-4">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">No. Rincian</label>
+                      <input 
+                        value={`R.${getQuestionCode(selected, questions, blocks)}`} 
+                        readOnly
+                        className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-500 font-bold mono outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Label Pertanyaan (Utama)</label>
+                      <textarea 
+                        value={selected.label} 
+                        readOnly={!canEdit}
+                        onChange={e => handleUpdateQuestion("label", e.target.value)}
+                        rows={2}
+                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-semibold outline-none resize-none focus:border-blue-500 ${
+                          canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"
+                        }`}
+                      />
+                    </div>
+
+                    {/* Petunjuk Pengisian / Keterangan (arahan bagi petugas) */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Petunjuk Pengisian (Keterangan)</label>
+                      <textarea 
+                        value={parsedVal.hint || ""} 
+                        readOnly={!canEdit}
+                        placeholder="Contoh: Isi dengan umur dalam satuan tahun genap..."
+                        onChange={e => updateValObj({ hint: e.target.value })}
+                        rows={2}
+                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${
+                          canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"
+                        }`}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tipe Input</label>
+                        {canEdit ? (
+                          <select
+                            value={selected.type}
+                            onChange={e => handleUpdateQuestion("type", e.target.value)}
+                            className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
+                          >
+                            <option value="text">Text (Kapital)</option>
+                            <option value="number">Number</option>
+                            <option value="radio">Radio</option>
+                            <option value="select">Select (Multi-Select)</option>
+                          </select>
+                        ) : (
+                          <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type}</div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Wajib diisi</label>
+                        {canEdit ? (
+                          <select
+                            value={selected.req ? "Ya" : "Tidak"}
+                            onChange={e => handleUpdateQuestion("req", e.target.value === "Ya")}
+                            className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
+                          >
+                            <option value="Ya">Ya</option>
+                            <option value="Tidak">Tidak</option>
+                          </select>
+                        ) : (
+                          <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${
+                            selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"
+                          }`}>{selected.req ? "Ya" : "Tidak"}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Number validation range settings */}
+                    {selected.type === "number" && (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Batasan Angka</label>
+                        <div>
+                          <select
+                            value={parsedVal.type}
+                            disabled={!canEdit}
+                            onChange={e => updateValObj({ type: e.target.value })}
+                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
+                          >
+                            <option value="unlimited">Tidak Dibatasi</option>
+                            <option value="range">Rentang Nilai (Min-Max)</option>
+                            <option value="min">Lebih Dari / Sama Dengan (&gt;=)</option>
+                            <option value="gt">Lebih Dari (&gt;)</option>
+                          </select>
+                        </div>
+                        {parsedVal.type === "range" && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Min</label>
+                              <input
+                                type="number"
+                                value={parsedVal.min}
+                                disabled={!canEdit}
+                                onChange={e => updateValObj({ min: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Max</label>
+                              <input
+                                type="number"
+                                value={parsedVal.max}
+                                disabled={!canEdit}
+                                onChange={e => updateValObj({ max: e.target.value })}
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
+                              />
+                            </div>
+                          </div>
+                        )}
+                        {(parsedVal.type === "min" || parsedVal.type === "gt") && (
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Batas Nilai</label>
+                            <input
+                              type="number"
+                              value={parsedVal.min}
+                              disabled={!canEdit}
+                              onChange={e => updateValObj({ min: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
+                            />
+                          </div>
+                        )}
                       </div>
                     )}
-                  </div>
 
-                  {canEdit && (
-                    <button 
-                      onClick={() => handleDeleteQuestion(selected.id)}
-                      className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all mt-2 text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
-                      title="Hapus rincian ini beserta sub-pertanyaannya"
-                    >
-                      <Trash2 size={13}/> Hapus Rincian
-                    </button>
-                  )}
+                    {/* Radio & Select Options Editor */}
+                    {(selected.type === "radio" || selected.type === "select") && (
+                      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Daftar Pilihan Opsi</label>
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => handleAddOption(selected, optionsList)}
+                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded border-0 cursor-pointer"
+                            >
+                              + Opsi
+                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+                          {optionsList.map((opt, idx) => (
+                            <div key={idx} className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-150">
+                              <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-md uppercase">
+                                {opt.value}
+                              </span>
+                              <input
+                                type="text"
+                                value={opt.label}
+                                readOnly={!canEdit}
+                                onChange={e => handleUpdateOptionLabel(optionsList, idx, e.target.value)}
+                                className="flex-1 px-2 py-1 text-xs border border-transparent hover:border-slate-100 focus:border-blue-300 rounded outline-none font-medium text-slate-700 bg-transparent"
+                              />
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteOption(selected, optionsList, idx)}
+                                  className="p-1 hover:bg-red-50 text-red-500 hover:text-red-700 border-0 bg-transparent cursor-pointer rounded"
+                                >
+                                  <Trash size={12}/>
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          {optionsList.length === 0 && (
+                            <p className="text-[10px] text-slate-400 text-center italic py-2">Belum ada pilihan opsi</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Skip Logic (Alur Hubungan) Setting - Lintas Blok */}
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Lompat ke Rincian (Skip Logic)</label>
+                      {canEdit ? (
+                        <select
+                          value={selected.skipTarget || ""}
+                          onChange={e => handleUpdateQuestion("skipTarget", e.target.value ? parseInt(e.target.value, 10) : null)}
+                          className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-blue-600 outline-none cursor-pointer focus:border-blue-500"
+                        >
+                          <option value="">-- Tidak ada lompatan --</option>
+                          {blocks.map(b => {
+                            // Find all questions in this block, excluding current question
+                            const blockQs = questions.filter(x => x.blokId === b.id && x.id !== selected.id);
+                            if (blockQs.length === 0) return null;
+                            return (
+                              <optgroup key={b.id} label={`${b.id}: ${b.title}`}>
+                                {blockQs.map(x => (
+                                  <option key={x.id} value={x.id}>
+                                    R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...
+                                  </option>
+                                ))}
+                              </optgroup>
+                            );
+                          })}
+                        </select>
+                      ) : (
+                        <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-medium">
+                          {selected.skipTarget 
+                            ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}`
+                            : "Tidak ada"
+                          }
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Skip logic trigger value - Conditional jump by answer */}
+                    {selected.skipTarget && (
+                      <div className="p-3 bg-blue-50/20 border border-blue-50 rounded-xl space-y-2 animate-custom-fade">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Syarat Jawaban Pemicu Lompatan</label>
+                        {canEdit ? (
+                          optionsList.length > 0 ? (
+                            <select
+                              value={selected.skip || ""}
+                              onChange={e => handleUpdateQuestion("skip", e.target.value)}
+                              className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
+                            >
+                              <option value="">-- Pilih opsi pemicu --</option>
+                              {optionsList.map(opt => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.value}. {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              value={selected.skip || ""}
+                              onChange={e => handleUpdateQuestion("skip", e.target.value)}
+                              placeholder="Contoh: 2 atau a"
+                              className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none focus:border-blue-500"
+                            />
+                          )
+                        ) : (
+                          <div className="px-3 py-2 text-xs bg-white border border-slate-100 rounded-lg text-slate-600 font-semibold">
+                            {selected.skip ? `Jika bernilai: ${selected.skip}` : "Belum ditentukan"}
+                          </div>
+                        )}
+                        <p className="text-[9px] text-slate-400 leading-snug">
+                          Semua rincian setelah pertanyaan ini hingga sebelum target akan dilewati (*skipped*) jika petugas memilih opsi di atas.
+                        </p>
+                      </div>
+                    )}
+
+                    {canEdit && (
+                      <button 
+                        onClick={() => handleDeleteQuestion(selected.id)}
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all mt-2 text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
+                        title="Hapus rincian ini beserta sub-pertanyaannya"
+                      >
+                        <Trash2 size={13}/> Hapus Rincian
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ) : (
+              );
+            })() : (
               <div className="bg-slate-50/50 rounded-xl border border-slate-100 p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
                 <Settings size={28} className="text-slate-200 mb-3 animate-pulse"/>
                 <p className="text-sm text-slate-400 font-bold">Pilih rincian untuk melihat propertinya</p>

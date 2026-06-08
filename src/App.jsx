@@ -8,7 +8,8 @@ import PetugasSettings from "./pages/petugas/PetugasSettings";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminDataReview from "./pages/admin/AdminDataReview";
 import AdminFormBuilder from "./pages/admin/AdminFormBuilder";
-import AdminPetugas from "./pages/admin/AdminPetugas";
+import AdminMasterPetugas from "./pages/admin/AdminMasterPetugas";
+import AdminPetugasKegiatan from "./pages/admin/AdminPetugasKegiatan";
 import AdminBeranda from "./pages/admin/AdminBeranda";
 import AdminKegiatan from "./pages/admin/AdminKegiatan";
 import AdminTabulasi from "./pages/admin/AdminTabulasi";
@@ -128,8 +129,8 @@ export default function App() {
     "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} />,
     "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} />,
     "admin-builder":  <AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} />,
-    "admin-users":    <AdminPetugas onNavigate={go} isGlobal={false} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} />,
-    "admin-master-petugas": <AdminPetugas onNavigate={go} isGlobal={true} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} />,
+    "admin-users":    <AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} />,
+    "admin-master-petugas": <AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} />,
     "admin-kegiatan": <AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} />,
     "admin-tabulasi": <AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} />,
   };

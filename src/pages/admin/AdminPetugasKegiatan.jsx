@@ -18,7 +18,8 @@ import {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData }) {
+function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData }) {
+  const isGlobal = false;
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const projectStatus = activeActivity ? activeActivity.status : "draft";
 
@@ -2364,4 +2365,4 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   );
 }
 
-export default AdminPetugas;
+export default AdminPetugasKegiatan;

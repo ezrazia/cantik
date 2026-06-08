@@ -34,6 +34,31 @@ router.get('/:kegiatanId', async (req, res) => {
       return { ...q, options: opt };
     });
 
+    // Expand select type questions
+    const expandedQuestions = [];
+    questionsWithParsedOptions.forEach(q => {
+      if (q.type === 'select' && q.options && Array.isArray(q.options)) {
+        q.options.forEach(opt => {
+          expandedQuestions.push({
+            id: `${q.id}_${opt.value}`,
+            label: `${q.label} - ${opt.label}`,
+            type: 'radio',
+            options: [
+              { value: '1', label: 'Ya' },
+              { value: '0', label: 'Tidak' }
+            ],
+            blok_kode: q.blok_kode,
+            blok_title: q.blok_title,
+            is_virtual: true,
+            parent_select_id: q.id,
+            option_value: opt.value
+          });
+        });
+      } else {
+        expandedQuestions.push(q);
+      }
+    });
+
     // 2. Cek status kegiatan untuk menentukan sumber data tabulasi
     const [kegiatanRows] = await pool.query(
       'SELECT status FROM kegiatan WHERE id = ?',
@@ -61,7 +86,7 @@ router.get('/:kegiatanId', async (req, res) => {
     if (documents.length === 0) {
       return res.json({
         success: true,
-        questions: questionsWithParsedOptions,
+        questions: expandedQuestions,
         cleanData: []
       });
     }
@@ -100,21 +125,35 @@ router.get('/:kegiatanId', async (req, res) => {
       };
 
       // Tambahkan jawaban untuk setiap pertanyaan
-      questionsWithParsedOptions.forEach(q => {
-        const val = answersMap[doc.id]?.[q.id] ?? '';
-        
-        // Simpan raw value
-        row[`q${q.id}`] = val;
-
-        // Cari label dari opsi jika ada
-        let labelVal = val;
-        if (q.options && Array.isArray(q.options)) {
-          const matchedOpt = q.options.find(opt => String(opt.value) === String(val));
-          if (matchedOpt) {
-            labelVal = matchedOpt.label;
+      expandedQuestions.forEach(q => {
+        if (q.is_virtual) {
+          const parentVal = answersMap[doc.id]?.[q.parent_select_id] ?? '';
+          let isChecked = '0';
+          if (parentVal) {
+            try {
+              const parsed = JSON.parse(parentVal);
+              isChecked = parsed[q.option_value] ? '1' : '0';
+            } catch (e) {
+              if (String(parentVal) === String(q.option_value)) {
+                isChecked = '1';
+              }
+            }
           }
+          row[`q${q.id}`] = isChecked;
+          row[`q${q.id}_label`] = isChecked === '1' ? 'Ya' : 'Tidak';
+        } else {
+          const val = answersMap[doc.id]?.[q.id] ?? '';
+          row[`q${q.id}`] = val;
+
+          let labelVal = val;
+          if (q.options && Array.isArray(q.options)) {
+            const matchedOpt = q.options.find(opt => String(opt.value) === String(val));
+            if (matchedOpt) {
+              labelVal = matchedOpt.label;
+            }
+          }
+          row[`q${q.id}_label`] = labelVal;
         }
-        row[`q${q.id}_label`] = labelVal;
       });
 
       return row;
@@ -122,7 +161,7 @@ router.get('/:kegiatanId', async (req, res) => {
 
     return res.json({
       success: true,
-      questions: questionsWithParsedOptions,
+      questions: expandedQuestions,
       cleanData
     });
   } catch (error) {

@@ -135,8 +135,8 @@ export default function AdminTabulasi({
     if (v === "sub_sls") return "Sub-SLS";
 
     if (v.startsWith("q") && v.endsWith("_label")) {
-      const qId = parseInt(v.substring(1, v.length - 6), 10);
-      const q = questions.find(question => question.id === qId);
+      const qIdKey = v.substring(1, v.length - 6);
+      const q = questions.find(question => String(question.id) === qIdKey);
       if (q) return q.label;
     }
     return v;
@@ -146,8 +146,8 @@ export default function AdminTabulasi({
   const getMetricLabel = (m) => {
     if (m === "count") return "Jumlah Record (Dokumen)";
     if (m.startsWith("avg_q")) {
-      const qId = parseInt(m.substring(5), 10);
-      const q = questions.find(question => question.id === qId);
+      const qIdKey = m.substring(5);
+      const q = questions.find(question => String(question.id) === qIdKey);
       if (q) return `Rata-rata ${q.label}`;
     }
     return m;
@@ -193,8 +193,8 @@ export default function AdminTabulasi({
   const getUniqueValues = (variable) => {
     const values = [...new Set(cleanData.map((d) => d[variable]))].filter(v => v !== null && v !== undefined && v !== '');
     if (variable.startsWith('q') && variable.endsWith('_label')) {
-      const qId = parseInt(variable.substring(1, variable.length - 6), 10);
-      const q = questions.find(question => question.id === qId);
+      const qIdKey = variable.substring(1, variable.length - 6);
+      const q = questions.find(question => String(question.id) === qIdKey);
       if (q && q.options && Array.isArray(q.options)) {
         const order = q.options.map(opt => opt.label);
         return order.filter((val) => values.includes(val)).concat(values.filter((val) => !order.includes(val)));

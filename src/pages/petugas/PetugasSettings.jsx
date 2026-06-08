@@ -8,7 +8,16 @@ import PetugasLayout from "../../components/layouts/PetugasLayout";
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function PetugasSettings({ onNavigate }) {
+function PetugasSettings({ onNavigate, currentUser }) {
+  const getInitials = (name) => {
+    if (!name) return "??";
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+    return words[0].slice(0, 2).toUpperCase();
+  };
+
   const sections = [
     {
       title: "Akun",
@@ -45,12 +54,14 @@ function PetugasSettings({ onNavigate }) {
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight">Profil & Preferensi</h2>
               </div>
               <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                BS
+                {getInitials(currentUser?.name || "Budi Santoso")}
               </div>
             </div>
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Budi Santoso</h3>
-              <p className="text-xs text-slate-400 mt-0.5 font-medium">Petugas Lapangan · ID: 19780412</p>
+              <h3 className="text-lg font-bold text-slate-900">{currentUser?.name || "Budi Santoso"}</h3>
+              <p className="text-xs text-slate-400 mt-0.5 font-medium">
+                Petugas Lapangan · {currentUser?.nik ? `NIK: ${currentUser.nik}` : `ID: ${currentUser?.id || "19780412"}`}
+              </p>
             </div>
           </div>
 

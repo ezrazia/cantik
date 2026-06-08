@@ -6,7 +6,7 @@ import {
   Search, Plus, UserPlus, Users, CheckCircle, Clock, AlertTriangle, 
   RefreshCw, ChevronDown, Check, X, Edit, Trash2, Smartphone, 
   MapPin, Target, Send, Eye, Award, EyeOff, ArrowUpDown, SlidersHorizontal,
-  User, Fingerprint, Phone, Briefcase
+  User, Fingerprint, Phone, Briefcase, Lock, KeyRound
 } from "lucide-react";
 
 /**
@@ -18,7 +18,8 @@ import {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData }) {
+function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData }) {
+  const isGlobal = true;
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const projectStatus = activeActivity ? activeActivity.status : "draft";
 
@@ -51,7 +52,10 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   const [nikInput, setNikInput] = useState("");
   const [phoneInput, setPhoneInput] = useState("");
   const [usernameInput, setUsernameInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [showAddConfirm, setShowAddConfirm] = useState(false);
+  const [formErrors, setFormErrors] = useState({});
   
   // State form petugas baru
   const [name, setName] = useState("");
@@ -350,10 +354,94 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
     }, 800);
   };
 
+  // ─── Helper: Auto-generate username dari nama ───
+  const generateUsername = (fullName) => {
+    const words = fullName.trim().toLowerCase().split(/\s+/);
+    if (words.length >= 2) return `${words[0]}.${words[1]}`;
+    return words[0] || "";
+  };
+
+  // ─── Helper: Format No Telp saat ketik (0812-3456-7890) ───
+  const formatPhoneDisplay = (raw) => {
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 8) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8, 13)}`;
+  };
+
+  const handlePhoneChange = (e) => {
+    const raw = e.target.value.replace(/[^\d\-+]/g, "");
+    // Allow only digits and dashes, max 15 chars
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length <= 15) {
+      setPhoneInput(formatPhoneDisplay(digits));
+    }
+    if (formErrors.phone) setFormErrors(prev => ({ ...prev, phone: null }));
+  };
+
+  const handleNikChange = (e) => {
+    const val = e.target.value.replace(/\D/g, "").slice(0, 16);
+    setNikInput(val);
+    if (formErrors.nik) setFormErrors(prev => ({ ...prev, nik: null }));
+  };
+
+  const handleNameChange = (val) => {
+    setName(val);
+    // Auto-generate username jika user belum mengedit manual
+    const autoUsername = generateUsername(val);
+    setUsernameInput(autoUsername);
+    setPasswordInput(autoUsername);
+    if (formErrors.name) setFormErrors(prev => ({ ...prev, name: null }));
+  };
+
+  const handleUsernameManualChange = (val) => {
+    setUsernameInput(val);
+    setPasswordInput(val);
+    if (formErrors.username) setFormErrors(prev => ({ ...prev, username: null }));
+  };
+
+  // ─── Validasi form ───
+  const validateForm = () => {
+    const errors = {};
+    
+    // Nama
+    if (!name.trim()) errors.name = "Nama wajib diisi.";
+
+    // NIK: harus 16 digit angka
+    const nikDigits = nikInput.replace(/\D/g, "");
+    if (!nikDigits) {
+      errors.nik = "NIK wajib diisi.";
+    } else if (nikDigits.length !== 16) {
+      errors.nik = `NIK harus 16 digit (sekarang ${nikDigits.length} digit).`;
+    }
+
+    // No Telp: format Indonesia (08xx atau +628xx), 10-15 digit
+    const phoneDigits = phoneInput.replace(/\D/g, "");
+    if (!phoneDigits) {
+      errors.phone = "No. Telp wajib diisi.";
+    } else if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+      errors.phone = `No. Telp harus 10-15 digit (sekarang ${phoneDigits.length}).`;
+    } else if (!/^(08|628)/.test(phoneDigits)) {
+      errors.phone = "No. Telp harus diawali 08xx atau +628xx.";
+    }
+
+    // Username
+    if (!usernameInput.trim()) {
+      errors.username = "Username wajib diisi.";
+    } else if (usernameInput.trim().length < 3) {
+      errors.username = "Username minimal 3 karakter.";
+    } else if (!/^[a-z0-9._]+$/.test(usernameInput.trim())) {
+      errors.username = "Username hanya boleh huruf kecil, angka, titik, underscore.";
+    }
+
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
+
   // Handler Buka Konfirmasi Tambah Petugas
   const handleOpenAddConfirm = (e) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!validateForm()) return;
     setShowAddConfirm(true);
   };
 
@@ -361,13 +449,15 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   const handleAddPetugas = async () => {
     if (!name.trim()) return;
 
-    const finalUsername = usernameInput.trim() || name.toLowerCase().replace(/\s+/g, ".");
-    const finalNik = nikInput.trim() || null;
-    const finalPhone = phoneInput.trim() || null;
+    const finalUsername = usernameInput.trim() || generateUsername(name);
+    const finalNik = nikInput.replace(/\D/g, "") || null;
+    const finalPhone = phoneInput.replace(/\D/g, "") || null;
+    const finalPassword = passwordInput.trim() || finalUsername;
 
     try {
       const payload = {
         username: finalUsername,
+        password: finalPassword,
         name: name.trim(),
         nik: finalNik,
         phone: finalPhone,
@@ -395,6 +485,9 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
         setNikInput("");
         setPhoneInput("");
         setUsernameInput("");
+        setPasswordInput("");
+        setShowPassword(false);
+        setFormErrors({});
         if (dbDesa.length > 0) {
           setAssignedDesa(dbDesa[0].name.replace("Desa ", ""));
         }
@@ -1914,11 +2007,14 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                 <input 
                   type="text" 
                   value={name} 
-                  onChange={e => setName(e.target.value)} 
+                  onChange={e => handleNameChange(e.target.value)} 
                   required
                   placeholder="Contoh: Andi Wijaya" 
-                  className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium"
+                  className={`w-full px-4 py-3 text-sm border ${formErrors.name ? 'border-red-500 focus:border-red-500 focus:ring-red-500/10' : 'border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'} rounded-xl outline-none bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium`}
                 />
+                {formErrors.name && (
+                  <p className="text-[10px] text-red-500 mt-1 font-medium">{formErrors.name}</p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -1927,12 +2023,15 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                   <input 
                     type="text" 
                     value={nikInput} 
-                    onChange={e => setNikInput(e.target.value)} 
+                    onChange={handleNikChange} 
                     required
                     maxLength={16}
                     placeholder="16 digit NIK" 
-                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium"
+                    className={`w-full px-4 py-3 text-sm border ${formErrors.nik ? 'border-red-500 focus:border-red-500 focus:ring-red-500/10' : 'border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'} rounded-xl outline-none bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium`}
                   />
+                  {formErrors.nik && (
+                    <p className="text-[10px] text-red-500 mt-1 font-medium">{formErrors.nik}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1940,11 +2039,14 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                   <input 
                     type="text" 
                     value={phoneInput} 
-                    onChange={e => setPhoneInput(e.target.value)} 
+                    onChange={handlePhoneChange} 
                     required
                     placeholder="Contoh: 0812-3456-7890" 
-                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium"
+                    className={`w-full px-4 py-3 text-sm border ${formErrors.phone ? 'border-red-500 focus:border-red-500 focus:ring-red-500/10' : 'border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'} rounded-xl outline-none bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium`}
                   />
+                  {formErrors.phone && (
+                    <p className="text-[10px] text-red-500 mt-1 font-medium">{formErrors.phone}</p>
+                  )}
                 </div>
               </div>
 
@@ -1954,11 +2056,14 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                   <input 
                     type="text" 
                     value={usernameInput} 
-                    onChange={e => setUsernameInput(e.target.value)} 
+                    onChange={e => handleUsernameManualChange(e.target.value)} 
                     required
                     placeholder="Contoh: andi.wijaya" 
-                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium"
+                    className={`w-full px-4 py-3 text-sm border ${formErrors.username ? 'border-red-500 focus:border-red-500 focus:ring-red-500/10' : 'border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10'} rounded-xl outline-none bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium`}
                   />
+                  {formErrors.username && (
+                    <p className="text-[10px] text-red-500 mt-1 font-medium">{formErrors.username}</p>
+                  )}
                 </div>
 
                 <div>
@@ -1978,6 +2083,29 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
                     })}
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-2">Password</label>
+                <div className="relative">
+                  <input 
+                    type={showPassword ? "text" : "password"} 
+                    value={passwordInput} 
+                    onChange={e => setPasswordInput(e.target.value)} 
+                    placeholder="Sama dengan username (default)" 
+                    className="w-full pl-4 pr-10 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 bg-white text-slate-700 placeholder:text-slate-300 transition-all font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer bg-transparent border-0 p-0"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Default password akan disamakan dengan username jika dikosongkan/tidak diubah.
+                </p>
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -2337,7 +2465,8 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
               <p><strong>Nama:</strong> {name}</p>
               <p><strong>NIK:</strong> {nikInput || "-"}</p>
               <p><strong>No. Telp (WhatsApp):</strong> {phoneInput || "-"}</p>
-              <p><strong>Username:</strong> @{usernameInput || name.toLowerCase().replace(/\s+/g, ".")}</p>
+              <p><strong>Username:</strong> @{usernameInput || generateUsername(name)}</p>
+              <p><strong>Password:</strong> {passwordInput || usernameInput || generateUsername(name)}</p>
               <p><strong>Asal Desa:</strong> Desa {assignedDesa}</p>
             </div>
 
@@ -2364,4 +2493,4 @@ function AdminPetugas({ onNavigate, isGlobal = false, selectedProject, onProject
   );
 }
 
-export default AdminPetugas;
+export default AdminMasterPetugas;

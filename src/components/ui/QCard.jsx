@@ -12,7 +12,7 @@ import { ToggleLeft } from "lucide-react";
  * @param {React.ReactNode} props.children - Input elements.
  * @returns {React.ReactElement}
  */
-function QCard({ r, label, required, hint, skipInfo, children }) {
+function QCard({ r, label, required, hint, skipInfo, description, children }) {
   const isSkipped = skipInfo && skipInfo.startsWith("Dilewati");
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm transition-all">
@@ -21,7 +21,7 @@ function QCard({ r, label, required, hint, skipInfo, children }) {
           <span className="mono text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-0.5">R.{r}</span>
           <div>
             <p className="text-sm font-semibold text-slate-800 leading-snug">{label}</p>
-            {hint && <p className="text-xs text-slate-400 mt-1 font-normal">{hint}</p>}
+            {hint && <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">{hint}</p>}
           </div>
         </div>
         {required
@@ -35,7 +35,14 @@ function QCard({ r, label, required, hint, skipInfo, children }) {
           <ToggleLeft size={14}/> {skipInfo}
         </div>
       )}
+      
       {children}
+
+      {description && (
+        <p className="text-xs text-slate-450 mt-3.5 bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 font-medium leading-relaxed">
+          {description}
+        </p>
+      )}
     </div>
   );
 }

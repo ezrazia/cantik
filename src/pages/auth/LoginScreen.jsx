@@ -55,9 +55,9 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-6 slide-up">
+    <div className="min-h-screen bg-white flex items-center justify-center p-6 slide-up overflow-x-hidden relative">
       {/* Subtle background accent */}
-      <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-blue-50 rounded-full blur-[120px] opacity-60 -translate-y-1/2 translate-x-1/2 pointer-events-none"/>
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-50 rounded-full blur-[120px] opacity-60 -translate-y-1/2 translate-x-1/2 pointer-events-none"/>
       
       <div className="w-full max-w-sm relative z-10">
         {/* Logo */}

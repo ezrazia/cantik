@@ -19,6 +19,115 @@ import { api } from "../../services/api";
  * @returns {React.ReactElement}
  */
 function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, isOffline }) {
+  const getQuestionCode = (q, allQuestions, allBlocks) => {
+    if (!q) return "";
+    const blockIdx = allBlocks.findIndex(b => b.id === q.blok_id) + 1;
+    if (blockIdx === 0) return "";
+    
+    if (q.parent_id) {
+      const parent = allQuestions.find(p => p.id === q.parent_id);
+      if (!parent) return "";
+      const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
+      
+      // Sibling sub-questions of same parent
+      const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id);
+      const sibIdx = siblings.findIndex(s => s.id === q.id);
+      const letter = String.fromCharCode(65 + (sibIdx >= 0 ? sibIdx : 0)); // A, B, C...
+      return `${parentCode}${letter}`;
+    } else {
+      // Index among main questions of the block
+      const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id);
+      const qIdx = mainQs.findIndex(s => s.id === q.id) + 1;
+      const padded = qIdx.toString().padStart(2, '0');
+      return `${blockIdx}${padded}`;
+    }
+  };
+
+  const parseValidation = (str) => {
+    if (!str) return { rangeText: "", hintText: "", description: "" };
+    const trimmed = str.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        let rangeText = "";
+        if (parsed.type === 'range') {
+          rangeText = `Rentang: ${parsed.min} - ${parsed.max}`;
+        } else if (parsed.type === 'min') {
+          rangeText = `Minimal: ${parsed.min}`;
+        } else if (parsed.type === 'gt') {
+          rangeText = `Lebih dari: ${parsed.min}`;
+        }
+        return {
+          rangeText,
+          hintText: parsed.hint || "",
+          description: parsed.description || parsed.hint || ""
+        };
+      } catch (e) {}
+    }
+    
+    if (trimmed.startsWith('range:')) {
+      return {
+        rangeText: `Rentang: ${trimmed.replace('range:', '').trim()}`,
+        hintText: "",
+        description: ""
+      };
+    } else if (trimmed.startsWith('min:')) {
+      return {
+        rangeText: `Minimal: ${trimmed.replace('min:', '').trim()}`,
+        hintText: "",
+        description: ""
+      };
+    } else if (trimmed.startsWith('gt:')) {
+      return {
+        rangeText: `Lebih dari: ${trimmed.replace('gt:', '').trim()}`,
+        hintText: "",
+        description: ""
+      };
+    }
+    
+    return {
+      rangeText: "",
+      hintText: "",
+      description: str
+    };
+  };
+
+  const validateNumberRule = (val, rule) => {
+    if (!rule || val === undefined || val === null || val === '') return true;
+    const numVal = Number(val);
+    if (isNaN(numVal)) return false;
+    const trimmed = rule.trim();
+
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed.type === 'range') {
+          return numVal >= Number(parsed.min) && numVal <= Number(parsed.max);
+        } else if (parsed.type === 'min') {
+          return numVal >= Number(parsed.min);
+        } else if (parsed.type === 'gt') {
+          return numVal > Number(parsed.min);
+        }
+        return true;
+      } catch (e) {}
+    }
+
+    if (trimmed.startsWith('range:')) {
+      const parts = trimmed.replace('range:', '').trim().split('-');
+      const min = Number(parts[0]);
+      const max = Number(parts[1]);
+      return numVal >= min && numVal <= max;
+    } else if (trimmed.startsWith('min:')) {
+      const min = Number(trimmed.replace('min:', '').trim());
+      return numVal >= min;
+    } else if (trimmed.startsWith('gt:')) {
+      const min = Number(trimmed.replace('gt:', '').trim());
+      return numVal > min;
+    }
+
+    return true;
+  };
+
   const [view, setView] = useState("select_activity"); // select_activity | prelist | form
   const [selectedActivity, setSelectedActivity] = useState(null);
   const [localPrelist, setLocalPrelist] = useState([]);
@@ -183,13 +292,48 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       if (parentVal === undefined || parentVal === null || parentVal === '') return false;
     }
 
-    // Check if any other question in the form has skip logic target pointing here
-    const skippers = questions.filter(quest => quest.skip_target === q.id);
+    // Find all questions that have skip logic targets
+    const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
+    
     for (const skipper of skippers) {
       const skipperVal = ans.values[skipper.id];
-      // Skip logic: if skipper value matches condition, hide this target question
-      if (skipperVal !== undefined && skipperVal !== null && skipperVal !== '' && String(skipperVal) === String(skipper.skip_logic)) {
-        return false;
+      if (skipperVal === undefined || skipperVal === null || skipperVal === '') continue;
+
+      // Check if the answered value matches the trigger condition
+      // Supporting single choice and multi-choice (JSON string)
+      let matchesTrigger = false;
+      if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(skipperVal);
+          matchesTrigger = String(parsed[skipper.skip_logic]) === "1";
+        } catch (e) {}
+      } else {
+        matchesTrigger = String(skipperVal) === String(skipper.skip_logic);
+      }
+
+      if (matchesTrigger) {
+        // Find ordered list of all questions in all blocks
+        const allOrdered = [];
+        blocks.forEach(b => {
+          const blockQs = questions.filter(x => x.blok_id === b.id);
+          const mainQs = blockQs.filter(x => !x.parent_id);
+          mainQs.forEach(parent => {
+            allOrdered.push(parent);
+            const children = blockQs.filter(x => x.parent_id === parent.id);
+            allOrdered.push(...children);
+          });
+        });
+
+        const skipperIdx = allOrdered.findIndex(x => x.id === skipper.id);
+        const targetIdx = allOrdered.findIndex(x => x.id === skipper.skip_target);
+        const currentIdx = allOrdered.findIndex(x => x.id === q.id);
+
+        if (skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
+          // If q is in between skipper and skipTarget, hide/skip it
+          if (currentIdx > skipperIdx && currentIdx < targetIdx) {
+            return false;
+          }
+        }
       }
     }
 
@@ -212,12 +356,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const val = ans.values[q.id];
       if (val !== undefined && val !== null && val !== '') {
         hasFilledAny = true;
-        // Range validation if applicable
-        if (q.type === 'number' && q.validation && q.validation.startsWith('range:')) {
-          const rangePart = q.validation.replace('range:', '').trim();
-          const [min, max] = rangePart.split('-').map(Number);
-          const numVal = Number(val);
-          if (!isNaN(numVal) && (numVal < min || numVal > max)) {
+        // Range/Min/Max validation if applicable
+        if (q.type === 'number' && q.validation) {
+          if (!validateNumberRule(val, q.validation)) {
             hasValidationError = true;
           }
         }
@@ -901,7 +1042,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     />
                   </QCard>
                 )}
-
                 {activeQuestions.map((q) => {
                   if (!isQuestionVisible(q)) return null;
 
@@ -910,13 +1050,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   const isTextAreaType = q.type === 'textarea';
                   const isChoiceType = q.type === 'select' || q.type === 'radio';
 
+                  // Parse validation range and description hint
+                  const { rangeText, hintText, description } = parseValidation(q.validation);
+
                   return (
                     <QCard 
                       key={q.id} 
-                      r={`${q.id}`} 
+                      r={`R.${getQuestionCode(q, questions, blocks)}`} 
                       label={q.label} 
                       required={!!q.required} 
-                      hint={q.validation}
+                      hint={rangeText || hintText}
+                      description={description}
                       skipInfo={q.skip_logic ? `Kondisi skip: jika bernilai ${q.skip_logic}` : null}
                     >
                       {/* 1. TEXT INPUTS */}
@@ -927,7 +1071,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                           placeholder={`Isi ${q.label}`}
                           disabled={isReadOnly}
                           onChange={(e) => {
-                            const val = e.target.value;
+                            // Text inputs are saved in CAPITAL/UPPERCASE
+                            const val = e.target.value.toUpperCase();
                             const newValues = { ...ans.values, [q.id]: val };
                             
                             // Heuristic updates
@@ -974,7 +1119,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               let headerUpdates = {};
                               const lowerLabel = q.label.toLowerCase();
                               if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
-                                headerUpdates.umur = val;
+                                  headerUpdates.umur = val;
                               }
                               
                               setAns(p => ({
@@ -1011,33 +1156,57 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       {isChoiceType && (
                         <div className="grid grid-cols-2 gap-2">
                           {(q.options || []).map((opt) => {
-                            const isSelected = String(ans.values[q.id]) === String(opt.value);
+                            let isSelected = false;
+                            if (q.type === 'select') {
+                              // Multi-select: parse JSON string if exists
+                              let selectedMap = {};
+                              try {
+                                selectedMap = JSON.parse(ans.values[q.id] || "{}");
+                              } catch (e) {}
+                              isSelected = !!selectedMap[opt.value];
+                            } else {
+                              // Radio: single select
+                              isSelected = String(ans.values[q.id]) === String(opt.value);
+                            }
+
                             return (
                               <button 
                                 key={opt.value} 
                                 type="button" 
                                 onClick={() => {
                                   if (isReadOnly) return;
-                                  const val = opt.value;
-                                  const newValues = { ...ans.values, [q.id]: val };
-                                  
-                                  // Heuristic maps for choice answers
-                                  let headerUpdates = {};
-                                  const lowerLabel = q.label.toLowerCase();
-                                  if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
-                                    headerUpdates.gender = val;
-                                  } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
-                                    headerUpdates.perkawinan = val;
-                                  } else if (lowerLabel.includes("bekerja")) {
-                                    headerUpdates.bekerja = val;
+                                  if (q.type === 'select') {
+                                    let selectedMap = {};
+                                    try {
+                                      selectedMap = JSON.parse(ans.values[q.id] || "{}");
+                                    } catch (e) {}
+                                    selectedMap[opt.value] = selectedMap[opt.value] ? 0 : 1;
+                                    const val = JSON.stringify(selectedMap);
+                                    const newValues = { ...ans.values, [q.id]: val };
+                                    setAns(p => ({ ...p, values: newValues }));
+                                    markUnsaved();
+                                  } else {
+                                    const val = opt.value;
+                                    const newValues = { ...ans.values, [q.id]: val };
+                                    
+                                    // Heuristic maps for choice answers
+                                    let headerUpdates = {};
+                                    const lowerLabel = q.label.toLowerCase();
+                                    if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
+                                      headerUpdates.gender = val;
+                                    } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
+                                      headerUpdates.perkawinan = val;
+                                    } else if (lowerLabel.includes("bekerja")) {
+                                      headerUpdates.bekerja = val;
+                                    }
+                                    
+                                    setAns(p => ({
+                                      ...p,
+                                      ...headerUpdates,
+                                      values: newValues
+                                    }));
+                                    markUnsaved();
                                   }
-                                  
-                                  setAns(p => ({
-                                    ...p,
-                                    ...headerUpdates,
-                                    values: newValues
-                                  }));
-                                  markUnsaved();
                                 }}
                                 disabled={isReadOnly}
                                 className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
@@ -1046,10 +1215,16 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                     : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
                                 } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
                               >
-                                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                                  isSelected ? "border-blue-600" : "border-slate-200"
+                                <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${
+                                  q.type === 'select'
+                                    ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
+                                    : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
                                 }`}>
-                                  {isSelected && <div className="w-2 h-2 rounded-full bg-blue-600"/>}
+                                  {isSelected && (
+                                    q.type === 'select'
+                                      ? <Check size={10} className="text-white stroke-[3px]" />
+                                      : <div className="w-2 h-2 rounded-full bg-blue-600"/>
+                                  )}
                                 </div>
                                 {opt.value}. {opt.label}
                               </button>
