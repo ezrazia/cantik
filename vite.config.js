@@ -147,4 +147,17 @@ export default defineConfig({
       },
     }),
   ],
+  // ─── TAMBAHKAN KONFIGURASI SERVER DI SINI ───
+  server: {
+    host: true, // Otomatis membuka akses network (bisa diakses oleh tunnel)
+    port: 5173,
+    strictPort: true,
+    allowedHosts: ['.bpsktt.com'] // Mengizinkan semua subdomain di bawah domain utama Anda
+  },
+  preview: {
+    host: true,
+    port: 5173,
+    strictPort: true,
+    allowedHosts: ['.bpsktt.com']
+  }
 })
