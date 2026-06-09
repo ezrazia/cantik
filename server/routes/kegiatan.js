@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -9,9 +9,12 @@ const router = Router();
  */
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM kegiatan ORDER BY start_date DESC');
-    
-    // Parse lokus JSON if needed (though mysql2 typically parses it automatically)
+    const rows = await prisma.kegiatan.findMany({
+      orderBy: {
+        start_date: 'desc',
+      },
+    });
+
     const formatted = rows.map(k => {
       let lokusParsed = k.lokus;
       if (typeof lokusParsed === 'string') {
@@ -23,7 +26,7 @@ router.get('/', async (req, res) => {
       }
       return {
         ...k,
-        lokus: lokusParsed || { kecamatan: [], desa: [], sls: [], subSls: [] }
+        lokus: lokusParsed || { kecamatan: [], desa: [], sls: [], subSls: [] },
       };
     });
 
@@ -45,28 +48,24 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    const lokusJson = lokus ? JSON.stringify(lokus) : JSON.stringify({ kecamatan: [], desa: [], sls: [], subSls: [] });
-    
-    const [result] = await pool.query(
-      `INSERT INTO kegiatan (name, description, progress, color, text_color, bg_color, start_date, status, lokus)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
+    const result = await prisma.kegiatan.create({
+      data: {
         name,
-        description || null,
-        progress || 0,
-        color || 'bg-blue-600',
-        text_color || 'text-blue-600',
-        bg_color || 'bg-blue-50',
-        start_date || null,
-        status || 'draft',
-        lokusJson
-      ]
-    );
+        description: description || null,
+        progress: progress || 0,
+        color: color || 'bg-blue-600',
+        text_color: text_color || 'text-blue-600',
+        bg_color: bg_color || 'bg-blue-50',
+        start_date: start_date ? new Date(start_date) : null,
+        status: status || 'draft',
+        lokus: lokus || { kecamatan: [], desa: [], sls: [], subSls: [] },
+      },
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Kegiatan berhasil dibuat',
-      kegiatanId: result.insertId
+      kegiatanId: result.id,
     });
   } catch (error) {
     console.error('Error creating kegiatan:', error);
@@ -87,29 +86,22 @@ router.put('/:id', async (req, res) => {
   }
 
   try {
-    const lokusJson = lokus ? JSON.stringify(lokus) : JSON.stringify({ kecamatan: [], desa: [], sls: [], subSls: [] });
-
-    const [result] = await pool.query(
-      `UPDATE kegiatan
-       SET name = ?, description = ?, progress = ?, color = ?, text_color = ?, bg_color = ?, start_date = ?, status = ?, lokus = ?
-       WHERE id = ?`,
-      [
+    await prisma.kegiatan.update({
+      where: {
+        id: parseInt(id, 10),
+      },
+      data: {
         name,
-        description || null,
-        progress || 0,
-        color || 'bg-blue-600',
-        text_color || 'text-blue-600',
-        bg_color || 'bg-blue-50',
-        start_date || null,
-        status || 'draft',
-        lokusJson,
-        id
-      ]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'Kegiatan tidak ditemukan' });
-    }
+        description: description || null,
+        progress: progress || 0,
+        color: color || 'bg-blue-600',
+        text_color: text_color || 'text-blue-600',
+        bg_color: bg_color || 'bg-blue-50',
+        start_date: start_date ? new Date(start_date) : null,
+        status: status || 'draft',
+        lokus: lokus || { kecamatan: [], desa: [], sls: [], subSls: [] },
+      },
+    });
 
     return res.json({ success: true, message: 'Kegiatan berhasil diperbarui' });
   } catch (error) {
@@ -125,10 +117,11 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const [result] = await pool.query('DELETE FROM kegiatan WHERE id = ?', [id]);
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, message: 'Kegiatan tidak ditemukan' });
-    }
+    await prisma.kegiatan.delete({
+      where: {
+        id: parseInt(id, 10),
+      },
+    });
     return res.json({ success: true, message: 'Kegiatan berhasil dihapus' });
   } catch (error) {
     console.error('Error deleting kegiatan:', error);

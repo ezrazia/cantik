@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -10,14 +10,33 @@ const router = Router();
 router.get('/:kegiatanId', async (req, res) => {
   const { kegiatanId } = req.params;
   try {
-    const [rows] = await pool.query(
-      `SELECT id, kegiatan_id, desa as name, target, selesai, color 
-       FROM desa_kegiatan 
-       WHERE kegiatan_id = ?
-       ORDER BY desa`,
-      [kegiatanId]
-    );
-    return res.json(rows);
+    const rows = await prisma.desaKegiatan.findMany({
+      where: {
+        kegiatan_id: parseInt(kegiatanId, 10),
+      },
+      select: {
+        id: true,
+        kegiatan_id: true,
+        desa: true,
+        target: true,
+        selesai: true,
+        color: true,
+      },
+      orderBy: {
+        desa: 'asc',
+      },
+    });
+
+    const formatted = rows.map(r => ({
+      id: r.id,
+      kegiatan_id: r.kegiatan_id,
+      name: r.desa,
+      target: r.target,
+      selesai: r.selesai,
+      color: r.color,
+    }));
+
+    return res.json(formatted);
   } catch (error) {
     console.error('Error fetching desa stats:', error);
     return res.status(500).json({ success: false, message: 'Gagal mengambil data statistik desa' });
@@ -35,14 +54,24 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    await pool.query(
-      `INSERT INTO desa_kegiatan (kegiatan_id, desa, target, color)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE 
-         target = VALUES(target),
-         color = VALUES(color)`,
-      [kegiatan_id, desa, target || 0, color || '#2563eb']
-    );
+    await prisma.desaKegiatan.upsert({
+      where: {
+        uk_desa_kegiatan: {
+          kegiatan_id: parseInt(kegiatan_id, 10),
+          desa: desa,
+        },
+      },
+      update: {
+        target: target || 0,
+        color: color || '#2563eb',
+      },
+      create: {
+        kegiatan_id: parseInt(kegiatan_id, 10),
+        desa: desa,
+        target: target || 0,
+        color: color || '#2563eb',
+      },
+    });
 
     return res.json({ success: true, message: 'Data target desa berhasil diperbarui' });
   } catch (error) {
@@ -59,10 +88,16 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { target, selesai, color } = req.body;
   try {
-    await pool.query(
-      'UPDATE desa_kegiatan SET target = ?, selesai = ?, color = ? WHERE id = ?',
-      [target || 0, selesai || 0, color || '#2563eb', id]
-    );
+    await prisma.desaKegiatan.update({
+      where: {
+        id: parseInt(id, 10),
+      },
+      data: {
+        target: target || 0,
+        selesai: selesai || 0,
+        color: color || '#2563eb',
+      },
+    });
     return res.json({ success: true, message: 'Data target desa berhasil diperbarui' });
   } catch (error) {
     console.error('Error updating desa target:', error);
@@ -77,7 +112,11 @@ router.put('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    await pool.query('DELETE FROM desa_kegiatan WHERE id = ?', [id]);
+    await prisma.desaKegiatan.delete({
+      where: {
+        id: parseInt(id, 10),
+      },
+    });
     return res.json({ success: true, message: 'Data target desa berhasil dihapus' });
   } catch (error) {
     console.error('Error deleting desa target:', error);

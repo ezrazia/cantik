@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -12,14 +12,32 @@ router.get('/:kegiatanId', async (req, res) => {
   const { kegiatanId } = req.params;
   try {
     // 1. Ambil semua pertanyaan untuk kegiatan ini
-    const [questions] = await pool.query(
-      `SELECT q.id, q.label, q.type, q.options, b.kode as blok_kode, b.title as blok_title
-       FROM form_question q
-       JOIN form_blok b ON q.blok_id = b.id
-       WHERE b.kegiatan_id = ?
-       ORDER BY b.sort_order, q.sort_order, q.id`,
-      [kegiatanId]
-    );
+    const questions = await prisma.formQuestion.findMany({
+      where: {
+        form_blok: {
+          kegiatan_id: parseInt(kegiatanId, 10),
+        },
+      },
+      select: {
+        id: true,
+        label: true,
+        type: true,
+        options: true,
+        form_blok: {
+          select: {
+            kode: true,
+            title: true,
+            sort_order: true,
+          },
+        },
+        sort_order: true,
+      },
+      orderBy: [
+        { form_blok: { sort_order: 'asc' } },
+        { sort_order: 'asc' },
+        { id: 'asc' },
+      ],
+    });
 
     // Parse options JSON
     const questionsWithParsedOptions = questions.map(q => {
@@ -31,7 +49,14 @@ router.get('/:kegiatanId', async (req, res) => {
           opt = null;
         }
       }
-      return { ...q, options: opt };
+      return {
+        id: q.id,
+        label: q.label,
+        type: q.type,
+        options: opt,
+        blok_kode: q.form_blok?.kode || '',
+        blok_title: q.form_blok?.title || '',
+      };
     });
 
     // Expand select type questions
@@ -51,7 +76,7 @@ router.get('/:kegiatanId', async (req, res) => {
             blok_title: q.blok_title,
             is_virtual: true,
             parent_select_id: q.id,
-            option_value: opt.value
+            option_value: opt.value,
           });
         });
       } else {
@@ -60,46 +85,56 @@ router.get('/:kegiatanId', async (req, res) => {
     });
 
     // 2. Cek status kegiatan untuk menentukan sumber data tabulasi
-    const [kegiatanRows] = await pool.query(
-      'SELECT status FROM kegiatan WHERE id = ?',
-      [kegiatanId]
-    );
-    const isSelesai = kegiatanRows.length > 0 && kegiatanRows[0].status === 'selesai';
+    const kegiatan = await prisma.kegiatan.findUnique({
+      where: { id: parseInt(kegiatanId, 10) },
+      select: { status: true },
+    });
+    
+    const isSelesai = kegiatan && kegiatan.status === 'selesai';
 
-    let docQuery = `
-      SELECT id, kode, krt, alamat, kecamatan, desa, sls, sub_sls, updated_at
-      FROM dokumen
-      WHERE kegiatan_id = ?
-    `;
-    const docParams = [kegiatanId];
+    const docWhere = {
+      kegiatan_id: parseInt(kegiatanId, 10),
+      ...(isSelesai
+        ? { status: { in: ['tersimpan', 'terkirim'] } }
+        : { review_status: 'approved' }),
+    };
 
-    if (isSelesai) {
-      // Jika kegiatan sudah selesai, ambil semua data respon (tersimpan/terkirim) langsung
-      docQuery += ` AND status IN ('tersimpan', 'terkirim')`;
-    } else {
-      // Jika masih berjalan (published), ambil yang sudah disetujui (approved)
-      docQuery += ` AND review_status = 'approved'`;
-    }
-
-    const [documents] = await pool.query(docQuery, docParams);
+    const documents = await prisma.dokumen.findMany({
+      where: docWhere,
+      select: {
+        id: true,
+        kode: true,
+        krt: true,
+        alamat: true,
+        kecamatan: true,
+        desa: true,
+        sls: true,
+        sub_sls: true,
+        updated_at: true,
+      },
+    });
 
     if (documents.length === 0) {
       return res.json({
         success: true,
         questions: expandedQuestions,
-        cleanData: []
+        cleanData: [],
       });
     }
 
     const docIds = documents.map(d => d.id);
 
-    // 3. Ambil semua jawaban untuk dokumen approved tersebut
-    const [answers] = await pool.query(
-      `SELECT dokumen_id, question_id, value 
-       FROM dokumen_jawaban 
-       WHERE dokumen_id IN (?)`,
-      [docIds]
-    );
+    // 3. Ambil semua jawaban untuk dokumen approved/selesai tersebut
+    const answers = await prisma.dokumenJawaban.findMany({
+      where: {
+        dokumen_id: { in: docIds },
+      },
+      select: {
+        dokumen_id: true,
+        question_id: true,
+        value: true,
+      },
+    });
 
     // Map jawaban by dokumen_id and question_id
     const answersMap = {};
@@ -121,7 +156,7 @@ router.get('/:kegiatanId', async (req, res) => {
         desa: doc.desa,
         sls: doc.sls,
         sub_sls: doc.sub_sls,
-        updated_at: doc.updated_at
+        updated_at: doc.updated_at,
       };
 
       // Tambahkan jawaban untuk setiap pertanyaan
@@ -133,7 +168,7 @@ router.get('/:kegiatanId', async (req, res) => {
             try {
               const parsed = JSON.parse(parentVal);
               isChecked = parsed[q.option_value] ? '1' : '0';
-            } catch (e) {
+            } catch {
               if (String(parentVal) === String(q.option_value)) {
                 isChecked = '1';
               }
@@ -162,7 +197,7 @@ router.get('/:kegiatanId', async (req, res) => {
     return res.json({
       success: true,
       questions: expandedQuestions,
-      cleanData
+      cleanData,
     });
   } catch (error) {
     console.error('Error generating tabulasi clean data:', error);

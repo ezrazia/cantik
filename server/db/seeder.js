@@ -1,408 +1,401 @@
 /**
  * @module server/db/seeder
  * Script untuk setup database: membuat tabel dan seed data awal.
- * Menjalankan schema.sql lalu seed.sql secara otomatis,
- * dengan bcrypt hash yang proper untuk password.
+ * Menggunakan Prisma Client agar kompatibel dengan PostgreSQL cloud.
  *
  * Cara menjalankan:
  *   node db/seeder.js
  */
 
 import bcrypt from 'bcryptjs';
-import pool from '../config/database.js';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-import mysql from 'mysql2/promise';
-import dotenv from 'dotenv';
-
-dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import prisma from '../config/database.js';
 
 async function seed() {
-  // ── 0. Create database if it does not exist ──
   try {
-    const tempConn = await mysql.createConnection({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT, 10) || 3306,
-      user: process.env.DB_USER || 'root',
-      password: process.env.DB_PASSWORD || '',
-    });
-    await tempConn.query('CREATE DATABASE IF NOT EXISTS `' + (process.env.DB_NAME || 'desa_cantik') + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
-    await tempConn.end();
-    console.log('✅ Database created or already exists');
-  } catch (err) {
-    console.error('⚠️ Could not check/create database:', err.message);
-  }
+    console.log('⏳ Starting database seeding...');
 
-  let connection;
-  try {
-    connection = await pool.getConnection();
-    console.log('✅ Connected to MySQL');
+    // ── 1. Clear existing data with Prisma deleteMany ──
+    console.log('🧹 Clearing existing data...');
+    await prisma.dokumenLog.deleteMany();
+    await prisma.dokumenJawaban.deleteMany();
+    await prisma.dokumen.deleteMany();
+    await prisma.formQuestion.deleteMany();
+    await prisma.formBlok.deleteMany();
+    await prisma.desaKegiatan.deleteMany();
+    await prisma.wilayah.deleteMany();
+    await prisma.petugasKegiatan.deleteMany();
+    await prisma.kegiatan.deleteMany();
+    await prisma.petugas.deleteMany();
+    await prisma.admin.deleteMany();
+    console.log('✅ Tables cleared via deleteMany');
 
-    // ── 1. Create database & tables ──
-    const schemaSQL = readFileSync(join(__dirname, 'schema.sql'), 'utf8');
-    const schemaLines = schemaSQL
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => !line.startsWith('--'))
-      .join('\n');
-    const schemaStatements = schemaLines
-      .split(';')
-      .map(s => s.trim())
-      .filter(s => s.length > 0);
-
-    for (const stmt of schemaStatements) {
-      await connection.query(stmt);
-    }
-    console.log('✅ Schema created');
-
-    // ── 2. Clear existing data ──
-    await connection.query('SET FOREIGN_KEY_CHECKS = 0');
-    const tables = [
-      'dokumen_log', 'dokumen_jawaban', 'dokumen',
-      'form_question', 'form_blok', 'desa_kegiatan',
-      'wilayah', 'petugas_kegiatan', 'kegiatan', 'petugas', 'admin'
-    ];
-    for (const t of tables) {
-      await connection.query(`TRUNCATE TABLE ${t}`);
-    }
-    await connection.query('SET FOREIGN_KEY_CHECKS = 1');
-    console.log('✅ Tables cleared');
-
-    // ── 3. Hash passwords ──
+    // ── 2. Hash passwords ──
     const adminHash = await bcrypt.hash('admin123', 10);
     const petugasHash = await bcrypt.hash('petugas123', 10);
-    console.log('✅ Passwords hashed');
+    console.log('🔑 Passwords hashed');
 
-    // ── 4. Insert Admin ──
-    await connection.query(
-      'INSERT INTO admin (username, password, nama) VALUES (?, ?, ?)',
-      ['admin', adminHash, 'Administrator BPS']
-    );
-    console.log('✅ Admin seeded');
+    // ── 3. Insert Admin ──
+    await prisma.admin.create({
+      data: {
+        id: 1,
+        username: 'admin',
+        password: adminHash,
+        nama: 'Administrator BPS'
+      }
+    });
+    console.log('👥 Admin seeded');
 
-    // ── 5. Insert Petugas ──
+    // ── 4. Insert Petugas ──
     const petugasList = [
-      ['budi.santoso',  'Budi Santoso',  '327101010101000001', '0812-7890-1234', 'Tideng Pale',   15, 12, 'active'],
-      ['siti.rahayu',   'Siti Rahayu',   '327101010101000002', '0856-1234-5678', 'Tideng Pale',   12, 12, 'done'],
-      ['agus.prasetyo', 'Agus Prasetyo', '327101010101000003', '0813-9876-5432', 'Limbu Sedulun', 18,  7, 'active'],
-      ['dewi.lestari',  'Dewi Lestari',  '327101010101000004', '0878-5555-1234', 'Tideng Pale',   15,  9, 'active'],
-      ['rudi.hermawan', 'Rudi Hermawan', '327101010101000005', '0821-4444-9876', 'Sesayap Hilir', 12,  3, 'active'],
+      { id: 1, username: 'budi.santoso',  name: 'Budi Santoso',  nik: '327101010101000001', phone: '0812-7890-1234', desa: 'Tideng Pale',   target: 15, selesai: 12, status: 'active' },
+      { id: 2, username: 'siti.rahayu',   name: 'Siti Rahayu',   nik: '327101010101000002', phone: '0856-1234-5678', desa: 'Tideng Pale',   target: 12, selesai: 12, status: 'done' },
+      { id: 3, username: 'agus.prasetyo', name: 'Agus Prasetyo', nik: '327101010101000003', phone: '0813-9876-5432', desa: 'Limbu Sedulun', target: 18, selesai: 7,  status: 'active' },
+      { id: 4, username: 'dewi.lestari',  name: 'Dewi Lestari',  nik: '327101010101000004', phone: '0878-5555-1234', desa: 'Tideng Pale',   target: 15, selesai: 9,  status: 'active' },
+      { id: 5, username: 'rudi.hermawan', name: 'Rudi Hermawan', nik: '327101010101000005', phone: '0821-4444-9876', desa: 'Sesayap Hilir', target: 12, selesai: 3,  status: 'active' }
     ];
 
     for (const p of petugasList) {
-      await connection.query(
-        `INSERT INTO petugas (username, password, name, nik, phone, desa, target, selesai, last_sync, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_SUB(NOW(), INTERVAL ? HOUR), ?)`,
-        [p[0], petugasHash, p[1], p[2], p[3], p[4], p[5], p[6], Math.floor(Math.random() * 8) + 1, p[7]]
-      );
-    }
-    console.log('✅ Petugas seeded (5 records)');
+      const hoursBack = Math.floor(Math.random() * 8) + 1;
+      const lastSyncDate = new Date();
+      lastSyncDate.setHours(lastSyncDate.getHours() - hoursBack);
 
-    // ── 6. Insert Kegiatan ──
+      await prisma.petugas.create({
+        data: {
+          id: p.id,
+          username: p.username,
+          password: petugasHash,
+          name: p.name,
+          nik: p.nik,
+          phone: p.phone,
+          desa: p.desa,
+          target: p.target,
+          selesai: p.selesai,
+          last_sync: lastSyncDate,
+          status: p.status
+        }
+      });
+    }
+    console.log('📋 Petugas seeded (5 records)');
+
+    // ── 5. Insert Kegiatan ──
     const kegiatanList = [
-      ['Desa Cantik 2026', 'Pembinaan statistik sektoral untuk desa/kelurahan berkinerja tinggi.', 68, 'bg-blue-600', 'text-blue-600', 'bg-blue-50', '2026-05-15', 'published',
-        JSON.stringify({kecamatan:["Sesayap","Sesayap Hilir"],desa:["Tideng Pale","Sesayap Hilir"],sls:["SLS 01 Tideng Pale","SLS 02 Tideng Pale","SLS 01 Sesayap Hilir"],subSls:["RT 01 A Tideng Pale","RT 01 B Tideng Pale"]})],
-      ['Survei Ekonomi 2026', 'Survei komprehensif pelaku usaha mikro, kecil, dan menengah nasional.', 54, 'bg-purple-600', 'text-purple-600', 'bg-purple-50', '2026-06-01', 'published',
-        JSON.stringify({kecamatan:["Sesayap"],desa:["Limbu Sedulun"],sls:["SLS 01 Limbu Sedulun","SLS 02 Limbu Sedulun"],subSls:[]})],
-      ['Pendataan PLS 2026', 'Pendataan potensi lokal dan sosial ekonomi tingkat wilayah terkecil.', 75, 'bg-emerald-600', 'text-emerald-600', 'bg-emerald-50', '2026-04-10', 'published',
-        JSON.stringify({kecamatan:["Tana Lia"],desa:["Tanah Merah"],sls:["SLS 01 Tanah Merah"],subSls:[]})],
-      ['Survei Demografi 2026', 'Pengumpulan parameter kependudukan, fertilitas, dan mortalitas daerah.', 0, 'bg-amber-600', 'text-amber-600', 'bg-amber-50', '2026-07-20', 'draft',
-        JSON.stringify({kecamatan:[],desa:[],sls:[],subSls:[]})],
+      {
+        id: 1,
+        name: 'Desa Cantik 2026',
+        description: 'Pembinaan statistik sektoral untuk desa/kelurahan berkinerja tinggi.',
+        progress: 68,
+        color: 'bg-blue-600',
+        text_color: 'text-blue-600',
+        bg_color: 'bg-blue-50',
+        start_date: new Date('2026-05-15'),
+        status: 'published',
+        lokus: { kecamatan: ["Sesayap", "Sesayap Hilir"], desa: ["Tideng Pale", "Sesayap Hilir"], sls: ["SLS 01 Tideng Pale", "SLS 02 Tideng Pale", "SLS 01 Sesayap Hilir"], subSls: ["RT 01 A Tideng Pale", "RT 01 B Tideng Pale"] }
+      },
+      {
+        id: 2,
+        name: 'Survei Ekonomi 2026',
+        description: 'Survei komprehensif pelaku usaha mikro, kecil, dan menengah nasional.',
+        progress: 54,
+        color: 'bg-purple-600',
+        text_color: 'text-purple-600',
+        bg_color: 'bg-purple-50',
+        start_date: new Date('2026-06-01'),
+        status: 'published',
+        lokus: { kecamatan: ["Sesayap"], desa: ["Limbu Sedulun"], sls: ["SLS 01 Limbu Sedulun", "SLS 02 Limbu Sedulun"], subSls: [] }
+      },
+      {
+        id: 3,
+        name: 'Pendataan PLS 2026',
+        description: 'Pendataan potensi lokal dan sosial ekonomi tingkat wilayah terkecil.',
+        progress: 75,
+        color: 'bg-emerald-600',
+        text_color: 'text-emerald-600',
+        bg_color: 'bg-emerald-50',
+        start_date: new Date('2026-04-10'),
+        status: 'published',
+        lokus: { kecamatan: ["Tana Lia"], desa: ["Tanah Merah"], sls: ["SLS 01 Tanah Merah"], subSls: [] }
+      },
+      {
+        id: 4,
+        name: 'Survei Demografi 2026',
+        description: 'Pengumpulan parameter kependudukan, fertilitas, dan mortalitas daerah.',
+        progress: 0,
+        color: 'bg-amber-600',
+        text_color: 'text-amber-600',
+        bg_color: 'bg-amber-50',
+        start_date: new Date('2026-07-20'),
+        status: 'draft',
+        lokus: { kecamatan: [], desa: [], sls: [], subSls: [] }
+      }
     ];
 
     for (const k of kegiatanList) {
-      await connection.query(
-        `INSERT INTO kegiatan (name, description, progress, color, text_color, bg_color, start_date, status, lokus)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, k
-      );
+      await prisma.kegiatan.create({
+        data: k
+      });
     }
-    console.log('✅ Kegiatan seeded (4 records)');
+    console.log('📅 Kegiatan seeded (4 records)');
 
-    // ── 7. Insert Petugas-Kegiatan ──
+    // ── 6. Insert Petugas-Kegiatan ──
     const pkList = [
-      [1, 1, 'PCL', JSON.stringify(["SLS 01 Tideng Pale","RT 01 A Tideng Pale"]), 'Siti Rahayu'],
-      [1, 3, 'PML', JSON.stringify(["SLS 01 Tanah Merah"]), 'Agus Prasetyo'],
-      [2, 1, 'PML', null, null],
-      [2, 2, 'PML', null, null],
-      [3, 1, 'PCL', JSON.stringify(["SLS 02 Tideng Pale"]), 'Siti Rahayu'],
-      [3, 3, 'PML', null, null],
-      [4, 2, 'PML', null, null],
-      [5, 2, 'PCL', JSON.stringify(["SLS 01 Limbu Sedulun"]), 'Dewi Lestari'],
-      [5, 1, 'PCL', JSON.stringify(["SLS 01 Sesayap Hilir"]), 'Siti Rahayu'],
+      { id: 1, petugas_id: 1, kegiatan_id: 1, role: 'PCL', sls_assignments: ["SLS 01 Tideng Pale", "RT 01 A Tideng Pale"], pengawas: 'Siti Rahayu' },
+      { id: 2, petugas_id: 1, kegiatan_id: 3, role: 'PML', sls_assignments: ["SLS 01 Tanah Merah"], pengawas: 'Agus Prasetyo' },
+      { id: 3, petugas_id: 2, kegiatan_id: 1, role: 'PML', sls_assignments: null, pengawas: null },
+      { id: 4, petugas_id: 2, kegiatan_id: 2, role: 'PML', sls_assignments: null, pengawas: null },
+      { id: 5, petugas_id: 3, kegiatan_id: 1, role: 'PCL', sls_assignments: ["SLS 02 Tideng Pale"], pengawas: 'Siti Rahayu' },
+      { id: 6, petugas_id: 3, kegiatan_id: 3, role: 'PML', sls_assignments: null, pengawas: null },
+      { id: 7, petugas_id: 4, kegiatan_id: 2, role: 'PML', sls_assignments: null, pengawas: null },
+      { id: 8, petugas_id: 5, kegiatan_id: 2, role: 'PCL', sls_assignments: ["SLS 01 Limbu Sedulun"], pengawas: 'Dewi Lestari' },
+      { id: 9, petugas_id: 5, kegiatan_id: 1, role: 'PCL', sls_assignments: ["SLS 01 Sesayap Hilir"], pengawas: 'Siti Rahayu' }
     ];
 
     for (const pk of pkList) {
-      await connection.query(
-        'INSERT INTO petugas_kegiatan (petugas_id, kegiatan_id, role, sls_assignments, pengawas) VALUES (?, ?, ?, ?, ?)', pk
-      );
+      await prisma.petugasKegiatan.create({
+        data: pk
+      });
     }
-    console.log('✅ Petugas-Kegiatan seeded (9 records)');
+    console.log('📌 Petugas-Kegiatan seeded (9 records)');
 
-    // ── 8. Insert Wilayah ──
+    // ── 7. Insert Wilayah ──
     const wilayahList = [
-      ['Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', 'RT 01 A Tideng Pale'],
-      ['Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', 'RT 01 B Tideng Pale'],
-      ['Sesayap', 'Tideng Pale', 'SLS 02 Tideng Pale', null],
-      ['Sesayap', 'Tideng Pale', 'SLS 03 Tideng Pale', null],
-      ['Sesayap', 'Tideng Pale Timur', 'SLS 01 Tideng Pale Timur', null],
-      ['Sesayap', 'Tideng Pale Timur', 'SLS 02 Tideng Pale Timur', null],
-      ['Sesayap', 'Limbu Sedulun', 'SLS 01 Limbu Sedulun', null],
-      ['Sesayap', 'Limbu Sedulun', 'SLS 02 Limbu Sedulun', null],
-      ['Sesayap', 'Limbu Sedulun', 'SLS 03 Limbu Sedulun', null],
-      ['Sesayap', 'Gunawan', 'SLS 01 Gunawan', null],
-      ['Sesayap', 'Gunawan', 'SLS 02 Gunawan', null],
-      ['Sesayap Hilir', 'Sesayap Hilir', 'SLS 01 Sesayap Hilir', null],
-      ['Sesayap Hilir', 'Sesayap Hilir', 'SLS 02 Sesayap Hilir', null],
-      ['Sesayap Hilir', 'Seludau', 'SLS 01 Seludau', null],
-      ['Sesayap Hilir', 'Seludau', 'SLS 02 Seludau', null],
-      ['Sesayap Hilir', 'Bebatu', 'SLS 01 Bebatu', null],
-      ['Sesayap Hilir', 'Sepala Dalung', 'SLS 01 Sepala Dalung', null],
-      ['Tana Lia', 'Tanah Merah', 'SLS 01 Tanah Merah', null],
-      ['Tana Lia', 'Tanah Merah', 'SLS 02 Tanah Merah', null],
-      ['Tana Lia', 'Sambungan', 'SLS 01 Sambungan', null],
-      ['Tana Lia', 'Tengku Dacing', 'SLS 01 Tengku Dacing', null],
-      ['Betayau', 'Kujau', 'SLS 01 Kujau', null],
-      ['Betayau', 'Buong Baru', 'SLS 01 Buong Baru', null],
-      ['Betayau', 'Betayau', 'SLS 01 Betayau', null],
-      ['Muruk Rian', 'Rian', 'SLS 01 Rian', null],
-      ['Muruk Rian', 'Kapuas', 'SLS 01 Kapuas', null],
-      ['Muruk Rian', 'Belayan', 'SLS 01 Belayan', null],
+      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: 'RT 01 A Tideng Pale' },
+      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: 'RT 01 B Tideng Pale' },
+      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 02 Tideng Pale', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 03 Tideng Pale', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Tideng Pale Timur', sls: 'SLS 01 Tideng Pale Timur', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Tideng Pale Timur', sls: 'SLS 02 Tideng Pale Timur', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Limbu Sedulun', sls: 'SLS 01 Limbu Sedulun', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Limbu Sedulun', sls: 'SLS 02 Limbu Sedulun', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Limbu Sedulun', sls: 'SLS 03 Limbu Sedulun', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Gunawan', sls: 'SLS 01 Gunawan', sub_sls: null },
+      { kecamatan: 'Sesayap', desa: 'Gunawan', sls: 'SLS 02 Gunawan', sub_sls: null },
+      { kecamatan: 'Sesayap Hilir', desa: 'Sesayap Hilir', sls: 'SLS 01 Sesayap Hilir', sub_sls: null },
+      { kecamatan: 'Sesayap Hilir', desa: 'Sesayap Hilir', sls: 'SLS 02 Sesayap Hilir', sub_sls: null },
+      { kecamatan: 'Sesayap Hilir', desa: 'Seludau', sls: 'SLS 01 Seludau', sub_sls: null },
+      { kecamatan: 'Sesayap Hilir', desa: 'Seludau', sls: 'SLS 02 Seludau', sub_sls: null },
+      { kecamatan: 'Sesayap Hilir', desa: 'Bebatu', sls: 'SLS 01 Bebatu', sub_sls: null },
+      { kecamatan: 'Sesayap Hilir', desa: 'Sepala Dalung', sls: 'SLS 01 Sepala Dalung', sub_sls: null },
+      { kecamatan: 'Tana Lia', desa: 'Tanah Merah', sls: 'SLS 01 Tanah Merah', sub_sls: null },
+      { kecamatan: 'Tana Lia', desa: 'Tanah Merah', sls: 'SLS 02 Tanah Merah', sub_sls: null },
+      { kecamatan: 'Tana Lia', desa: 'Sambungan', sls: 'SLS 01 Sambungan', sub_sls: null },
+      { kecamatan: 'Tana Lia', desa: 'Tengku Dacing', sls: 'SLS 01 Tengku Dacing', sub_sls: null },
+      { kecamatan: 'Betayau', desa: 'Kujau', sls: 'SLS 01 Kujau', sub_sls: null },
+      { kecamatan: 'Betayau', desa: 'Buong Baru', sls: 'SLS 01 Buong Baru', sub_sls: null },
+      { kecamatan: 'Betayau', desa: 'Betayau', sls: 'SLS 01 Betayau', sub_sls: null },
+      { kecamatan: 'Muruk Rian', desa: 'Rian', sls: 'SLS 01 Rian', sub_sls: null },
+      { kecamatan: 'Muruk Rian', desa: 'Kapuas', sls: 'SLS 01 Kapuas', sub_sls: null },
+      { kecamatan: 'Muruk Rian', desa: 'Belayan', sls: 'SLS 01 Belayan', sub_sls: null }
     ];
 
-    for (const w of wilayahList) {
-      await connection.query(
-        'INSERT INTO wilayah (kecamatan, desa, sls, sub_sls) VALUES (?, ?, ?, ?)', w
-      );
-    }
-    console.log('✅ Wilayah seeded (27 records)');
+    await prisma.wilayah.createMany({
+      data: wilayahList
+    });
+    console.log('🗺️ Wilayah seeded (27 records)');
 
-    // ── 9. Insert Desa-Kegiatan Stats ──
+    // ── 8. Insert Desa-Kegiatan Stats ──
     const dkList = [
-      [1, 'Tideng Pale', 30, 24, '#2563eb'],
-      [1, 'Sesayap Hilir', 24, 15, '#0891b2'],
-      [2, 'Limbu Sedulun', 36, 19, '#7c3aed'],
-      [3, 'Tanah Merah', 20, 15, '#10b981'],
+      { id: 1, kegiatan_id: 1, desa: 'Tideng Pale', target: 30, selesai: 24, color: '#2563eb' },
+      { id: 2, kegiatan_id: 1, desa: 'Sesayap Hilir', target: 24, selesai: 15, color: '#0891b2' },
+      { id: 3, kegiatan_id: 2, desa: 'Limbu Sedulun', target: 36, selesai: 19, color: '#7c3aed' },
+      { id: 4, kegiatan_id: 3, desa: 'Tanah Merah', target: 20, selesai: 15, color: '#10b981' }
     ];
+
     for (const dk of dkList) {
-      await connection.query(
-        'INSERT INTO desa_kegiatan (kegiatan_id, desa, target, selesai, color) VALUES (?, ?, ?, ?, ?)', dk
-      );
+      await prisma.desaKegiatan.create({
+        data: dk
+      });
     }
-    console.log('✅ Desa-Kegiatan seeded (4 records)');
+    console.log('📊 Desa-Kegiatan seeded (4 records)');
 
-    // ── 10. Insert Form Blok (Desa Cantik 2026, kegiatan_id=1) ──
+    // ── 9. Insert Form Blok (Desa Cantik 2026, kegiatan_id=1) ──
     const bloks = [
-      [1, 'Blok I',   'Keterangan Tempat Tinggal', 1],
-      [1, 'Blok II',  'Keterangan Perumahan', 2],
-      [1, 'Blok III', 'Keterangan Anggota RT', 3],
-      [1, 'Blok IV',  'Keterangan Sosial Ekonomi', 4],
-      [1, 'Blok V',   'Keterangan Kepemilikan Aset', 5],
+      { id: 1, kegiatan_id: 1, kode: 'Blok I',   title: 'Keterangan Tempat Tinggal', sort_order: 1 },
+      { id: 2, kegiatan_id: 1, kode: 'Blok II',  title: 'Keterangan Perumahan', sort_order: 2 },
+      { id: 3, kegiatan_id: 1, kode: 'Blok III', title: 'Keterangan Anggota RT', sort_order: 3 },
+      { id: 4, kegiatan_id: 1, kode: 'Blok IV',  title: 'Keterangan Sosial Ekonomi', sort_order: 4 },
+      { id: 5, kegiatan_id: 1, kode: 'Blok V',   title: 'Keterangan Kepemilikan Aset', sort_order: 5 }
     ];
-    for (const b of bloks) {
-      await connection.query(
-        'INSERT INTO form_blok (kegiatan_id, kode, title, sort_order) VALUES (?, ?, ?, ?)', b
-      );
-    }
-    console.log('✅ Form Blok seeded (5 records)');
 
-    // ── 11. Insert Form Questions ──
+    for (const b of bloks) {
+      await prisma.formBlok.create({
+        data: b
+      });
+    }
+    console.log('📦 Form Blok seeded (5 records)');
+
+    // ── 10. Insert Form Questions ──
     // Blok I (blok_id=1): Lokasi
     const q_blok1 = [
-      [1, null, 'Provinsi', 'text', true, null, null, null, null, 1],
-      [1, null, 'Kabupaten / Kota', 'text', true, null, null, null, null, 2],
-      [1, null, 'Kecamatan', 'text', true, null, null, null, null, 3],
-      [1, null, 'Desa / Kelurahan', 'text', true, null, null, null, null, 4],
-      [1, null, 'Satuan Lingkungan Setempat (SLS) / RT', 'text', false, null, null, null, null, 5],
-      [1, null, 'Alamat / Jalan', 'text', false, null, null, null, null, 6],
+      { id: 1, blok_id: 1, parent_id: null, label: 'Provinsi', type: 'text', required: true, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 1 },
+      { id: 2, blok_id: 1, parent_id: null, label: 'Kabupaten / Kota', type: 'text', required: true, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 2 },
+      { id: 3, blok_id: 1, parent_id: null, label: 'Kecamatan', type: 'text', required: true, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 3 },
+      { id: 4, blok_id: 1, parent_id: null, label: 'Desa / Kelurahan', type: 'text', required: true, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 4 },
+      { id: 5, blok_id: 1, parent_id: null, label: 'Satuan Lingkungan Setempat (SLS) / RT', type: 'text', required: false, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 5 },
+      { id: 6, blok_id: 1, parent_id: null, label: 'Alamat / Jalan', type: 'text', required: false, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 6 }
     ];
     // Blok II (blok_id=2): Perumahan
     const q_blok2 = [
-      [2, null, 'Status Kepemilikan Bangunan Tempat Tinggal', 'select', true,
-        JSON.stringify([{value:"1",label:"Milik Sendiri"},{value:"2",label:"Kontrak/Sewa"},{value:"3",label:"Bebas Sewa"},{value:"4",label:"Lainnya"}]),
-        null, null, null, 1],
-      [2, null, 'Luas Lantai Bangunan (m²)', 'number', true, null, null, null, null, 2],
-      [2, null, 'Jenis Lantai Terluas', 'select', true,
-        JSON.stringify([{value:"1",label:"Keramik/Ubin"},{value:"2",label:"Semen/Plester"},{value:"3",label:"Kayu/Papan"},{value:"4",label:"Tanah"}]),
-        null, null, null, 3],
-      [2, null, 'Jenis Dinding Terluas', 'select', true,
-        JSON.stringify([{value:"1",label:"Tembok"},{value:"2",label:"Semi Tembok"},{value:"3",label:"Kayu/Papan"},{value:"4",label:"Bambu/Lainnya"}]),
-        null, null, null, 4],
+      { id: 7, blok_id: 2, parent_id: null, label: 'Status Kepemilikan Bangunan Tempat Tinggal', type: 'select', required: true, options: [{value:"1",label:"Milik Sendiri"},{value:"2",label:"Kontrak/Sewa"},{value:"3",label:"Bebas Sewa"},{value:"4",label:"Lainnya"}], validation: null, skip_logic: null, skip_target: null, sort_order: 1 },
+      { id: 8, blok_id: 2, parent_id: null, label: 'Luas Lantai Bangunan (m²)', type: 'number', required: true, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 2 },
+      { id: 9, blok_id: 2, parent_id: null, label: 'Jenis Lantai Terluas', type: 'select', required: true, options: [{value:"1",label:"Keramik/Ubin"},{value:"2",label:"Semen/Plester"},{value:"3",label:"Kayu/Papan"},{value:"4",label:"Tanah"}], validation: null, skip_logic: null, skip_target: null, sort_order: 3 },
+      { id: 10, blok_id: 2, parent_id: null, label: 'Jenis Dinding Terluas', type: 'select', required: true, options: [{value:"1",label:"Tembok"},{value:"2",label:"Semi Tembok"},{value:"3",label:"Kayu/Papan"},{value:"4",label:"Bambu/Lainnya"}], validation: null, skip_logic: null, skip_target: null, sort_order: 4 }
     ];
     // Blok III (blok_id=3): Anggota RT
     const q_blok3 = [
-      [3, null, 'Nama Kepala Rumah Tangga', 'text', true, null, null, null, null, 1],
-      [3, null, 'Hubungan dengan KRT', 'select', true,
-        JSON.stringify([{value:"1",label:"Kepala Rumah Tangga"},{value:"2",label:"Istri/Suami"},{value:"3",label:"Anak"},{value:"4",label:"Lainnya"}]),
-        null, null, null, 2],
-      [3, null, 'Jenis Kelamin', 'radio', true,
-        JSON.stringify([{value:"1",label:"Laki-laki"},{value:"2",label:"Perempuan"}]),
-        null, null, null, 3],
-      [3, null, 'Umur (tahun)', 'number', true, null, 'range: 0-120', null, null, 4],
-      [3, null, 'Status Perkawinan', 'radio', true,
-        JSON.stringify([{value:"1",label:"Belum Kawin"},{value:"2",label:"Kawin"},{value:"3",label:"Cerai Hidup"},{value:"4",label:"Cerai Mati"}]),
-        null, null, null, 5],
-      [3, null, 'Pendidikan Tertinggi', 'select', true,
-        JSON.stringify([{value:"1",label:"Tidak Sekolah"},{value:"2",label:"SD"},{value:"3",label:"SMP"},{value:"4",label:"SMA"},{value:"5",label:"Diploma/S1"}]),
-        null, null, null, 6],
-      [3, null, 'Bekerja seminggu terakhir?', 'radio', true,
-        JSON.stringify([{value:"1",label:"Ya"},{value:"2",label:"Tidak"}]),
-        null, null, null, 7],
-      [3, null, 'Lapangan Usaha Utama', 'text', false, null, null, 'Aktif jika r307 = 1 (Ya)', null, 8],
+      { id: 11, blok_id: 3, parent_id: null, label: 'Nama Kepala Rumah Tangga', type: 'text', required: true, options: null, validation: null, skip_logic: null, skip_target: null, sort_order: 1 },
+      { id: 12, blok_id: 3, parent_id: null, label: 'Hubungan dengan KRT', type: 'select', required: true, options: [{value:"1",label:"Kepala Rumah Tangga"},{value:"2",label:"Istri/Suami"},{value:"3",label:"Anak"},{value:"4",label:"Lainnya"}], validation: null, skip_logic: null, skip_target: null, sort_order: 2 },
+      { id: 13, blok_id: 3, parent_id: null, label: 'Jenis Kelamin', type: 'radio', required: true, options: [{value:"1",label:"Laki-laki"},{value:"2",label:"Perempuan"}], validation: null, skip_logic: null, skip_target: null, sort_order: 3 },
+      { id: 14, blok_id: 3, parent_id: null, label: 'Umur (tahun)', type: 'number', required: true, options: null, validation: 'range: 0-120', skip_logic: null, skip_target: null, sort_order: 4 },
+      { id: 15, blok_id: 3, parent_id: null, label: 'Status Perkawinan', type: 'radio', required: true, options: [{value:"1",label:"Belum Kawin"},{value:"2",label:"Kawin"},{value:"3",label:"Cerai Hidup"},{value:"4",label:"Cerai Mati"}], validation: null, skip_logic: null, skip_target: null, sort_order: 5 },
+      { id: 16, blok_id: 3, parent_id: null, label: 'Pendidikan Tertinggi', type: 'select', required: true, options: [{value:"1",label:"Tidak Sekolah"},{value:"2",label:"SD"},{value:"3",label:"SMP"},{value:"4",label:"SMA"},{value:"5",label:"Diploma/S1"}], validation: null, skip_logic: null, skip_target: null, sort_order: 6 },
+      { id: 17, blok_id: 3, parent_id: null, label: 'Bekerja seminggu terakhir?', type: 'radio', required: true, options: [{value:"1",label:"Ya"},{value:"2",label:"Tidak"}], validation: null, skip_logic: null, skip_target: 18, sort_order: 7 },
+      { id: 18, blok_id: 3, parent_id: null, label: 'Lapangan Usaha Utama', type: 'text', required: false, options: null, validation: null, skip_logic: 'Aktif jika r307 = 1 (Ya)', skip_target: null, sort_order: 8 }
     ];
     // Blok IV (blok_id=4): Sosial Ekonomi
     const q_blok4 = [
-      [4, null, 'Sumber Penerangan Utama', 'select', true,
-        JSON.stringify([{value:"1",label:"Listrik PLN"},{value:"2",label:"Listrik Non-PLN"},{value:"3",label:"Bukan Listrik"}]),
-        null, null, null, 1],
-      [4, null, 'Bahan Bakar Masak Utama', 'select', true,
-        JSON.stringify([{value:"1",label:"Gas/Elpiji"},{value:"2",label:"Minyak Tanah"},{value:"3",label:"Kayu Bakar"},{value:"4",label:"Lainnya"}]),
-        null, null, null, 2],
-      [4, null, 'Sumber Air Minum Utama', 'select', true,
-        JSON.stringify([{value:"1",label:"Air Kemasan/Isi Ulang"},{value:"2",label:"Ledeng/PAM"},{value:"3",label:"Sumur"},{value:"4",label:"Lainnya"}]),
-        null, null, null, 3],
+      { id: 19, blok_id: 4, parent_id: null, label: 'Sumber Penerangan Utama', type: 'select', required: true, options: [{value:"1",label:"Listrik PLN"},{value:"2",label:"Listrik Non-PLN"},{value:"3",label:"Bukan Listrik"}], validation: null, skip_logic: null, skip_target: null, sort_order: 1 },
+      { id: 20, blok_id: 4, parent_id: null, label: 'Bahan Bakar Masak Utama', type: 'select', required: true, options: [{value:"1",label:"Gas/Elpiji"},{value:"2",label:"Minyak Tanah"},{value:"3",label:"Kayu Bakar"},{value:"4",label:"Lainnya"}], validation: null, skip_logic: null, skip_target: null, sort_order: 2 },
+      { id: 21, blok_id: 4, parent_id: null, label: 'Sumber Air Minum Utama', type: 'select', required: true, options: [{value:"1",label:"Air Kemasan/Isi Ulang"},{value:"2",label:"Ledeng/PAM"},{value:"3",label:"Sumur"},{value:"4",label:"Lainnya"}], validation: null, skip_logic: null, skip_target: null, sort_order: 3 }
     ];
     // Blok V (blok_id=5): Kepemilikan Aset
     const q_blok5 = [
-      [5, null, 'Tabungan/Emas', 'radio', true,
-        JSON.stringify([{value:"1",label:"Ya"},{value:"2",label:"Tidak"}]), null, null, null, 1],
-      [5, null, 'Sepeda Motor', 'radio', true,
-        JSON.stringify([{value:"1",label:"Ya"},{value:"2",label:"Tidak"}]), null, null, null, 2],
-      [5, null, 'Laptop/Komputer', 'radio', true,
-        JSON.stringify([{value:"1",label:"Ya"},{value:"2",label:"Tidak"}]), null, null, null, 3],
-      [5, null, 'HP Aktif', 'radio', true,
-        JSON.stringify([{value:"1",label:"Ya"},{value:"2",label:"Tidak"}]), null, null, null, 4],
+      { id: 22, blok_id: 5, parent_id: null, label: 'Tabungan/Emas', type: 'radio', required: true, options: [{value:"1",label:"Ya"},{value:"2",label:"Tidak"}], validation: null, skip_logic: null, skip_target: null, sort_order: 1 },
+      { id: 23, blok_id: 5, parent_id: null, label: 'Sepeda Motor', type: 'radio', required: true, options: [{value:"1",label:"Ya"},{value:"2",label:"Tidak"}], validation: null, skip_logic: null, skip_target: null, sort_order: 2 },
+      { id: 24, blok_id: 5, parent_id: null, label: 'Laptop/Komputer', type: 'radio', required: true, options: [{value:"1",label:"Ya"},{value:"2",label:"Tidak"}], validation: null, skip_logic: null, skip_target: null, sort_order: 3 },
+      { id: 25, blok_id: 5, parent_id: null, label: 'HP Aktif', type: 'radio', required: true, options: [{value:"1",label:"Ya"},{value:"2",label:"Tidak"}], validation: null, skip_logic: null, skip_target: null, sort_order: 4 }
     ];
 
     const allQs = [...q_blok1, ...q_blok2, ...q_blok3, ...q_blok4, ...q_blok5];
     for (const q of allQs) {
-      await connection.query(
-        `INSERT INTO form_question (blok_id, parent_id, label, type, required, options, validation, skip_logic, skip_target, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, q
-      );
+      await prisma.formQuestion.create({
+        data: q
+      });
     }
-    // Set skip_target for question 17 (Bekerja) -> 18 (Lapangan Usaha)
-    await connection.query(
-      'UPDATE form_question SET skip_target = 18 WHERE id = 17'
-    );
-    console.log('✅ Form Questions seeded (25 records)');
+    console.log('❓ Form Questions seeded (25 records)');
 
-    // ── 12. Insert Dokumen ──
+    // ── 11. Insert Dokumen ──
     const dokumenList = [
-      ['RT-001', 1, 1, 'Ahmad Subagyo',  'Jl. Melati No. 12',  'Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', 'RT 01 A Tideng Pale', 'terkirim',  'approved', 0, true, true],
-      ['RT-002', 1, 1, 'Slamet Widodo',  'Jl. Mangga No. 5',   'Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', null,                   'tersimpan', 'draft',    0, false, false],
-      ['RT-003', 1, 1, 'Ika Wahyuni',    'Jl. Rambutan No. 8', 'Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', null,                   'draft',     'draft',    0, false, false],
-      ['RT-004', 3, 1, 'Bambang Susilo', 'Jl. Durian No. 3',   'Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', null,                   'draft',     'rejected', 0, false, false],
-      ['RT-005', 3, 1, 'Nurhayati',      'Jl. Nangka No. 15',  'Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', null,                   'tersimpan', 'draft',    0, false, false],
-      ['RT-006', 3, 1, 'Sugeng Riyadi',  'Jl. Dahlia No. 10',  'Sesayap', 'Tideng Pale', 'SLS 01 Tideng Pale', null,                   'terkirim',  'draft',    0, false, true],
+      { id: 1, kode: 'RT-001', kegiatan_id: 1, petugas_id: 1, krt: 'Ahmad Subagyo',  alamat: 'Jl. Melati No. 12',  kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: 'RT 01 A Tideng Pale', status: 'terkirim',  review_status: 'approved', flag: 0, is_prelist: true, sync: true },
+      { id: 2, kode: 'RT-002', kegiatan_id: 1, petugas_id: 1, krt: 'Slamet Widodo',  alamat: 'Jl. Mangga No. 5',   kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: null,                   status: 'tersimpan', review_status: 'draft',    flag: 0, is_prelist: false, sync: false },
+      { id: 3, kode: 'RT-003', kegiatan_id: 1, petugas_id: 1, krt: 'Ika Wahyuni',    alamat: 'Jl. Rambutan No. 8', kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: null,                   status: 'draft',     review_status: 'draft',    flag: 0, is_prelist: false, sync: false },
+      { id: 4, kode: 'RT-004', kegiatan_id: 1, petugas_id: 3, krt: 'Bambang Susilo', alamat: 'Jl. Durian No. 3',   kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: null,                   status: 'draft',     review_status: 'rejected', flag: 0, is_prelist: false, sync: false },
+      { id: 5, kode: 'RT-005', kegiatan_id: 1, petugas_id: 3, krt: 'Nurhayati',      alamat: 'Jl. Nangka No. 15',  kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: null,                   status: 'tersimpan', review_status: 'draft',    flag: 0, is_prelist: false, sync: false },
+      { id: 6, kode: 'RT-006', kegiatan_id: 1, petugas_id: 3, krt: 'Sugeng Riyadi',  alamat: 'Jl. Dahlia No. 10',  kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: null,                   status: 'terkirim',  review_status: 'draft',    flag: 0, is_prelist: false, sync: true }
     ];
     for (const d of dokumenList) {
-      await connection.query(
-        `INSERT INTO dokumen (kode, kegiatan_id, petugas_id, krt, alamat, kecamatan, desa, sls, sub_sls, status, review_status, flag, is_prelist, sync)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, d
-      );
+      await prisma.dokumen.create({
+        data: d
+      });
     }
-    console.log('✅ Dokumen seeded (6 records)');
+    console.log('📄 Dokumen seeded (6 records)');
 
-    // ── 13. Insert Dokumen Jawaban ──
-    // RT-001 (dok_id=1): full answers
+    // ── 12. Insert Dokumen Jawaban ──
     const j1 = [
-      [1,1,'Kalimantan Utara'],[1,2,'Tana Tidung'],[1,3,'Sesayap'],[1,4,'Tideng Pale'],
-      [1,5,'SLS 01 Tideng Pale'],[1,6,'Jl. Melati No. 12'],
+      [1,1,'Kalimantan Utara'],[1,2,'Tana Tidung'],[1,3,'Sesayap'],[1,4,'Tideng Pale'],[1,5,'SLS 01 Tideng Pale'],[1,6,'Jl. Melati No. 12'],
       [1,7,'1'],[1,8,'80'],[1,9,'1'],[1,10,'1'],
       [1,11,'Ahmad Subagyo'],[1,12,'1'],[1,13,'1'],[1,14,'45'],[1,15,'2'],[1,16,'4'],[1,17,'1'],[1,18,'Pertanian'],
       [1,19,'1'],[1,20,'1'],[1,21,'1'],
-      [1,22,'1'],[1,23,'1'],[1,24,'2'],[1,25,'1'],
+      [1,22,'1'],[1,23,'1'],[1,24,'2'],[1,25,'1']
     ];
-    // RT-002 (dok_id=2)
     const j2 = [
-      [2,1,'Kalimantan Utara'],[2,2,'Tana Tidung'],[2,3,'Sesayap'],[2,4,'Tideng Pale'],
-      [2,5,'SLS 01 Tideng Pale'],[2,6,'Jl. Mangga No. 5'],
+      [2,1,'Kalimantan Utara'],[2,2,'Tana Tidung'],[2,3,'Sesayap'],[2,4,'Tideng Pale'],[2,5,'SLS 01 Tideng Pale'],[2,6,'Jl. Mangga No. 5'],
       [2,7,'1'],[2,8,'60'],[2,9,'1'],[2,10,'1'],
       [2,11,'Slamet Widodo'],[2,12,'1'],[2,13,'1'],[2,14,'38'],[2,15,'2'],[2,16,'4'],[2,17,'1'],[2,18,'Perdagangan'],
       [2,19,'1'],[2,20,'1'],[2,21,'2'],
-      [2,22,'2'],[2,23,'1'],[2,24,'2'],[2,25,'1'],
+      [2,22,'2'],[2,23,'1'],[2,24,'2'],[2,25,'1']
     ];
-    // RT-003 (dok_id=3): partial
     const j3 = [
       [3,1,'Kalimantan Utara'],[3,2,'Tana Tidung'],[3,3,'Sesayap'],[3,4,'Tideng Pale'],
-      [3,11,'Ika Wahyuni'],[3,13,'2'],[3,14,'32'],[3,15,'1'],[3,17,'2'],
+      [3,11,'Ika Wahyuni'],[3,13,'2'],[3,14,'32'],[3,15,'1'],[3,17,'2']
     ];
-    // RT-004 (dok_id=4): full rejected
     const j4 = [
-      [4,1,'Kalimantan Utara'],[4,2,'Tana Tidung'],[4,3,'Sesayap'],[4,4,'Tideng Pale'],
-      [4,5,'SLS 01 Tideng Pale'],[4,6,'Jl. Durian No. 3'],
+      [4,1,'Kalimantan Utara'],[4,2,'Tana Tidung'],[4,3,'Sesayap'],[4,4,'Tideng Pale'],[4,5,'SLS 01 Tideng Pale'],[4,6,'Jl. Durian No. 3'],
       [4,7,'1'],[4,8,'100'],[4,9,'1'],[4,10,'1'],
       [4,11,'Bambang Susilo'],[4,12,'1'],[4,13,'1'],[4,14,'50'],[4,15,'2'],[4,16,'4'],[4,17,'1'],[4,18,'Jasa Kebersihan'],
       [4,19,'1'],[4,20,'2'],[4,21,'1'],
-      [4,22,'1'],[4,23,'1'],[4,24,'1'],[4,25,'1'],
+      [4,22,'1'],[4,23,'1'],[4,24,'1'],[4,25,'1']
     ];
-    // RT-005 (dok_id=5)
     const j5 = [
-      [5,1,'Kalimantan Utara'],[5,2,'Tana Tidung'],[5,3,'Sesayap'],[5,4,'Tideng Pale'],
-      [5,5,'SLS 01 Tideng Pale'],[5,6,'Jl. Nangka No. 15'],
+      [5,1,'Kalimantan Utara'],[5,2,'Tana Tidung'],[5,3,'Sesayap'],[5,4,'Tideng Pale'],[5,5,'SLS 01 Tideng Pale'],[5,6,'Jl. Nangka No. 15'],
       [5,7,'1'],[5,8,'45'],[5,9,'1'],[5,10,'1'],
       [5,11,'Nurhayati'],[5,12,'1'],[5,13,'2'],[5,14,'28'],[5,15,'3'],[5,16,'4'],[5,17,'2'],[5,18,''],
       [5,19,'1'],[5,20,'1'],[5,21,'1'],
-      [5,22,'1'],[5,23,'1'],[5,24,'2'],[5,25,'1'],
+      [5,22,'1'],[5,23,'1'],[5,24,'2'],[5,25,'1']
     ];
-    // RT-006 (dok_id=6)
     const j6 = [
-      [6,1,'Kalimantan Utara'],[6,2,'Tana Tidung'],[6,3,'Sesayap'],[6,4,'Tideng Pale'],
-      [6,5,'SLS 01 Tideng Pale'],[6,6,'Jl. Dahlia No. 10'],
+      [6,1,'Kalimantan Utara'],[6,2,'Tana Tidung'],[6,3,'Sesayap'],[6,4,'Tideng Pale'],[6,5,'SLS 01 Tideng Pale'],[6,6,'Jl. Dahlia No. 10'],
       [6,7,'1'],[6,8,'70'],[6,9,'1'],[6,10,'1'],
       [6,11,'Sugeng Riyadi'],[6,12,'1'],[6,13,'1'],[6,14,'42'],[6,15,'2'],[6,16,'4'],[6,17,'1'],[6,18,'Pertanian'],
       [6,19,'1'],[6,20,'1'],[6,21,'1'],
-      [6,22,'1'],[6,23,'1'],[6,24,'2'],[6,25,'1'],
+      [6,22,'1'],[6,23,'1'],[6,24,'2'],[6,25,'1']
     ];
 
     const allJawaban = [...j1, ...j2, ...j3, ...j4, ...j5, ...j6];
-    for (const j of allJawaban) {
-      await connection.query(
-        'INSERT INTO dokumen_jawaban (dokumen_id, question_id, value) VALUES (?, ?, ?)', j
-      );
-    }
-    console.log('✅ Dokumen Jawaban seeded');
+    const jData = allJawaban.map((j, idx) => ({
+      id: idx + 1,
+      dokumen_id: j[0],
+      question_id: j[1],
+      value: j[2]
+    }));
 
-    // ── 14. Insert Dokumen Logs ──
+    await prisma.dokumenJawaban.createMany({
+      data: jData
+    });
+    console.log('✍️ Dokumen Jawaban seeded');
+
+    // ── 13. Insert Dokumen Logs ──
     const logs = [
-      [1, 'Kuesioner dibuat (Draft)', '2026-06-04 08:12:00'],
-      [1, 'Kuesioner disimpan oleh PCL', '2026-06-04 09:30:00'],
-      [1, 'Dokumen dikirim ke server (Terkirim)', '2026-06-04 10:00:00'],
-      [1, 'Dokumen disetujui (Approved) oleh PML (Siti Rahayu)', '2026-06-04 14:15:00'],
-      [2, 'Kuesioner dibuat (Draft)', '2026-06-04 11:20:00'],
-      [2, 'Kuesioner disimpan oleh PCL (Tersimpan)', '2026-06-04 11:45:00'],
-      [3, 'Kuesioner dibuat (Draft)', '2026-06-05 08:00:00'],
-      [4, 'Kuesioner dibuat (Draft)', '2026-06-03 09:00:00'],
-      [4, 'Kuesioner disimpan oleh PCL (Tersimpan)', '2026-06-03 10:30:00'],
-      [4, 'Dokumen dikirim ke server (Terkirim)', '2026-06-03 11:00:00'],
-      [4, 'Ditolak (Rejected) oleh PML (Agus Prasetyo): Keterangan Umur tidak sesuai dengan Jenis Dinding Bangunan yang tergolong mewah (Mohon cek ulang Blok II & Blok III).', '2026-06-03 15:45:00'],
-      [5, 'Kuesioner dibuat (Draft)', '2026-06-05 08:22:00'],
-      [5, 'Kuesioner disimpan oleh PCL (Tersimpan)', '2026-06-05 08:45:00'],
-      [6, 'Kuesioner dibuat (Draft)', '2026-06-04 14:00:00'],
-      [6, 'Kuesioner disimpan oleh PCL (Tersimpan)', '2026-06-04 15:30:00'],
-      [6, 'Dokumen dikirim ke server (Terkirim)', '2026-06-04 16:00:00'],
+      { id: 1, dokumen_id: 1, message: 'Kuesioner dibuat (Draft)', created_at: new Date('2026-06-04T08:12:00Z') },
+      { id: 2, dokumen_id: 1, message: 'Kuesioner disimpan oleh PCL', created_at: new Date('2026-06-04T09:30:00Z') },
+      { id: 3, dokumen_id: 1, message: 'Dokumen dikirim ke server (Terkirim)', created_at: new Date('2026-06-04T10:00:00Z') },
+      { id: 4, dokumen_id: 1, message: 'Dokumen disetujui (Approved) oleh PML (Siti Rahayu)', created_at: new Date('2026-06-04T14:15:00Z') },
+      { id: 5, dokumen_id: 2, message: 'Kuesioner dibuat (Draft)', created_at: new Date('2026-06-04T11:20:00Z') },
+      { id: 6, dokumen_id: 2, message: 'Kuesioner disimpan oleh PCL (Tersimpan)', created_at: new Date('2026-06-04T11:45:00Z') },
+      { id: 7, dokumen_id: 3, message: 'Kuesioner dibuat (Draft)', created_at: new Date('2026-06-05T08:00:00Z') },
+      { id: 8, dokumen_id: 4, message: 'Kuesioner dibuat (Draft)', created_at: new Date('2026-06-03T09:00:00Z') },
+      { id: 9, dokumen_id: 4, message: 'Kuesioner disimpan oleh PCL (Tersimpan)', created_at: new Date('2026-06-03T10:30:00Z') },
+      { id: 10, dokumen_id: 4, message: 'Dokumen dikirim ke server (Terkirim)', created_at: new Date('2026-06-03T11:00:00Z') },
+      { id: 11, dokumen_id: 4, message: 'Ditolak (Rejected) oleh PML (Agus Prasetyo): Keterangan Umur tidak sesuai dengan Jenis Dinding Bangunan yang tergolong mewah (Mohon cek ulang Blok II & Blok III).', created_at: new Date('2026-06-03T15:45:00Z') },
+      { id: 12, dokumen_id: 5, message: 'Kuesioner dibuat (Draft)', created_at: new Date('2026-06-05T08:22:00Z') },
+      { id: 13, dokumen_id: 5, message: 'Kuesioner disimpan oleh PCL (Tersimpan)', created_at: new Date('2026-06-05T08:45:00Z') },
+      { id: 14, dokumen_id: 6, message: 'Kuesioner dibuat (Draft)', created_at: new Date('2026-06-04T14:00:00Z') },
+      { id: 15, dokumen_id: 6, message: 'Kuesioner disimpan oleh PCL (Tersimpan)', created_at: new Date('2026-06-04T15:30:00Z') },
+      { id: 16, dokumen_id: 6, message: 'Dokumen dikirim ke server (Terkirim)', created_at: new Date('2026-06-04T16:00:00Z') },
     ];
     for (const l of logs) {
-      await connection.query(
-        'INSERT INTO dokumen_log (dokumen_id, message, created_at) VALUES (?, ?, ?)', l
-      );
+      await prisma.dokumenLog.create({
+        data: l
+      });
     }
-    console.log('✅ Dokumen Logs seeded');
+    console.log('📝 Dokumen Logs seeded');
+
+    // ── 14. Reset sequences in PostgreSQL for all tables so auto-increment works ──
+    console.log('🔄 Resetting PostgreSQL sequences...');
+    const tablesToReset = [
+      'admin', 'petugas', 'kegiatan', 'petugas_kegiatan', 'wilayah',
+      'desa_kegiatan', 'form_blok', 'form_question', 'dokumen',
+      'dokumen_jawaban', 'dokumen_log'
+    ];
+    for (const table of tablesToReset) {
+      try {
+        await prisma.$executeRawUnsafe(
+          `SELECT setval(pg_get_serial_sequence('"${table}"', 'id'), COALESCE(MAX(id), 1)) FROM "${table}";`
+        );
+      } catch (err) {
+        console.warn(`⚠️ Warning: could not reset sequence for ${table}:`, err.message);
+      }
+    }
+    console.log('✅ Sequences reset completed');
 
     console.log('\n🎉 Database seeded successfully!');
     console.log('   Admin login:   admin / admin123');
     console.log('   Petugas login:  budi.santoso / petugas123');
 
   } catch (error) {
-    console.error('❌ Seeding failed:', error.message);
+    console.error('❌ Seeding failed:', error);
     throw error;
   } finally {
-    if (connection) connection.release();
-    await pool.end();
+    await prisma.$disconnect();
   }
 }
 

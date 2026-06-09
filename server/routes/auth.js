@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -15,12 +15,12 @@ router.post('/login/admin', async (req, res) => {
   }
 
   try {
-    const [rows] = await pool.query('SELECT * FROM admin WHERE username = ?', [username]);
-    if (rows.length === 0) {
+    const admin = await prisma.admin.findUnique({
+      where: { username }
+    });
+    if (!admin) {
       return res.status(401).json({ success: false, message: 'Username atau password salah' });
     }
-
-    const admin = rows[0];
     const isMatch = await bcrypt.compare(password, admin.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Username atau password salah' });
@@ -52,12 +52,12 @@ router.post('/login/petugas', async (req, res) => {
   }
 
   try {
-    const [rows] = await pool.query('SELECT * FROM petugas WHERE username = ?', [username]);
-    if (rows.length === 0) {
+    const petugas = await prisma.petugas.findUnique({
+      where: { username }
+    });
+    if (!petugas) {
       return res.status(401).json({ success: false, message: 'Username atau password salah' });
     }
-
-    const petugas = rows[0];
     const isMatch = await bcrypt.compare(password, petugas.password);
     if (!isMatch) {
       return res.status(401).json({ success: false, message: 'Username atau password salah' });

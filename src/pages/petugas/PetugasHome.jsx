@@ -18,8 +18,50 @@ import { api } from "../../services/api";
 function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities, currentUser }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadTime, setDownloadTime] = useState(localStorage.getItem(`last_download_${currentUser.id}`) || null);
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
+
+  const handleDownloadOfflineData = async () => {
+    if (isOffline) {
+      alert("Anda sedang dalam mode offline. Silakan aktifkan mode online untuk mengunduh kuesioner.");
+      return;
+    }
+    setIsDownloading(true);
+    try {
+      // 1. Download documents (prelist)
+      const docs = await api.dokumen.getByPetugas(currentUser.id);
+      setDocuments(docs);
+      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+
+      // 2. Download form structures for all assigned activities
+      if (officerActivities && officerActivities.length > 0) {
+        for (const act of officerActivities) {
+          const res = await api.form.getStructure(act.id);
+          if (res && res.success) {
+            localStorage.setItem(`form_structure_${act.id}`, JSON.stringify({
+              blocks: res.blocks,
+              questions: res.questions
+            }));
+          }
+        }
+      }
+
+      // 3. Save download time stamp
+      const now = new Date();
+      const timeStr = now.toLocaleDateString("id-ID", { day: 'numeric', month: 'short' }) + " " + now.toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' });
+      localStorage.setItem(`last_download_${currentUser.id}`, timeStr);
+      setDownloadTime(timeStr);
+
+      alert("Kuesioner dan data prelist berhasil diunduh. Anda sekarang dapat mengisi kuesioner secara offline.");
+    } catch (err) {
+      console.error("Gagal mengunduh kuesioner offline:", err);
+      alert("Gagal mengunduh data offline: " + err.message);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const loadDocs = async () => {
     if (isOffline) {
@@ -158,16 +200,25 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                 <p className="text-xs mt-0.5 text-blue-200">{antriKirimCount} dokumen antri kirim</p>
               </button>
 
-              <button className="bg-white rounded-xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-slate-200 hover:shadow-sm group">
+              <button 
+                onClick={handleDownloadOfflineData}
+                disabled={isDownloading}
+                className="bg-white rounded-xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-slate-200 hover:shadow-sm group disabled:opacity-75 disabled:cursor-not-allowed">
                 <div className="flex items-start justify-between w-full">
                   <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center group-hover:bg-slate-100 transition-colors">
-                    <Download size={18} className="text-slate-500"/>
+                    {isDownloading ? (
+                      <RefreshCw size={18} className="text-blue-600 animate-spin" />
+                    ) : (
+                      <Download size={18} className="text-slate-500"/>
+                    )}
                   </div>
                   <ChevronRight size={16} className="text-slate-200 group-hover:text-slate-400 transition-colors mt-1"/>
                 </div>
                 <div className="mt-3">
                   <p className="text-sm font-semibold text-slate-800">Unduh Kuesioner</p>
-                  <p className="text-xs text-slate-400 mt-0.5">v2.1.0 · Terupdate</p>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {isDownloading ? "Mengunduh data..." : downloadTime ? `Terunduh: ${downloadTime}` : "Belum diunduh untuk offline"}
+                  </p>
                 </div>
               </button>
             </div>

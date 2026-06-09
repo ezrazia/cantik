@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -10,31 +10,34 @@ const router = Router();
 router.get('/petugas/:petugasId', async (req, res) => {
   const { petugasId } = req.params;
   try {
-    const [rows] = await pool.query(
-      `SELECT d.*, k.name as activity_name, p.name as petugas_name
-       FROM dokumen d
-       JOIN kegiatan k ON d.kegiatan_id = k.id
-       JOIN petugas p ON d.petugas_id = p.id
-       WHERE d.petugas_id = ?
-       ORDER BY d.updated_at DESC`,
-      [petugasId]
-    );
+    const rows = await prisma.dokumen.findMany({
+      where: {
+        petugas_id: parseInt(petugasId, 10),
+      },
+      include: {
+        kegiatan: {
+          select: { name: true },
+        },
+        petugas: {
+          select: { name: true },
+        },
+        dokumen_log: {
+          orderBy: { created_at: 'asc' },
+        },
+      },
+      orderBy: {
+        updated_at: 'desc',
+      },
+    });
 
-    // Ambil logs untuk setiap dokumen
-    const formatted = [];
-    for (const doc of rows) {
-      const [logs] = await pool.query(
-        'SELECT message, created_at FROM dokumen_log WHERE dokumen_id = ? ORDER BY created_at ASC',
-        [doc.id]
-      );
-      
-      formatted.push({
-        ...doc,
-        logs: logs.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
-        sync: !!doc.sync,
-        is_prelist: !!doc.is_prelist
-      });
-    }
+    const formatted = rows.map(doc => ({
+      ...doc,
+      activity_name: doc.kegiatan?.name || '',
+      petugas_name: doc.petugas?.name || '',
+      logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
+      sync: !!doc.sync,
+      is_prelist: !!doc.is_prelist,
+    }));
 
     return res.json(formatted);
   } catch (error) {
@@ -50,29 +53,35 @@ router.get('/petugas/:petugasId', async (req, res) => {
 router.get('/review/:kegiatanId', async (req, res) => {
   const { kegiatanId } = req.params;
   try {
-    const [rows] = await pool.query(
-      `SELECT d.*, k.name as activity_name, p.name as petugas_name
-       FROM dokumen d
-       JOIN kegiatan k ON d.kegiatan_id = k.id
-       JOIN petugas p ON d.petugas_id = p.id
-       WHERE d.kegiatan_id = ? AND d.status IN ('tersimpan', 'terkirim')
-       ORDER BY d.updated_at DESC`,
-      [kegiatanId]
-    );
+    const rows = await prisma.dokumen.findMany({
+      where: {
+        kegiatan_id: parseInt(kegiatanId, 10),
+        status: { in: ['tersimpan', 'terkirim'] },
+      },
+      include: {
+        kegiatan: {
+          select: { name: true },
+        },
+        petugas: {
+          select: { name: true },
+        },
+        dokumen_log: {
+          orderBy: { created_at: 'asc' },
+        },
+      },
+      orderBy: {
+        updated_at: 'desc',
+      },
+    });
 
-    const formatted = [];
-    for (const doc of rows) {
-      const [logs] = await pool.query(
-        'SELECT message, created_at FROM dokumen_log WHERE dokumen_id = ? ORDER BY created_at ASC',
-        [doc.id]
-      );
-      formatted.push({
-        ...doc,
-        logs: logs.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
-        sync: !!doc.sync,
-        is_prelist: !!doc.is_prelist
-      });
-    }
+    const formatted = rows.map(doc => ({
+      ...doc,
+      activity_name: doc.kegiatan?.name || '',
+      petugas_name: doc.petugas?.name || '',
+      logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
+      sync: !!doc.sync,
+      is_prelist: !!doc.is_prelist,
+    }));
 
     return res.json(formatted);
   } catch (error) {
@@ -88,39 +97,36 @@ router.get('/review/:kegiatanId', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
   try {
-    const [docRows] = await pool.query(
-      `SELECT d.*, k.name as activity_name, p.name as petugas_name
-       FROM dokumen d
-       JOIN kegiatan k ON d.kegiatan_id = k.id
-       JOIN petugas p ON d.petugas_id = p.id
-       WHERE d.id = ?`,
-      [id]
-    );
+    const doc = await prisma.dokumen.findUnique({
+      where: {
+        id: parseInt(id, 10),
+      },
+      include: {
+        kegiatan: {
+          select: { name: true },
+        },
+        petugas: {
+          select: { name: true },
+        },
+        dokumen_jawaban: {
+          include: {
+            form_question: {
+              select: { label: true },
+            },
+          },
+        },
+        dokumen_log: {
+          orderBy: { created_at: 'asc' },
+        },
+      },
+    });
 
-    if (docRows.length === 0) {
+    if (!doc) {
       return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
     }
 
-    const doc = docRows[0];
-
-    // Ambil jawaban
-    const [ansRows] = await pool.query(
-      `SELECT dj.question_id, dj.value, q.label
-       FROM dokumen_jawaban dj
-       JOIN form_question q ON dj.question_id = q.id
-       WHERE dj.dokumen_id = ?`,
-      [id]
-    );
-
-    // Ambil logs
-    const [logRows] = await pool.query(
-      'SELECT message, created_at FROM dokumen_log WHERE dokumen_id = ? ORDER BY created_at ASC',
-      [id]
-    );
-
-    // Format jawaban ke key-value map
     const values = {};
-    ansRows.forEach(a => {
+    doc.dokumen_jawaban.forEach(a => {
       values[a.question_id] = a.value;
     });
 
@@ -128,11 +134,13 @@ router.get('/:id', async (req, res) => {
       success: true,
       dokumen: {
         ...doc,
+        activity_name: doc.kegiatan?.name || '',
+        petugas_name: doc.petugas?.name || '',
         sync: !!doc.sync,
-        is_prelist: !!doc.is_prelist
+        is_prelist: !!doc.is_prelist,
       },
       values,
-      logs: logRows.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`)
+      logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
     });
   } catch (error) {
     console.error('Error fetching document detail:', error);
@@ -147,7 +155,7 @@ router.get('/:id', async (req, res) => {
  */
 router.post('/', async (req, res) => {
   const {
-    id, // Optional, if exists then it is an update
+    id,
     kode,
     kegiatan_id,
     petugas_id,
@@ -160,102 +168,136 @@ router.post('/', async (req, res) => {
     status,
     is_prelist,
     sync,
-    values, // Object { question_id: value }
-    log_message
+    values,
+    log_message,
   } = req.body;
 
   if (!kode || !kegiatan_id || !petugas_id) {
     return res.status(400).json({ success: false, message: 'Kode, Kegiatan ID, dan Petugas ID wajib diisi' });
   }
 
-  const connection = await pool.getConnection();
   try {
-    await connection.beginTransaction();
+    const docId = await prisma.$transaction(async (tx) => {
+      let currentDocId = id;
+      const isPrelistVal = !!is_prelist;
+      const syncVal = !!sync;
+      const lastSentDataJson = status === 'terkirim' ? (values || null) : undefined;
 
-    let docId = id;
-    const isPrelistVal = is_prelist ? 1 : 0;
-    const syncVal = sync ? 1 : 0;
-    const lastSentDataJson = status === 'terkirim' ? JSON.stringify(values) : null;
+      const dataObj = {
+        kode,
+        kegiatan_id: parseInt(kegiatan_id, 10),
+        petugas_id: parseInt(petugas_id, 10),
+        krt: krt || null,
+        alamat: alamat || null,
+        kecamatan: kecamatan || null,
+        desa: desa || null,
+        sls: sls || null,
+        sub_sls: sub_sls || null,
+        status: status || 'draft',
+        is_prelist: isPrelistVal,
+        sync: syncVal,
+        last_sent_data: lastSentDataJson,
+      };
 
-    if (docId) {
-      // Update dokumen header
-      await connection.query(
-        `UPDATE dokumen 
-         SET kode = ?, krt = ?, alamat = ?, kecamatan = ?, desa = ?, sls = ?, sub_sls = ?, 
-             status = ?, is_prelist = ?, sync = ?, last_sent_data = IFNULL(?, last_sent_data)
-         WHERE id = ?`,
-        [kode, krt || null, alamat || null, kecamatan || null, desa || null, sls || null, sub_sls || null, status || 'draft', isPrelistVal, syncVal, lastSentDataJson, docId]
-      );
-    } else {
-      // Cek apakah kode sudah ada
-      const [existing] = await connection.query('SELECT id FROM dokumen WHERE kode = ?', [kode]);
-      if (existing.length > 0) {
-        docId = existing[0].id;
-        // Update saja
-        await connection.query(
-          `UPDATE dokumen 
-           SET krt = ?, alamat = ?, kecamatan = ?, desa = ?, sls = ?, sub_sls = ?, 
-               status = ?, is_prelist = ?, sync = ?, last_sent_data = IFNULL(?, last_sent_data)
-           WHERE id = ?`,
-          [krt || null, alamat || null, kecamatan || null, desa || null, sls || null, sub_sls || null, status || 'draft', isPrelistVal, syncVal, lastSentDataJson, docId]
-        );
+      if (currentDocId) {
+        await tx.dokumen.update({
+          where: { id: parseInt(currentDocId, 10) },
+          data: {
+            ...dataObj,
+            last_sent_data: status === 'terkirim' ? (values || null) : undefined, // If update, only set when 'terkirim'
+          },
+        });
       } else {
-        // Insert dokumen header baru
-        const [result] = await connection.query(
-          `INSERT INTO dokumen (kode, kegiatan_id, petugas_id, krt, alamat, kecamatan, desa, sls, sub_sls, status, is_prelist, sync, last_sent_data)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [kode, kegiatan_id, petugas_id, krt || null, alamat || null, kecamatan || null, desa || null, sls || null, sub_sls || null, status || 'draft', isPrelistVal, syncVal, lastSentDataJson]
-        );
-        docId = result.insertId;
-      }
-    }
+        const existing = await tx.dokumen.findUnique({
+          where: { kode },
+        });
 
-    // Simpan jawaban (EAV)
-    if (values && Object.keys(values).length > 0) {
-      const insertData = [];
-      Object.entries(values).forEach(([qId, val]) => {
-        // Hanya simpan jika value tidak null
-        const formattedVal = val !== undefined && val !== null ? String(val) : '';
-        insertData.push([docId, parseInt(qId, 10), formattedVal]);
+        if (existing) {
+          currentDocId = existing.id;
+          await tx.dokumen.update({
+            where: { id: currentDocId },
+            data: {
+              krt: krt || null,
+              alamat: alamat || null,
+              kecamatan: kecamatan || null,
+              desa: desa || null,
+              sls: sls || null,
+              sub_sls: sub_sls || null,
+              status: status || 'draft',
+              is_prelist: isPrelistVal,
+              sync: syncVal,
+              last_sent_data: status === 'terkirim' ? (values || null) : undefined,
+            },
+          });
+        } else {
+          const newDoc = await tx.dokumen.create({
+            data: {
+              ...dataObj,
+              last_sent_data: status === 'terkirim' ? (values || null) : null,
+            },
+          });
+          currentDocId = newDoc.id;
+        }
+      }
+
+      // Simpan jawaban (EAV)
+      if (values && Object.keys(values).length > 0) {
+        for (const [qId, val] of Object.entries(values)) {
+          const qIdInt = parseInt(qId, 10);
+          const formattedVal = val !== undefined && val !== null ? String(val) : '';
+          await tx.dokumenJawaban.upsert({
+            where: {
+              uk_dok_jawaban: {
+                dokumen_id: currentDocId,
+                question_id: qIdInt,
+              },
+            },
+            update: { value: formattedVal },
+            create: {
+              dokumen_id: currentDocId,
+              question_id: qIdInt,
+              value: formattedVal,
+            },
+          });
+        }
+      }
+
+      // Tambah log aktivitas
+      const msg = log_message || `Kuesioner disimpan sebagai ${status}`;
+      await tx.dokumenLog.create({
+        data: {
+          dokumen_id: currentDocId,
+          message: msg,
+        },
       });
 
-      if (insertData.length > 0) {
-        await connection.query(
-          `INSERT INTO dokumen_jawaban (dokumen_id, question_id, value)
-           VALUES ?
-           ON DUPLICATE KEY UPDATE value = VALUES(value)`,
-          [insertData]
-        );
+      // Update target/selesai petugas secara otomatis jika disubmit
+      if (status === 'terkirim' || status === 'tersimpan') {
+        const total = await tx.dokumen.count({
+          where: { petugas_id: parseInt(petugas_id, 10) },
+        });
+        const selesaiCount = await tx.dokumen.count({
+          where: {
+            petugas_id: parseInt(petugas_id, 10),
+            status: { in: ['tersimpan', 'terkirim'] },
+          },
+        });
+        await tx.petugas.update({
+          where: { id: parseInt(petugas_id, 10) },
+          data: {
+            target: total,
+            selesai: selesaiCount,
+          },
+        });
       }
-    }
 
-    // Tambah log aktivitas
-    const msg = log_message || `Kuesioner disimpan sebagai ${status}`;
-    await connection.query(
-      'INSERT INTO dokumen_log (dokumen_id, message) VALUES (?, ?)',
-      [docId, msg]
-    );
+      return currentDocId;
+    });
 
-    // Update target/selesai petugas secara otomatis jika disubmit
-    if (status === 'terkirim' || status === 'tersimpan') {
-      const [allDocs] = await connection.query(
-        "SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('tersimpan', 'terkirim') THEN 1 ELSE 0 END) as selesai FROM dokumen WHERE petugas_id = ?",
-        [petugas_id]
-      );
-      await connection.query(
-        "UPDATE petugas SET target = ?, selesai = ? WHERE id = ?",
-        [allDocs[0].total || 0, allDocs[0].selesai || 0, petugas_id]
-      );
-    }
-
-    await connection.commit();
     return res.json({ success: true, message: 'Dokumen berhasil disimpan', id: docId });
   } catch (error) {
-    await connection.rollback();
     console.error('Error saving document:', error);
     return res.status(500).json({ success: false, message: 'Gagal menyimpan dokumen' });
-  } finally {
-    connection.release();
   }
 });
 
@@ -269,93 +311,125 @@ router.post('/sync', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Data sync tidak lengkap' });
   }
 
-  const connection = await pool.getConnection();
   try {
-    await connection.beginTransaction();
+    await prisma.$transaction(async (tx) => {
+      for (const doc of documents) {
+        const {
+          kode,
+          kegiatan_id,
+          krt,
+          alamat,
+          kecamatan,
+          desa,
+          sls,
+          sub_sls,
+          status,
+          is_prelist,
+          values,
+        } = doc;
 
-    for (const doc of documents) {
-      const {
-        kode,
-        kegiatan_id,
-        krt,
-        alamat,
-        kecamatan,
-        desa,
-        sls,
-        sub_sls,
-        status,
-        is_prelist,
-        values
-      } = doc;
-
-      // Cek apakah dokumen dengan kode ini sudah ada
-      const [existing] = await connection.query('SELECT id FROM dokumen WHERE kode = ?', [kode]);
-      let docId;
-
-      const isPrelistVal = is_prelist ? 1 : 0;
-      const lastSentDataJson = status === 'terkirim' ? JSON.stringify(values) : null;
-
-      if (existing.length > 0) {
-        docId = existing[0].id;
-        await connection.query(
-          `UPDATE dokumen 
-           SET krt = ?, alamat = ?, kecamatan = ?, desa = ?, sls = ?, sub_sls = ?, 
-               status = ?, is_prelist = ?, sync = 1, last_sent_data = IFNULL(?, last_sent_data)
-           WHERE id = ?`,
-          [krt || null, alamat || null, kecamatan || null, desa || null, sls || null, sub_sls || null, status || 'draft', isPrelistVal, lastSentDataJson, docId]
-        );
-      } else {
-        const [result] = await connection.query(
-          `INSERT INTO dokumen (kode, kegiatan_id, petugas_id, krt, alamat, kecamatan, desa, sls, sub_sls, status, is_prelist, sync, last_sent_data)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
-          [kode, kegiatan_id, petugas_id, krt || null, alamat || null, kecamatan || null, desa || null, sls || null, sub_sls || null, status || 'draft', isPrelistVal, lastSentDataJson]
-        );
-        docId = result.insertId;
-      }
-
-      // Simpan jawaban
-      if (values && Object.keys(values).length > 0) {
-        const insertData = [];
-        Object.entries(values).forEach(([qId, val]) => {
-          const formattedVal = val !== undefined && val !== null ? String(val) : '';
-          insertData.push([docId, parseInt(qId, 10), formattedVal]);
+        const existing = await tx.dokumen.findUnique({
+          where: { kode },
         });
 
-        if (insertData.length > 0) {
-          await connection.query(
-            `INSERT INTO dokumen_jawaban (dokumen_id, question_id, value)
-             VALUES ?
-             ON DUPLICATE KEY UPDATE value = VALUES(value)`,
-            [insertData]
-          );
+        let docId;
+        const isPrelistVal = !!is_prelist;
+        const lastSentDataJson = status === 'terkirim' ? (values || null) : undefined;
+
+        if (existing) {
+          docId = existing.id;
+          await tx.dokumen.update({
+            where: { id: docId },
+            data: {
+              krt: krt || null,
+              alamat: alamat || null,
+              kecamatan: kecamatan || null,
+              desa: desa || null,
+              sls: sls || null,
+              sub_sls: sub_sls || null,
+              status: status || 'draft',
+              is_prelist: isPrelistVal,
+              sync: true,
+              last_sent_data: lastSentDataJson,
+            },
+          });
+        } else {
+          const newDoc = await tx.dokumen.create({
+            data: {
+              kode,
+              kegiatan_id: parseInt(kegiatan_id, 10),
+              petugas_id: parseInt(petugas_id, 10),
+              krt: krt || null,
+              alamat: alamat || null,
+              kecamatan: kecamatan || null,
+              desa: desa || null,
+              sls: sls || null,
+              sub_sls: sub_sls || null,
+              status: status || 'draft',
+              is_prelist: isPrelistVal,
+              sync: true,
+              last_sent_data: status === 'terkirim' ? (values || null) : null,
+            },
+          });
+          docId = newDoc.id;
         }
+
+        // Simpan jawaban
+        if (values && Object.keys(values).length > 0) {
+          for (const [qId, val] of Object.entries(values)) {
+            const qIdInt = parseInt(qId, 10);
+            const formattedVal = val !== undefined && val !== null ? String(val) : '';
+            await tx.dokumenJawaban.upsert({
+              where: {
+                uk_dok_jawaban: {
+                  dokumen_id: docId,
+                  question_id: qIdInt,
+                },
+              },
+              update: { value: formattedVal },
+              create: {
+                dokumen_id: docId,
+                question_id: qIdInt,
+                value: formattedVal,
+              },
+            });
+          }
+        }
+
+        // Catat log sync
+        await tx.dokumenLog.create({
+          data: {
+            dokumen_id: docId,
+            message: `Sinkronisasi dokumen dari offline (Status: ${status})`,
+          },
+        });
       }
 
-      // Catat log sync
-      await connection.query(
-        'INSERT INTO dokumen_log (dokumen_id, message) VALUES (?, ?)',
-        [docId, `Sinkronisasi dokumen dari offline (Status: ${status})`]
-      );
-    }
+      // Update stats petugas
+      const total = await tx.dokumen.count({
+        where: { petugas_id: parseInt(petugas_id, 10) },
+      });
+      const selesaiCount = await tx.dokumen.count({
+        where: {
+          petugas_id: parseInt(petugas_id, 10),
+          status: { in: ['tersimpan', 'terkirim'] },
+        },
+      });
 
-    // Update stats petugas
-    const [allDocs] = await connection.query(
-      "SELECT COUNT(*) as total, SUM(CASE WHEN status IN ('tersimpan', 'terkirim') THEN 1 ELSE 0 END) as selesai FROM dokumen WHERE petugas_id = ?",
-      [petugas_id]
-    );
-    await connection.query(
-      "UPDATE petugas SET target = ?, selesai = ?, last_sync = NOW() WHERE id = ?",
-      [allDocs[0].total || 0, allDocs[0].selesai || 0, petugas_id]
-    );
+      await tx.petugas.update({
+        where: { id: parseInt(petugas_id, 10) },
+        data: {
+          target: total,
+          selesai: selesaiCount,
+          last_sync: new Date(),
+        },
+      });
+    });
 
-    await connection.commit();
     return res.json({ success: true, message: `Sinkronisasi berhasil untuk ${documents.length} dokumen` });
   } catch (error) {
-    await connection.rollback();
     console.error('Error syncing documents:', error);
     return res.status(500).json({ success: false, message: 'Gagal melakukan sinkronisasi dokumen' });
-  } finally {
-    connection.release();
   }
 });
 
@@ -371,51 +445,65 @@ router.post('/review/:id', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Status review harus approved atau rejected' });
   }
 
-  const connection = await pool.getConnection();
   try {
-    await connection.beginTransaction();
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.dokumen.findUnique({
+        where: { id: parseInt(id, 10) },
+      });
 
-    const [existing] = await connection.query('SELECT * FROM dokumen WHERE id = ?', [id]);
-    if (existing.length === 0) {
-      return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
-    }
+      if (!existing) {
+        throw new Error('Dokumen tidak ditemukan');
+      }
 
-    const doc = existing[0];
+      // Update status review
+      await tx.dokumen.update({
+        where: { id: parseInt(id, 10) },
+        data: {
+          review_status: review_status,
+        },
+      });
 
-    // Update status review
-    await connection.query(
-      'UPDATE dokumen SET review_status = ? WHERE id = ?',
-      [review_status, id]
-    );
+      // Tambah log review
+      const logMsg = review_status === 'approved'
+        ? 'Dokumen disetujui (Approved) oleh PML'
+        : `Ditolak (Rejected) oleh PML: ${notes || ''}`;
 
-    // Tambah log review
-    const logMsg = review_status === 'approved' 
-      ? 'Dokumen disetujui (Approved) oleh PML'
-      : `Ditolak (Rejected) oleh PML: ${notes || ''}`;
-    
-    await connection.query(
-      'INSERT INTO dokumen_log (dokumen_id, message) VALUES (?, ?)',
-      [id, logMsg]
-    );
+      await tx.dokumenLog.create({
+        data: {
+          dokumen_id: parseInt(id, 10),
+          message: logMsg,
+        },
+      });
 
-    // Jika disetujui, update status desa_kegiatan
-    if (review_status === 'approved') {
-      await connection.query(
-        `INSERT INTO desa_kegiatan (kegiatan_id, desa, selesai)
-         VALUES (?, ?, 1)
-         ON DUPLICATE KEY UPDATE selesai = selesai + 1`,
-        [doc.kegiatan_id, doc.desa]
-      );
-    }
+      // Jika disetujui, update status desa_kegiatan
+      if (review_status === 'approved') {
+        await tx.desaKegiatan.upsert({
+          where: {
+            uk_desa_kegiatan: {
+              kegiatan_id: existing.kegiatan_id,
+              desa: existing.desa || '',
+            },
+          },
+          update: {
+            selesai: { increment: 1 },
+          },
+          create: {
+            kegiatan_id: existing.kegiatan_id,
+            desa: existing.desa || '',
+            selesai: 1,
+            target: 0,
+          },
+        });
+      }
+    });
 
-    await connection.commit();
     return res.json({ success: true, message: `Dokumen berhasil di-${review_status}` });
   } catch (error) {
-    await connection.rollback();
     console.error('Error updating review status:', error);
+    if (error.message === 'Dokumen tidak ditemukan') {
+      return res.status(404).json({ success: false, message: error.message });
+    }
     return res.status(500).json({ success: false, message: 'Gagal memperbarui status review dokumen' });
-  } finally {
-    connection.release();
   }
 });
 

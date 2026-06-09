@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw } from "lucide-react";
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
@@ -1049,6 +1049,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   const isNumberType = q.type === 'number';
                   const isTextAreaType = q.type === 'textarea';
                   const isChoiceType = q.type === 'select' || q.type === 'radio';
+                  const isLocationType = q.type === 'location';
 
                   // Parse validation range and description hint
                   const { rangeText, hintText, description } = parseValidation(q.validation);
@@ -1230,6 +1231,56 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               </button>
                             );
                           })}
+                        </div>
+                      )}
+
+                      {/* 5. GEOTAGGING/LOCATION INPUT */}
+                      {isLocationType && (
+                        <div className="flex flex-col gap-3">
+                          <div className="flex gap-2">
+                            <input 
+                              type="text"
+                              value={ans.values[q.id] || ""}
+                              placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
+                              readOnly
+                              disabled={isReadOnly}
+                              className="flex-1 px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+                            />
+                            <button
+                              type="button"
+                              disabled={isReadOnly}
+                              onClick={() => {
+                                if (navigator.geolocation) {
+                                  navigator.geolocation.getCurrentPosition(
+                                    (position) => {
+                                      const coords = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
+                                      setAns(p => ({
+                                        ...p,
+                                        values: { ...p.values, [q.id]: coords }
+                                      }));
+                                      markUnsaved();
+                                    },
+                                    (error) => {
+                                      console.error("Geotagging error:", error);
+                                      alert("Gagal mengambil lokasi: " + error.message);
+                                    },
+                                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                                  );
+                                } else {
+                                  alert("Browser Anda tidak mendukung layanan Geotagging.");
+                                }
+                              }}
+                              className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                            >
+                              <MapPin size={14} />
+                              <span>Ambil Lokasi</span>
+                            </button>
+                          </div>
+                          {ans.values[q.id] && (
+                            <p className="text-[10px] text-slate-400 font-medium">
+                              Lokasi terekam pada koordinat di atas.
+                            </p>
+                          )}
                         </div>
                       )}
                     </QCard>

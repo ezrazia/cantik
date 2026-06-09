@@ -3,12 +3,12 @@
  * Entry point untuk backend Express server aplikasi Desa Cantik.
  *
  * Server ini menyediakan REST API untuk komunikasi dengan frontend React
- * dan mengelola koneksi ke database MySQL (via XAMPP).
+ * dan mengelola koneksi ke database PostgreSQL via Prisma.
  *
  * Cara menjalankan:
  *   1. cd server
  *   2. npm install
- *   3. Salin .env.example ke .env dan isi kredensial
+ *   3. Salin .env.example ke .env dan isi DATABASE_URL
  *   4. npm run dev
  */
 

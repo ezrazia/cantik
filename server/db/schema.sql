@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS form_question (
   blok_id     INT NOT NULL,
   parent_id   INT DEFAULT NULL,
   label       VARCHAR(300) NOT NULL,
-  type        ENUM('text','number','select','radio','date','textarea') DEFAULT 'text',
+  type        ENUM('text','number','select','radio','date','textarea','location') DEFAULT 'text',
   required    BOOLEAN DEFAULT FALSE,
   options     JSON DEFAULT NULL,
   validation  TEXT DEFAULT NULL,

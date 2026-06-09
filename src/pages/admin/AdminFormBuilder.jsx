@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { 
   Hash, Eye, Save, Settings, Plus, ChevronDown, List, Type, 
   Trash2, Upload, Database, FileText, X, Check, GripVertical, 
-  CornerDownRight, Edit3, Trash, AlertTriangle, ArrowRight 
+  CornerDownRight, Edit3, Trash, AlertTriangle, ArrowRight, MapPin, Variable,
+  StickyNote, Bold, Italic
 } from "lucide-react";
 
 const ROMAN_NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
@@ -18,6 +19,8 @@ function getRoman(num) {
  */
 function getQuestionCode(q, allQuestions, allBlocks) {
   if (!q) return "";
+  // Notes do NOT count in the R-numbering
+  if (q.type === 'note') return "";
   const blockIdx = allBlocks.findIndex(b => b.id === q.blokId) + 1;
   if (blockIdx === 0) return "";
   
@@ -32,8 +35,8 @@ function getQuestionCode(q, allQuestions, allBlocks) {
     const letter = String.fromCharCode(65 + (sibIdx >= 0 ? sibIdx : 0)); // A, B, C...
     return `${parentCode}${letter}`;
   } else {
-    // Index among main questions of the block
-    const mainQs = allQuestions.filter(s => s.blokId === q.blokId && !s.parentId);
+    // Index among main non-note questions of the block
+    const mainQs = allQuestions.filter(s => s.blokId === q.blokId && !s.parentId && s.type !== 'note');
     const qIdx = mainQs.findIndex(s => s.id === q.id) + 1;
     const padded = qIdx.toString().padStart(2, '0');
     return `${blockIdx}${padded}`;
@@ -54,6 +57,70 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
     ordered.push(...children);
   });
   return ordered;
+}
+
+/**
+ * Renders note text supporting **bold** and *italic* markdown.
+ * @param {string} text
+ * @returns React nodes
+ */
+function renderNoteText(text) {
+  if (!text) return null;
+  // Process **bold** first, then *italic*
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (/^\*[^*]+\*$/.test(part)) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
+}
+
+/**
+ * Wraps the currently selected text in a textarea with before/after markers.
+ * @param {string} textareaId
+ * @param {string} before e.g. '**'
+ * @param {string} after e.g. '**'
+ * @param {string} currentValue current textarea value
+ * @param {function} setter state setter
+ */
+function applyNoteFormat(textareaId, before, after, currentValue, setter) {
+  const ta = document.getElementById(textareaId);
+  if (!ta) return;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const selected = currentValue.slice(start, end) || 'teks';
+  const newValue = currentValue.slice(0, start) + before + selected + after + currentValue.slice(end);
+  setter(newValue);
+  setTimeout(() => {
+    ta.focus();
+    ta.setSelectionRange(start + before.length, start + before.length + selected.length);
+  }, 30);
+}
+
+/**
+ * Renders a label string, highlighting $R{code} tokens as amber variable chips.
+ */
+function renderLabelWithVars(label) {
+  if (!label || !label.includes('$R')) return label;
+  const parts = label.split(/(\$R[A-Za-z0-9]+)/g);
+  return parts.map((part, i) => {
+    if (/^\$R[A-Za-z0-9]+$/.test(part)) {
+      return (
+        <span
+          key={i}
+          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded mx-0.5 align-middle"
+          title={`Variabel: merujuk ke jawaban ${part.slice(1)}`}
+        >
+          <Variable size={8}/> {part.slice(1)}
+        </span>
+      );
+    }
+    return part;
+  });
 }
 
 function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activities }) {
@@ -218,7 +285,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     return () => window.removeEventListener("resize", updateArrows);
   }, [questions, activeBlok, blocks]);
 
-  const typeIcon = { text: Type, number: Hash, radio: List, select: ChevronDown };
+  const typeIcon = { text: Type, number: Hash, radio: List, select: ChevronDown, location: MapPin, note: StickyNote };
 
   // Add block logic
   const handleConfirmAddBlock = async () => {
@@ -308,6 +375,32 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       }
     } catch (err) {
       alert("Gagal menambahkan pertanyaan: " + err.message);
+    }
+  };
+
+  /** Add a note (catatan) to the current block */
+  const handleAddNote = async () => {
+    if (!activeActivity) return;
+    const activeBlockObj = blocks.find(b => b.id === activeBlok);
+    if (!activeBlockObj) return;
+    try {
+      const blockQs = questions.filter(q => q.blokId === activeBlok);
+      // Insert after selected item, or at end
+      const selectedIdx = selectedId ? blockQs.findIndex(q => q.id === selectedId) : -1;
+      const sortOrder = selectedIdx >= 0 ? blockQs[selectedIdx].sort_order + 0.5 : blockQs.length;
+      const res = await api.form.createQuestion({
+        blok_id: activeBlockObj.dbId,
+        label: 'Catatan baru...',
+        type: 'note',
+        required: false,
+        sort_order: sortOrder
+      });
+      await fetchFormStructure();
+      if (res && res.success) {
+        setSelectedId(res.question.id);
+      }
+    } catch (err) {
+      alert('Gagal menambahkan catatan: ' + err.message);
     }
   };
 
@@ -708,6 +801,20 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   <Upload size={13}/>
                   <span>Impor Excel</span>
                 </button>
+                {/* Tambah Catatan button */}
+                <button
+                  disabled={!canEdit}
+                  onClick={handleAddNote}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${
+                    canEdit
+                      ? "text-amber-700 bg-amber-50 hover:bg-amber-100 cursor-pointer"
+                      : "bg-slate-50 text-slate-300 cursor-not-allowed"
+                  }`}
+                  title={!canEdit ? "Catatan dinonaktifkan untuk kegiatan published" : "Tambah catatan/instruksi di antara pertanyaan"}
+                >
+                  <StickyNote size={13}/>
+                  <span>+ Catatan</span>
+                </button>
                 <button 
                   disabled={!canEdit}
                   onClick={() => setShowAdd(!showAdd)}
@@ -742,6 +849,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       <option value="number">Number</option>
                       <option value="radio">Radio/Pilihan</option>
                       <option value="select">Select/Dropdown</option>
+                      <option value="location">Geotagging</option>
                     </select>
                   </div>
                 </div>
@@ -834,54 +942,98 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           <CornerDownRight size={14}/>
                         </div>
                       )}
-                      <div 
-                        id={`q-card-${q.id}`}
-                        onClick={() => setSelectedId(isSelected ? null : q.id)}
-                        {...dragProps}
-                        className={`group/card flex-1 flex items-center gap-3 p-4 rounded-xl text-left border cursor-pointer transition-all ${
-                          isSelected 
-                            ? "border-blue-200 bg-blue-50/50 shadow-sm" 
-                            : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
-                        }`}
-                      >
-                        {/* Drag Handle (for main questions only) */}
-                        {!isSub && canEdit && (
-                          <div className="text-slate-300 group-hover/card:text-slate-400 cursor-grab flex-shrink-0 p-0.5">
-                            <GripVertical size={13}/>
-                          </div>
-                        )}
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                          isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-50 text-slate-400"
-                        }`}>
-                          <Icon size={14}/>
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="mono text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">R.{qCode}</span>
-                            {q.req && <span className="w-1 h-1 rounded-full bg-red-400"/>}
-                          </div>
-                          <p className="text-sm font-semibold text-slate-700 truncate mt-0.5">{q.label}</p>
-                        </div>
-                        
-                        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
-                          {/* "+ Sub" button for main questions */}
+
+                      {/* NOTE card — special amber dashed style */}
+                      {q.type === 'note' ? (
+                        <div
+                          id={`q-card-${q.id}`}
+                          onClick={() => setSelectedId(isSelected ? null : q.id)}
+                          {...dragProps}
+                          className={`group/card flex-1 flex items-start gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+                            isSelected
+                              ? 'border-amber-300 bg-amber-50/80'
+                              : 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:bg-amber-50/70'
+                          }`}
+                        >
                           {!isSub && canEdit && (
-                            <button 
-                              onClick={() => {
-                                setAddingSubParent(q);
-                                setNewSubLabel("");
-                              }}
-                              className="opacity-0 group-hover/card:opacity-100 text-[10px] font-semibold px-2 py-1 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600 rounded transition-all border-0 cursor-pointer"
-                              title="Tambah Sub-Pertanyaan"
+                            <div className="text-amber-300 group-hover/card:text-amber-400 cursor-grab flex-shrink-0 p-0.5 mt-0.5">
+                              <GripVertical size={13}/>
+                            </div>
+                          )}
+                          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-100 text-amber-600 mt-0.5">
+                            <StickyNote size={13}/>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full mb-1">
+                              <StickyNote size={8}/> CATATAN
+                            </span>
+                            <p className="text-xs font-medium text-amber-900 leading-relaxed break-words">
+                              {renderNoteText(q.label)}
+                            </p>
+                          </div>
+                          {canEdit && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteQuestion(q.id); }}
+                              className="opacity-0 group-hover/card:opacity-100 w-6 h-6 rounded flex items-center justify-center text-amber-400 hover:text-red-500 hover:bg-red-50 border-0 bg-transparent cursor-pointer transition-all flex-shrink-0 mt-0.5"
+                              title="Hapus catatan"
                             >
-                              + Sub
+                              <Trash size={11}/>
                             </button>
                           )}
-                          {q.skipTarget && (
-                            <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded flex-shrink-0">Alur</span>
-                          )}
                         </div>
-                      </div>
+                      ) : (
+                        /* Regular question card */
+                        <div 
+                          id={`q-card-${q.id}`}
+                          onClick={() => setSelectedId(isSelected ? null : q.id)}
+                          {...dragProps}
+                          className={`group/card flex-1 flex items-center gap-3 p-4 rounded-xl text-left border cursor-pointer transition-all ${
+                            isSelected 
+                              ? "border-blue-200 bg-blue-50/50 shadow-sm" 
+                              : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
+                          }`}
+                        >
+                          {/* Drag Handle (for main questions only) */}
+                          {!isSub && canEdit && (
+                            <div className="text-slate-300 group-hover/card:text-slate-400 cursor-grab flex-shrink-0 p-0.5">
+                              <GripVertical size={13}/>
+                            </div>
+                          )}
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-50 text-slate-400"
+                          }`}>
+                            <Icon size={14}/>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="mono text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">R.{qCode}</span>
+                              {q.req && <span className="w-1 h-1 rounded-full bg-red-400"/>}
+                            </div>
+                            <p className="text-sm font-semibold text-slate-700 truncate mt-0.5">
+                              {renderLabelWithVars(q.label)}
+                            </p>
+                          </div>
+                          
+                          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                            {/* "+ Sub" button for main questions */}
+                            {!isSub && canEdit && (
+                              <button 
+                                onClick={() => {
+                                  setAddingSubParent(q);
+                                  setNewSubLabel("");
+                                }}
+                                className="opacity-0 group-hover/card:opacity-100 text-[10px] font-semibold px-2 py-1 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600 rounded transition-all border-0 cursor-pointer"
+                                title="Tambah Sub-Pertanyaan"
+                              >
+                                + Sub
+                              </button>
+                            )}
+                            {q.skipTarget && (
+                              <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded flex-shrink-0">Alur</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -943,35 +1095,102 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
             {/* Properties Panel */}
             {selected ? (() => {
-              // Parse validation string/JSON
+              // === NOTE EDITOR (early return) ===
+              if (selected.type === 'note') {
+                return (
+                  <div className="bg-white rounded-xl border border-amber-100 overflow-hidden sticky top-6 shadow-sm">
+                    <div className="px-5 py-4 border-b border-amber-50 flex items-center justify-between bg-amber-50/50">
+                      <div className="flex items-center gap-2">
+                        <StickyNote size={14} className="text-amber-600"/>
+                        <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider">Edit Catatan</h3>
+                      </div>
+                      <span className="text-[9px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full">CATATAN</span>
+                    </div>
+                    {!canEdit && (
+                      <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0"/>
+                        Catatan hanya dapat direview (Mode Read-Only)
+                      </div>
+                    )}
+                    <div className="p-5 space-y-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-semibold text-slate-400 uppercase">Isi Catatan</label>
+                          {canEdit && (
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  applyNoteFormat('note-textarea', '**', '**', selected.label, (val) => handleUpdateQuestion('label', val));
+                                }}
+                                className="w-7 h-7 flex items-center justify-center text-xs font-extrabold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded cursor-pointer transition-all"
+                                title="Bold — pilih teks lalu klik"
+                              >
+                                <Bold size={12}/>
+                              </button>
+                              <button
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  applyNoteFormat('note-textarea', '*', '*', selected.label, (val) => handleUpdateQuestion('label', val));
+                                }}
+                                className="w-7 h-7 flex items-center justify-center italic font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded cursor-pointer transition-all"
+                                title="Italic — pilih teks lalu klik"
+                              >
+                                <Italic size={12}/>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <textarea
+                          id="note-textarea"
+                          value={selected.label}
+                          readOnly={!canEdit}
+                          onChange={e => handleUpdateQuestion('label', e.target.value)}
+                          rows={4}
+                          placeholder="Tulis catatan untuk petugas... **tebal** *miring*"
+                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-amber-400 leading-relaxed ${canEdit ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+                        />
+                        <p className="text-[9px] text-slate-400 mt-1">
+                          Gunakan <code className="bg-slate-50 px-1 rounded font-bold">**teks**</code> tebal, <code className="bg-slate-50 px-1 rounded">*teks*</code> miring
+                        </p>
+                      </div>
+                      {selected.label && (
+                        <div className="px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl">
+                          <span className="text-[9px] font-bold text-amber-600 uppercase block mb-1.5">Preview</span>
+                          <p className="text-xs text-amber-900 font-medium leading-relaxed">{renderNoteText(selected.label)}</p>
+                        </div>
+                      )}
+                      {canEdit && (
+                        <button
+                          onClick={() => handleDeleteQuestion(selected.id)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
+                        >
+                          <Trash2 size={13}/> Hapus Catatan
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              // === REGULAR QUESTION PROPERTIES ===
               let parsedVal = { type: "unlimited", min: "", max: "", hint: "" };
               if (selected.val) {
                 const trimmed = selected.val.trim();
                 if (trimmed.startsWith('{')) {
-                  try {
-                    parsedVal = { ...parsedVal, ...JSON.parse(trimmed) };
-                  } catch (e) {}
+                  try { parsedVal = { ...parsedVal, ...JSON.parse(trimmed) }; } catch (e) {}
                 } else if (trimmed.startsWith('range:')) {
                   const parts = trimmed.replace('range:', '').trim().split('-');
-                  parsedVal.type = "range";
-                  parsedVal.min = parts[0] || "";
-                  parsedVal.max = parts[1] || "";
+                  parsedVal.type = "range"; parsedVal.min = parts[0] || ""; parsedVal.max = parts[1] || "";
                 } else if (trimmed.startsWith('min:')) {
-                  parsedVal.type = "min";
-                  parsedVal.min = trimmed.replace('min:', '').trim();
+                  parsedVal.type = "min"; parsedVal.min = trimmed.replace('min:', '').trim();
                 } else if (trimmed.startsWith('gt:')) {
-                  parsedVal.type = "gt";
-                  parsedVal.min = trimmed.replace('gt:', '').trim();
-                } else {
-                  parsedVal.hint = trimmed;
-                }
+                  parsedVal.type = "gt"; parsedVal.min = trimmed.replace('gt:', '').trim();
+                } else { parsedVal.hint = trimmed; }
               }
-
-              const updateValObj = (updates) => {
-                const nextVal = { ...parsedVal, ...updates };
-                handleUpdateQuestion("val", JSON.stringify(nextVal));
-              };
-
+              const updateValObj = (updates) => handleUpdateQuestion("val", JSON.stringify({ ...parsedVal, ...updates }));
               const optionsList = Array.isArray(selected.options) ? selected.options : [];
 
               return (
@@ -986,41 +1205,65 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       Properti hanya dapat direview (Mode Read-Only)
                     </div>
                   )}
-                  
                   <div className="p-5 space-y-4">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">No. Rincian</label>
-                      <input 
-                        value={`R.${getQuestionCode(selected, questions, blocks)}`} 
+                      <input
+                        value={`R.${getQuestionCode(selected, questions, blocks)}`}
                         readOnly
                         className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-500 font-bold mono outline-none"
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Label Pertanyaan (Utama)</label>
-                      <textarea 
-                        value={selected.label} 
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase">Label Pertanyaan (Utama)</label>
+                        {canEdit && (
+                          <VariableInserterDropdown
+                            questions={questions}
+                            blocks={blocks}
+                            currentQuestionId={selectedId}
+                            onInsert={(code) => {
+                              const textarea = document.getElementById('label-textarea-main');
+                              const start = textarea?.selectionStart ?? selected.label.length;
+                              const end = textarea?.selectionEnd ?? selected.label.length;
+                              const newLabel = selected.label.slice(0, start) + `$R${code}` + selected.label.slice(end);
+                              handleUpdateQuestion('label', newLabel);
+                              setTimeout(() => {
+                                if (textarea) {
+                                  textarea.focus();
+                                  const pos = start + `$R${code}`.length;
+                                  textarea.setSelectionRange(pos, pos);
+                                }
+                              }, 50);
+                            }}
+                          />
+                        )}
+                      </div>
+                      <textarea
+                        id="label-textarea-main"
+                        value={selected.label}
                         readOnly={!canEdit}
                         onChange={e => handleUpdateQuestion("label", e.target.value)}
                         rows={2}
-                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-semibold outline-none resize-none focus:border-blue-500 ${
-                          canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"
-                        }`}
+                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-semibold outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
                       />
+                      {selected.label.includes('$R') && (
+                        <div className="mt-1.5 px-3 py-2 bg-amber-50/60 border border-amber-100 rounded-lg text-xs text-slate-600 leading-relaxed">
+                          <span className="text-[9px] font-bold text-amber-600 uppercase block mb-0.5">Preview Variabel</span>
+                          {renderLabelWithVars(selected.label)}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Petunjuk Pengisian / Keterangan (arahan bagi petugas) */}
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Petunjuk Pengisian (Keterangan)</label>
-                      <textarea 
-                        value={parsedVal.hint || ""} 
+                      <textarea
+                        value={parsedVal.hint || ""}
                         readOnly={!canEdit}
                         placeholder="Contoh: Isi dengan umur dalam satuan tahun genap..."
                         onChange={e => updateValObj({ hint: e.target.value })}
                         rows={2}
-                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${
-                          canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"
-                        }`}
+                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
                       />
                     </div>
 
@@ -1037,6 +1280,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             <option value="number">Number</option>
                             <option value="radio">Radio</option>
                             <option value="select">Select (Multi-Select)</option>
+                            <option value="location">Geotagging</option>
                           </select>
                         ) : (
                           <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type}</div>
@@ -1054,14 +1298,11 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             <option value="Tidak">Tidak</option>
                           </select>
                         ) : (
-                          <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${
-                            selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"
-                          }`}>{selected.req ? "Ya" : "Tidak"}</div>
+                          <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"}`}>{selected.req ? "Ya" : "Tidak"}</div>
                         )}
                       </div>
                     </div>
 
-                    {/* Number validation range settings */}
                     {selected.type === "number" && (
                       <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
                         <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Batasan Angka</label>
@@ -1082,52 +1323,29 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Min</label>
-                              <input
-                                type="number"
-                                value={parsedVal.min}
-                                disabled={!canEdit}
-                                onChange={e => updateValObj({ min: e.target.value })}
-                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
-                              />
+                              <input type="number" value={parsedVal.min} disabled={!canEdit} onChange={e => updateValObj({ min: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
                             </div>
                             <div>
                               <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Max</label>
-                              <input
-                                type="number"
-                                value={parsedVal.max}
-                                disabled={!canEdit}
-                                onChange={e => updateValObj({ max: e.target.value })}
-                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
-                              />
+                              <input type="number" value={parsedVal.max} disabled={!canEdit} onChange={e => updateValObj({ max: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
                             </div>
                           </div>
                         )}
                         {(parsedVal.type === "min" || parsedVal.type === "gt") && (
                           <div>
                             <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Batas Nilai</label>
-                            <input
-                              type="number"
-                              value={parsedVal.min}
-                              disabled={!canEdit}
-                              onChange={e => updateValObj({ min: e.target.value })}
-                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
-                            />
+                            <input type="number" value={parsedVal.min} disabled={!canEdit} onChange={e => updateValObj({ min: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
                           </div>
                         )}
                       </div>
                     )}
 
-                    {/* Radio & Select Options Editor */}
                     {(selected.type === "radio" || selected.type === "select") && (
                       <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
                         <div className="flex items-center justify-between">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase">Daftar Pilihan Opsi</label>
                           {canEdit && (
-                            <button
-                              type="button"
-                              onClick={() => handleAddOption(selected, optionsList)}
-                              className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded border-0 cursor-pointer"
-                            >
+                            <button type="button" onClick={() => handleAddOption(selected, optionsList)} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded border-0 cursor-pointer">
                               + Opsi
                             </button>
                           )}
@@ -1135,35 +1353,20 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
                           {optionsList.map((opt, idx) => (
                             <div key={idx} className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-150">
-                              <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-md uppercase">
-                                {opt.value}
-                              </span>
-                              <input
-                                type="text"
-                                value={opt.label}
-                                readOnly={!canEdit}
-                                onChange={e => handleUpdateOptionLabel(optionsList, idx, e.target.value)}
-                                className="flex-1 px-2 py-1 text-xs border border-transparent hover:border-slate-100 focus:border-blue-300 rounded outline-none font-medium text-slate-700 bg-transparent"
-                              />
+                              <span className="w-5 h-5 flex items-center justify-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-md uppercase">{opt.value}</span>
+                              <input type="text" value={opt.label} readOnly={!canEdit} onChange={e => handleUpdateOptionLabel(optionsList, idx, e.target.value)} className="flex-1 px-2 py-1 text-xs border border-transparent hover:border-slate-100 focus:border-blue-300 rounded outline-none font-medium text-slate-700 bg-transparent"/>
                               {canEdit && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteOption(selected, optionsList, idx)}
-                                  className="p-1 hover:bg-red-50 text-red-500 hover:text-red-700 border-0 bg-transparent cursor-pointer rounded"
-                                >
+                                <button type="button" onClick={() => handleDeleteOption(selected, optionsList, idx)} className="p-1 hover:bg-red-50 text-red-500 hover:text-red-700 border-0 bg-transparent cursor-pointer rounded">
                                   <Trash size={12}/>
                                 </button>
                               )}
                             </div>
                           ))}
-                          {optionsList.length === 0 && (
-                            <p className="text-[10px] text-slate-400 text-center italic py-2">Belum ada pilihan opsi</p>
-                          )}
+                          {optionsList.length === 0 && <p className="text-[10px] text-slate-400 text-center italic py-2">Belum ada pilihan opsi</p>}
                         </div>
                       </div>
                     )}
-                    
-                    {/* Skip Logic (Alur Hubungan) Setting - Lintas Blok */}
+
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Lompat ke Rincian (Skip Logic)</label>
                       {canEdit ? (
@@ -1174,15 +1377,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         >
                           <option value="">-- Tidak ada lompatan --</option>
                           {blocks.map(b => {
-                            // Find all questions in this block, excluding current question
-                            const blockQs = questions.filter(x => x.blokId === b.id && x.id !== selected.id);
+                            const blockQs = questions.filter(x => x.blokId === b.id && x.id !== selected.id && x.type !== 'note');
                             if (blockQs.length === 0) return null;
                             return (
                               <optgroup key={b.id} label={`${b.id}: ${b.title}`}>
                                 {blockQs.map(x => (
-                                  <option key={x.id} value={x.id}>
-                                    R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...
-                                  </option>
+                                  <option key={x.id} value={x.id}>R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...</option>
                                 ))}
                               </optgroup>
                             );
@@ -1190,54 +1390,32 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         </select>
                       ) : (
                         <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-medium">
-                          {selected.skipTarget 
-                            ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}`
-                            : "Tidak ada"
-                          }
+                          {selected.skipTarget ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}` : "Tidak ada"}
                         </div>
                       )}
                     </div>
 
-                    {/* Skip logic trigger value - Conditional jump by answer */}
                     {selected.skipTarget && (
                       <div className="p-3 bg-blue-50/20 border border-blue-50 rounded-xl space-y-2 animate-custom-fade">
                         <label className="block text-[10px] font-bold text-slate-500 uppercase">Syarat Jawaban Pemicu Lompatan</label>
                         {canEdit ? (
                           optionsList.length > 0 ? (
-                            <select
-                              value={selected.skip || ""}
-                              onChange={e => handleUpdateQuestion("skip", e.target.value)}
-                              className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
-                            >
+                            <select value={selected.skip || ""} onChange={e => handleUpdateQuestion("skip", e.target.value)} className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500">
                               <option value="">-- Pilih opsi pemicu --</option>
-                              {optionsList.map(opt => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.value}. {opt.label}
-                                </option>
-                              ))}
+                              {optionsList.map(opt => <option key={opt.value} value={opt.value}>{opt.value}. {opt.label}</option>)}
                             </select>
                           ) : (
-                            <input
-                              type="text"
-                              value={selected.skip || ""}
-                              onChange={e => handleUpdateQuestion("skip", e.target.value)}
-                              placeholder="Contoh: 2 atau a"
-                              className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none focus:border-blue-500"
-                            />
+                            <input type="text" value={selected.skip || ""} onChange={e => handleUpdateQuestion("skip", e.target.value)} placeholder="Contoh: 2 atau a" className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none focus:border-blue-500"/>
                           )
                         ) : (
-                          <div className="px-3 py-2 text-xs bg-white border border-slate-100 rounded-lg text-slate-600 font-semibold">
-                            {selected.skip ? `Jika bernilai: ${selected.skip}` : "Belum ditentukan"}
-                          </div>
+                          <div className="px-3 py-2 text-xs bg-white border border-slate-100 rounded-lg text-slate-600 font-semibold">{selected.skip ? `Jika bernilai: ${selected.skip}` : "Belum ditentukan"}</div>
                         )}
-                        <p className="text-[9px] text-slate-400 leading-snug">
-                          Semua rincian setelah pertanyaan ini hingga sebelum target akan dilewati (*skipped*) jika petugas memilih opsi di atas.
-                        </p>
+                        <p className="text-[9px] text-slate-400 leading-snug">Semua rincian setelah pertanyaan ini hingga sebelum target akan dilewati (*skipped*) jika petugas memilih opsi di atas.</p>
                       </div>
                     )}
 
                     {canEdit && (
-                      <button 
+                      <button
                         onClick={() => handleDeleteQuestion(selected.id)}
                         className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all mt-2 text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
                         title="Hapus rincian ini beserta sub-pertanyaannya"
@@ -1254,12 +1432,6 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 <p className="text-sm text-slate-400 font-bold">Pilih rincian untuk melihat propertinya</p>
                 <p className="text-xs text-slate-300 mt-1">Klik pada salah satu rincian kuesioner</p>
               </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Add Block Confirmation Modal */}
       {isConfirmAddBlockOpen && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4" style={{ animation: "fadeIn 0.15s ease" }}>
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-lg" style={{ animation: "scaleIn 0.2s ease" }}>
@@ -1501,6 +1673,80 @@ function CheckCircleWrapper() {
   return (
     <div className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center">
       <Check size={16} />
+    </div>
+  );
+}
+
+/**
+ * Dropdown button that lists all questions before the current one (across all blocks)
+ * and inserts $R{code} at the cursor position in the label textarea.
+ */
+function VariableInserterDropdown({ questions, blocks, currentQuestionId, onInsert }) {
+  const [open, setOpen] = useState(false);
+
+  // Build a list of questions that appear before the current one (from any block)
+  // using the same getQuestionCode logic
+  const prior = [];
+  blocks.forEach(b => {
+    const mainQs = questions.filter(q => q.blokId === b.id && !q.parentId);
+    mainQs.forEach(parent => {
+      const code = getQuestionCode(parent, questions, blocks);
+      if (parent.id !== currentQuestionId) {
+        prior.push({ id: parent.id, code, label: parent.label, blockId: b.id, blockTitle: b.title });
+      }
+      // sub-questions
+      const children = questions.filter(q => q.blokId === b.id && q.parentId === parent.id);
+      children.forEach(child => {
+        if (child.id !== currentQuestionId) {
+          const childCode = getQuestionCode(child, questions, blocks);
+          prior.push({ id: child.id, code: childCode, label: child.label, blockId: b.id, blockTitle: b.title });
+        }
+      });
+    });
+  });
+
+  if (prior.length === 0) return null;
+
+  // Group by block
+  const grouped = blocks.map(b => ({
+    block: b,
+    items: prior.filter(p => p.blockId === b.id)
+  })).filter(g => g.items.length > 0);
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg border-solid cursor-pointer transition-all"
+        title="Sisipkan variabel dari jawaban pertanyaan sebelumnya"
+      >
+        <Variable size={11}/> Variabel
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
+          <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg z-50 border border-slate-100 w-64 max-h-56 overflow-y-auto" style={{ animation: 'scaleIn 0.15s ease' }}>
+            <p className="px-3 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-50">Pilih Pertanyaan Rujukan</p>
+            {grouped.map(g => (
+              <div key={g.block.id}>
+                <p className="px-3 py-1.5 text-[9px] font-bold text-slate-300 uppercase tracking-wider bg-slate-50/50">{g.block.id}: {g.block.title}</p>
+                {g.items.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => { onInsert(item.code); setOpen(false); }}
+                    className="w-full px-3 py-2 text-left text-xs border-0 bg-white hover:bg-amber-50 cursor-pointer transition-all flex items-start gap-2"
+                  >
+                    <span className="mono text-[9px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5">R{item.code}</span>
+                    <span className="text-slate-600 font-medium truncate leading-snug">{item.label.substring(0, 40)}{item.label.length > 40 ? '…' : ''}</span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

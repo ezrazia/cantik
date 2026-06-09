@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -9,7 +9,14 @@ const router = Router();
  */
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT * FROM wilayah ORDER BY kecamatan, desa, sls, sub_sls');
+    const rows = await prisma.wilayah.findMany({
+      orderBy: [
+        { kecamatan: 'asc' },
+        { desa: 'asc' },
+        { sls: 'asc' },
+        { sub_sls: 'asc' },
+      ],
+    });
     return res.json(rows);
   } catch (error) {
     console.error('Error fetching wilayah:', error);
@@ -23,7 +30,11 @@ router.get('/', async (req, res) => {
  */
 router.get('/kecamatan', async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT DISTINCT kecamatan FROM wilayah ORDER BY kecamatan');
+    const rows = await prisma.wilayah.findMany({
+      select: { kecamatan: true },
+      distinct: ['kecamatan'],
+      orderBy: { kecamatan: 'asc' },
+    });
     return res.json(rows.map(r => r.kecamatan));
   } catch (error) {
     console.error('Error fetching kecamatan:', error);
@@ -38,16 +49,15 @@ router.get('/kecamatan', async (req, res) => {
 router.get('/desa', async (req, res) => {
   const { kecamatan } = req.query;
   try {
-    let query = 'SELECT DISTINCT desa, kecamatan FROM wilayah';
-    const params = [];
-    
-    if (kecamatan) {
-      query += ' WHERE kecamatan = ?';
-      params.push(kecamatan);
-    }
-    query += ' ORDER BY desa';
-    
-    const [rows] = await pool.query(query, params);
+    const rows = await prisma.wilayah.findMany({
+      where: kecamatan ? { kecamatan } : {},
+      select: {
+        desa: true,
+        kecamatan: true,
+      },
+      distinct: ['desa'],
+      orderBy: { desa: 'asc' },
+    });
     return res.json(rows);
   } catch (error) {
     console.error('Error fetching desa:', error);
@@ -62,16 +72,18 @@ router.get('/desa', async (req, res) => {
 router.get('/sls', async (req, res) => {
   const { desa } = req.query;
   try {
-    let query = 'SELECT DISTINCT sls, desa FROM wilayah WHERE sls IS NOT NULL';
-    const params = [];
-    
-    if (desa) {
-      query += ' AND desa = ?';
-      params.push(desa);
-    }
-    query += ' ORDER BY sls';
-    
-    const [rows] = await pool.query(query, params);
+    const rows = await prisma.wilayah.findMany({
+      where: {
+        sls: { not: null },
+        ...(desa ? { desa } : {}),
+      },
+      select: {
+        sls: true,
+        desa: true,
+      },
+      distinct: ['sls'],
+      orderBy: { sls: 'asc' },
+    });
     return res.json(rows);
   } catch (error) {
     console.error('Error fetching SLS:', error);
@@ -86,16 +98,18 @@ router.get('/sls', async (req, res) => {
 router.get('/sub_sls', async (req, res) => {
   const { sls } = req.query;
   try {
-    let query = 'SELECT DISTINCT sub_sls, sls FROM wilayah WHERE sub_sls IS NOT NULL';
-    const params = [];
-    
-    if (sls) {
-      query += ' AND sls = ?';
-      params.push(sls);
-    }
-    query += ' ORDER BY sub_sls';
-    
-    const [rows] = await pool.query(query, params);
+    const rows = await prisma.wilayah.findMany({
+      where: {
+        sub_sls: { not: null },
+        ...(sls ? { sls } : {}),
+      },
+      select: {
+        sub_sls: true,
+        sls: true,
+      },
+      distinct: ['sub_sls'],
+      orderBy: { sub_sls: 'asc' },
+    });
     return res.json(rows);
   } catch (error) {
     console.error('Error fetching Sub SLS:', error);

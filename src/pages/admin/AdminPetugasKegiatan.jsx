@@ -585,52 +585,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
     }
   };
 
-  const handlePmlSupervisionChange = async (pmlId, pmlName, newPclId) => {
-    try {
-      const currentPcl = petugas.find(p => p.projects?.includes(selectedProject) && p.assignments?.[selectedProject]?.pengawas === pmlName);
-      if (currentPcl && currentPcl.id !== parseInt(newPclId)) {
-        await api.petugas.assign({
-          petugas_id: currentPcl.id,
-          kegiatan_id: activeActivity.id,
-          role: 'PCL',
-          sls_assignments: currentPcl.assignments?.[selectedProject]?.sls || [],
-          pengawas: ''
-        });
-      }
-      
-      if (newPclId) {
-        const newPcl = petugas.find(p => p.id === parseInt(newPclId));
-        if (newPcl) {
-          await api.petugas.assign({
-            petugas_id: newPcl.id,
-            kegiatan_id: activeActivity.id,
-            role: 'PCL',
-            sls_assignments: newPcl.assignments?.[selectedProject]?.sls || [],
-            pengawas: pmlName
-          });
-        }
-      }
-      
-      await api.petugas.assign({
-        petugas_id: pmlId,
-        kegiatan_id: activeActivity.id,
-        role: 'PML',
-        sls_assignments: [],
-        pengawas: ''
-      });
-      
-      await refreshData();
-      if (selectedPetugas && selectedPetugas.id === pmlId) {
-        setSelectedPetugas(prev => ({
-          ...prev,
-          projects: prev.projects,
-          projectRoles: { ...(prev.projectRoles || {}), [selectedProject]: 'PML' }
-        }));
-      }
-    } catch (err) {
-      alert("Gagal memperbarui hubungan pengawasan: " + err.message);
-    }
-  };
+  // handlePmlSupervisionChange removed — replaced by handlePmlPclAdd / handlePmlPclRemove above
 
   const handleLocationDropdownChange = async (desaVal, slsVal, subSlsVal) => {
     setSelectedDesaCode(desaVal);
@@ -671,12 +626,53 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
     }
   };
 
-  const getSupervisedPcl = (pmlName) => {
-    return petugas.find(p => 
+  /** Returns ALL PCLs supervised by this PML in the current project */
+  const getSupervisedPcls = (pmlName) => {
+    return petugas.filter(p => 
       p.projects?.includes(selectedProject) && 
       p.projectRoles?.[selectedProject] === "PCL" && 
       p.assignments?.[selectedProject]?.pengawas === pmlName
     );
+  };
+
+  /** Add a PCL to PML's supervision (set pengawas on that PCL's record) */
+  const handlePmlPclAdd = async (pmlName, pclId) => {
+    if (!pclId || !activeActivity) return;
+    const pcl = petugas.find(p => p.id === parseInt(pclId));
+    if (!pcl) return;
+    try {
+      const currentAss = pcl.assignments?.[selectedProject] || {};
+      await api.petugas.assign({
+        petugas_id: pcl.id,
+        kegiatan_id: activeActivity.id,
+        role: 'PCL',
+        sls_assignments: currentAss.sls || [],
+        pengawas: pmlName
+      });
+      await refreshData();
+    } catch (err) {
+      alert('Gagal menambahkan PCL ke pengawasan: ' + err.message);
+    }
+  };
+
+  /** Remove a PCL from PML's supervision (clear pengawas on that PCL's record) */
+  const handlePmlPclRemove = async (pclId) => {
+    if (!pclId || !activeActivity) return;
+    const pcl = petugas.find(p => p.id === parseInt(pclId));
+    if (!pcl) return;
+    try {
+      const currentAss = pcl.assignments?.[selectedProject] || {};
+      await api.petugas.assign({
+        petugas_id: pcl.id,
+        kegiatan_id: activeActivity.id,
+        role: 'PCL',
+        sls_assignments: currentAss.sls || [],
+        pengawas: ''
+      });
+      await refreshData();
+    } catch (err) {
+      alert('Gagal menghapus PCL dari pengawasan: ' + err.message);
+    }
   };
 
   const handleInlineLocationSave = async (officerId, locationValue) => {
@@ -1459,29 +1455,58 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         );
                                       }
                                     } else {
-                                      // Role is PML
+                                      // Role is PML — multi-PCL supervision
+                                      const supervisedPcls = getSupervisedPcls(p.name);
+                                      const availablePcls = petugas.filter(x =>
+                                        x.projects?.includes(selectedProject) &&
+                                        x.projectRoles?.[selectedProject] === "PCL" &&
+                                        !(x.assignments?.[selectedProject]?.pengawas === p.name)
+                                      );
                                       if (projectStatus === "draft" || projectStatus === "uji_coba") {
                                         return (
-                                          <select
-                                            value={getSupervisedPcl(p.name)?.id || ""}
-                                            onChange={e => handlePmlSupervisionChange(p.id, p.name, e.target.value)}
-                                            className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer max-w-[180px]"
-                                          >
-                                            <option value="">-- Pilih PCL --</option>
-                                            {petugas
-                                              .filter(x => x.projects?.includes(selectedProject) && x.projectRoles?.[selectedProject] === "PCL")
-                                              .map(x => (
-                                                <option key={x.id} value={x.id}>{x.name}</option>
-                                              ))}
-                                          </select>
+                                          <div className="flex flex-wrap items-center gap-1 max-w-[260px]">
+                                            {/* Chips for supervised PCLs */}
+                                            {supervisedPcls.map(pcl => (
+                                              <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 rounded-full">
+                                                {pcl.name.split(' ')[0]}
+                                                <button
+                                                  onClick={() => handlePmlPclRemove(pcl.id)}
+                                                  className="w-3 h-3 rounded-full bg-purple-200 hover:bg-red-200 hover:text-red-600 flex items-center justify-center border-0 cursor-pointer text-purple-500 transition-colors"
+                                                  title={`Hapus ${pcl.name} dari pengawasan`}
+                                                >
+                                                  <X size={8}/>
+                                                </button>
+                                              </span>
+                                            ))}
+                                            {/* Add PCL dropdown */}
+                                            {availablePcls.length > 0 && (
+                                              <select
+                                                value=""
+                                                onChange={e => { if (e.target.value) handlePmlPclAdd(p.name, e.target.value); }}
+                                                className="px-1.5 py-0.5 text-[10px] border border-dashed border-slate-300 rounded-full bg-white text-slate-500 font-semibold cursor-pointer hover:border-purple-400 hover:text-purple-600 transition-colors"
+                                                title="Tambah PCL yang diawasi"
+                                              >
+                                                <option value="">+ PCL</option>
+                                                {availablePcls.map(x => (
+                                                  <option key={x.id} value={x.id}>{x.name}</option>
+                                                ))}
+                                              </select>
+                                            )}
+                                            {supervisedPcls.length === 0 && availablePcls.length === 0 && (
+                                              <span className="text-[10px] text-slate-400 italic">Belum ada PCL</span>
+                                            )}
+                                          </div>
                                         );
                                       } else {
                                         return (
-                                          <div className="flex items-center gap-1.5 text-slate-600 text-xs font-medium">
-                                            <Users size={12} className="text-slate-400" />
-                                            <span>
-                                              {getSupervisedPcl(p.name)?.name || "Tidak ada PCL"}
-                                            </span>
+                                          <div className="flex flex-wrap gap-1">
+                                            {supervisedPcls.length > 0 ? supervisedPcls.map(pcl => (
+                                              <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-600 border border-purple-100/40 rounded-full">
+                                                <Users size={9}/> {pcl.name.split(' ')[0]}
+                                              </span>
+                                            )) : (
+                                              <span className="text-[10px] text-slate-400">Tidak ada PCL</span>
+                                            )}
                                           </div>
                                         );
                                       }
@@ -1802,63 +1827,93 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                               </>
                             )}
 
-                            {/* If role is PML: PCL dropdown */}
+            {/* If role is PML: multi-PCL chip selector in sidebar */}
                             {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PML" && (
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">PCL yang Diawasi</label>
-                                <select
-                                  value={
-                                    petugas.find(
-                                      p => p.projects?.includes(selectedProject) && 
-                                      p.assignments?.[selectedProject]?.pengawas === selectedPetugas.name
-                                    )?.id || ""
-                                  }
-                                  onChange={e => handlePmlSupervisionChange(selectedPetugas.id, selectedPetugas.name, e.target.value)}
-                                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
-                                >
-                                  <option value="">-- Pilih PCL --</option>
-                                  {petugas
-                                    .filter(p => p.projects?.includes(selectedProject) && p.projectRoles?.[selectedProject] === "PCL")
-                                    .map(p => (
-                                      <option key={p.id} value={p.id}>{p.name}</option>
-                                    ))}
-                                </select>
+                                <div className="flex flex-wrap gap-1.5 p-2.5 bg-slate-50 rounded-xl border border-slate-100 min-h-[40px]">
+                                  {getSupervisedPcls(selectedPetugas.name).map(pcl => (
+                                    <span key={pcl.id} className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 rounded-full">
+                                      {pcl.name.split(' ').slice(0,2).join(' ')}
+                                      <button
+                                        onClick={() => handlePmlPclRemove(pcl.id)}
+                                        className="w-3.5 h-3.5 rounded-full bg-purple-200 hover:bg-red-200 hover:text-red-600 flex items-center justify-center border-0 cursor-pointer text-purple-500 transition-colors flex-shrink-0"
+                                        title={`Hapus ${pcl.name}`}
+                                      >
+                                        <X size={8}/>
+                                      </button>
+                                    </span>
+                                  ))}
+                                  {/* Add PCL dropdown */}
+                                  {petugas.filter(x =>
+                                    x.projects?.includes(selectedProject) &&
+                                    x.projectRoles?.[selectedProject] === "PCL" &&
+                                    x.assignments?.[selectedProject]?.pengawas !== selectedPetugas.name
+                                  ).length > 0 && (
+                                    <select
+                                      value=""
+                                      onChange={e => { if (e.target.value) handlePmlPclAdd(selectedPetugas.name, e.target.value); }}
+                                      className="px-2 py-0.5 text-[10px] border border-dashed border-slate-300 rounded-full bg-white text-slate-500 font-semibold cursor-pointer hover:border-purple-400 hover:text-purple-600 transition-colors"
+                                    >
+                                      <option value="">+ Tambah PCL</option>
+                                      {petugas
+                                        .filter(x =>
+                                          x.projects?.includes(selectedProject) &&
+                                          x.projectRoles?.[selectedProject] === "PCL" &&
+                                          x.assignments?.[selectedProject]?.pengawas !== selectedPetugas.name
+                                        )
+                                        .map(x => (
+                                          <option key={x.id} value={x.id}>{x.name}</option>
+                                        ))}
+                                    </select>
+                                  )}
+                                  {getSupervisedPcls(selectedPetugas.name).length === 0 && (
+                                    <span className="text-[10px] text-slate-400 italic self-center">Belum ada PCL — pilih dari dropdown</span>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </>
-                        ) : (
-                          <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-600 font-medium">
-                            <div>
-                              <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Peran</p>
-                              <span className="font-semibold text-slate-700">
-                                {selectedPetugas.projectRoles?.[selectedProject] === "PML" ? "PML (Pengawas)" : "PCL (Pendata)"}
-                              </span>
-                            </div>
-                            
-                            {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PCL" ? (
-                              <>
-                                <div>
-                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Wilayah Tugas</p>
-                                  <span className="font-semibold text-slate-700">
-                                    {selectedPetugas.assignments?.[selectedProject]?.sls?.[0] || "-"}
-                                  </span>
-                                </div>
-                                <div>
-                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Pengawas (PML)</p>
-                                  <span className="font-semibold text-slate-700">
-                                    {selectedPetugas.assignments?.[selectedProject]?.pengawas || "Belum ada pengawas"}
-                                  </span>
-                                </div>
-                              </>
-                            ) : (
+                                    ) : (
+                              <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs text-slate-600 font-medium">
                               <div>
-                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">PCL yang Diawasi</p>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Peran</p>
                                 <span className="font-semibold text-slate-700">
-                                  {petugas.find(p => p.projects?.includes(selectedProject) && p.assignments?.[selectedProject]?.pengawas === selectedPetugas.name)?.name || "Belum ada PCL yang diawasi"}
+                                  {selectedPetugas.projectRoles?.[selectedProject] === "PML" ? "PML (Pengawas)" : "PCL (Pendata)"}
                                 </span>
                               </div>
-                            )}
-                          </div>
+                              
+                              {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PCL" ? (
+                                <>
+                                  <div>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Wilayah Tugas</p>
+                                    <span className="font-semibold text-slate-700">
+                                      {selectedPetugas.assignments?.[selectedProject]?.sls?.[0] || "-"}
+                                    </span>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Pengawas (PML)</p>
+                                    <span className="font-semibold text-slate-700">
+                                      {selectedPetugas.assignments?.[selectedProject]?.pengawas || "Belum ada pengawas"}
+                                    </span>
+                                  </div>
+                                </>
+                              ) : (
+                                <div>
+                                  <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">PCL yang Diawasi</p>
+                                  <div className="flex flex-wrap gap-1 mt-1">
+                                    {getSupervisedPcls(selectedPetugas.name).length > 0
+                                      ? getSupervisedPcls(selectedPetugas.name).map(pcl => (
+                                          <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-600 border border-purple-100/40 rounded-full">
+                                            <Users size={9}/> {pcl.name.split(' ').slice(0,2).join(' ')}
+                                          </span>
+                                        ))
+                                      : <span className="font-semibold text-slate-400 italic">Belum ada PCL yang diawasi</span>
+                                    }
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                         )}
                       </div>
                     )}

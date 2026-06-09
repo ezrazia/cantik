@@ -1,37 +1,19 @@
 /**
  * @module server/config/database
- * Konfigurasi koneksi database MySQL menggunakan connection pool.
+ * Konfigurasi koneksi database menggunakan Prisma Client.
  * Semua kredensial diambil dari environment variables (.env file).
- *
- * Pool pattern digunakan agar koneksi dapat di-reuse secara efisien
- * tanpa perlu membuka/menutup koneksi setiap kali ada request.
  */
 
-import mysql from 'mysql2/promise';
+import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 /**
- * Connection pool MySQL.
- * Menggunakan environment variables untuk keamanan kredensial.
- *
- * @type {import('mysql2/promise').Pool}
- *
- * @example
- * import pool from './config/database.js';
- *
- * const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [userId]);
+ * Singleton instance Prisma Client.
  */
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT, 10) || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'desa_cantik',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
+const prisma = new PrismaClient({
+  log: ['info', 'warn', 'error'],
 });
 
 /**
@@ -44,14 +26,13 @@ const pool = mysql.createPool({
  */
 export async function testConnection() {
   try {
-    const connection = await pool.getConnection();
-    console.log('✅ Database connected successfully');
-    connection.release();
+    await prisma.$connect();
+    console.log('✅ Database connected successfully via Prisma');
     return true;
   } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
+    console.error('❌ Database connection failed via Prisma:', error.message);
     throw error;
   }
 }
 
-export default pool;
+export default prisma;

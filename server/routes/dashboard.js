@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import pool from '../config/database.js';
+import prisma from '../config/database.js';
 
 const router = Router();
 
@@ -11,48 +11,66 @@ router.get('/stats', async (req, res) => {
   const { kegiatan_id } = req.query;
   try {
     // 1. Total petugas
-    const [[{ totalPetugas }]] = await pool.query('SELECT COUNT(*) as totalPetugas FROM petugas');
+    const totalPetugas = await prisma.petugas.count();
 
     // 2. Total kegiatan
-    const [[{ totalKegiatan }]] = await pool.query('SELECT COUNT(*) as totalKegiatan FROM kegiatan');
+    const totalKegiatan = await prisma.kegiatan.count();
 
     // 3. Total wilayah
-    const [[{ totalDesa }]] = await pool.query('SELECT COUNT(DISTINCT desa) as totalDesa FROM wilayah');
+    const distinctDesa = await prisma.wilayah.groupBy({
+      by: ['desa'],
+    });
+    const totalDesa = distinctDesa.length;
 
-    // 4. Hitung dokumen per status review (jika kegiatan_id spesifik, filter by kegiatan_id)
-    let reviewQuery = `
-      SELECT 
-        COUNT(*) as total,
-        SUM(CASE WHEN review_status = 'approved' THEN 1 ELSE 0 END) as approved,
-        SUM(CASE WHEN review_status = 'rejected' THEN 1 ELSE 0 END) as rejected,
-        SUM(CASE WHEN review_status = 'draft' AND status IN ('tersimpan', 'terkirim') THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft
-      FROM dokumen
-    `;
-    const reviewParams = [];
-    if (kegiatan_id) {
-      reviewQuery += ' WHERE kegiatan_id = ?';
-      reviewParams.push(kegiatan_id);
-    }
-
-    const [[reviewStats]] = await pool.query(reviewQuery, reviewParams);
+    // 4. Hitung dokumen per status review
+    const whereClause = kegiatan_id ? { kegiatan_id: parseInt(kegiatan_id, 10) } : {};
+    
+    const totalDokumen = await prisma.dokumen.count({ where: whereClause });
+    const approved = await prisma.dokumen.count({ where: { ...whereClause, review_status: 'approved' } });
+    const rejected = await prisma.dokumen.count({ where: { ...whereClause, review_status: 'rejected' } });
+    const pending = await prisma.dokumen.count({
+      where: {
+        ...whereClause,
+        review_status: 'draft',
+        status: { in: ['tersimpan', 'terkirim'] }
+      }
+    });
+    const draft = await prisma.dokumen.count({ where: { ...whereClause, status: 'draft' } });
 
     // 5. Data Chart Harian (7 hari terakhir)
-    let chartQuery = `
-      SELECT DATE(created_at) as date, COUNT(*) as count,
-             SUM(CASE WHEN review_status = 'rejected' THEN 1 ELSE 0 END) as rejected
-      FROM dokumen
-    `;
-    const chartParams = [];
-    if (kegiatan_id) {
-      chartQuery += ' WHERE kegiatan_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
-      chartParams.push(kegiatan_id);
-    } else {
-      chartQuery += ' WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)';
-    }
-    chartQuery += ' GROUP BY DATE(created_at) ORDER BY DATE(created_at) ASC';
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
 
-    const [chartRows] = await pool.query(chartQuery, chartParams);
+    const documents = await prisma.dokumen.findMany({
+      where: {
+        created_at: { gte: sevenDaysAgo },
+        ...whereClause
+      },
+      select: {
+        created_at: true,
+        review_status: true
+      },
+      orderBy: {
+        created_at: 'asc'
+      }
+    });
+
+    // Group documents by date in memory (database-agnostic)
+    const groups = {};
+    documents.forEach(doc => {
+      // Get date string in YYYY-MM-DD
+      const dateStr = doc.created_at.toISOString().split('T')[0];
+      if (!groups[dateStr]) {
+        groups[dateStr] = { date: dateStr, count: 0, rejected: 0 };
+      }
+      groups[dateStr].count++;
+      if (doc.review_status === 'rejected') {
+        groups[dateStr].rejected++;
+      }
+    });
+
+    const chartRows = Object.values(groups).sort((a, b) => a.date.localeCompare(b.date));
 
     // Format chart rows to match frontend day abbreviations
     const daysName = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
@@ -66,20 +84,25 @@ router.get('/stats', async (req, res) => {
     });
 
     // 6. Log aktivitas terbaru
-    let logQuery = `
-      SELECT dl.message, dl.created_at, d.kode as doc_kode, p.name as petugas_name
-      FROM dokumen_log dl
-      JOIN dokumen d ON dl.dokumen_id = d.id
-      JOIN petugas p ON d.petugas_id = p.id
-    `;
-    const logParams = [];
-    if (kegiatan_id) {
-      logQuery += ' WHERE d.kegiatan_id = ?';
-      logParams.push(kegiatan_id);
-    }
-    logQuery += ' ORDER BY dl.created_at DESC LIMIT 5';
-
-    const [recentLogs] = await pool.query(logQuery, logParams);
+    const recentLogs = await prisma.dokumenLog.findMany({
+      where: kegiatan_id ? {
+        dokumen: { kegiatan_id: parseInt(kegiatan_id, 10) }
+      } : {},
+      include: {
+        dokumen: {
+          select: {
+            kode: true,
+            petugas: {
+              select: { name: true }
+            }
+          }
+        }
+      },
+      orderBy: {
+        created_at: 'desc'
+      },
+      take: 5
+    });
 
     return res.json({
       success: true,
@@ -87,18 +110,18 @@ router.get('/stats', async (req, res) => {
         totalPetugas,
         totalKegiatan,
         totalDesa,
-        totalDokumen: reviewStats.total || 0,
-        approved: reviewStats.approved || 0,
-        rejected: reviewStats.rejected || 0,
-        pending: reviewStats.pending || 0,
-        draft: reviewStats.draft || 0
+        totalDokumen,
+        approved,
+        rejected,
+        pending,
+        draft
       },
       chartData: formattedChartData,
       recentLogs: recentLogs.map(l => ({
         message: l.message,
         time: l.created_at.toLocaleString('id-ID'),
-        petugas: l.petugas_name,
-        kode: l.doc_kode
+        petugas: l.dokumen?.petugas?.name || 'Unknown',
+        kode: l.dokumen?.kode || ''
       }))
     });
   } catch (error) {

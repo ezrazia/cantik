@@ -1,0 +1,234 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PetugasStatus {
+  active
+  done
+  inactive
+}
+
+enum KegiatanStatus {
+  draft
+  published
+  uji_coba
+  selesai
+}
+
+enum Role {
+  PCL
+  PML
+}
+
+enum QuestionType {
+  text
+  number
+  select
+  radio
+  date
+  textarea
+  location
+  note
+}
+
+enum DokumenStatus {
+  draft
+  tersimpan
+  terkirim
+}
+
+enum ReviewStatus {
+  draft
+  approved
+  rejected
+}
+
+model Admin {
+  id         Int      @id @default(autoincrement())
+  username   String   @unique @db.VarChar(50)
+  password   String   @db.VarChar(255)
+  nama       String   @db.VarChar(100)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("admin")
+}
+
+model Petugas {
+  id               Int               @id @default(autoincrement())
+  username         String            @unique @db.VarChar(50)
+  password         String            @db.VarChar(255)
+  name             String            @db.VarChar(100)
+  nik              String?           @db.VarChar(20)
+  phone            String?           @db.VarChar(20)
+  desa             String?           @db.VarChar(100)
+  target           Int               @default(0)
+  selesai          Int               @default(0)
+  last_sync        DateTime?
+  status           PetugasStatus     @default(active)
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+  petugas_kegiatan PetugasKegiatan[]
+  dokumen          Dokumen[]
+
+  @@map("petugas")
+}
+
+model Kegiatan {
+  id               Int               @id @default(autoincrement())
+  name             String            @db.VarChar(200)
+  description      String?           @db.Text
+  progress         Int               @default(0)
+  color            String            @default("bg-blue-600") @db.VarChar(30)
+  text_color       String            @default("text-blue-600") @db.VarChar(30)
+  bg_color         String            @default("bg-blue-50") @db.VarChar(30)
+  start_date       DateTime?         @db.Date
+  status           KegiatanStatus    @default(draft)
+  lokus            Json?
+  created_at       DateTime          @default(now())
+  updated_at       DateTime          @updatedAt
+  petugas_kegiatan PetugasKegiatan[]
+  desa_kegiatan    DesaKegiatan[]
+  form_blok        FormBlok[]
+  dokumen          Dokumen[]
+
+  @@map("kegiatan")
+}
+
+model PetugasKegiatan {
+  id              Int      @id @default(autoincrement())
+  petugas_id      Int
+  kegiatan_id     Int
+  role            Role     @default(PCL)
+  sls_assignments Json?
+  pengawas        String?  @db.VarChar(100)
+  created_at      DateTime @default(now())
+
+  petugas  Petugas  @relation(fields: [petugas_id], references: [id], onDelete: Cascade)
+  kegiatan Kegiatan @relation(fields: [kegiatan_id], references: [id], onDelete: Cascade)
+
+  @@unique([petugas_id, kegiatan_id], name: "uk_petugas_kegiatan")
+  @@map("petugas_kegiatan")
+}
+
+model Wilayah {
+  id         Int      @id @default(autoincrement())
+  kecamatan  String   @db.VarChar(100)
+  desa       String   @db.VarChar(100)
+  sls        String?  @db.VarChar(100)
+  sub_sls    String?  @db.VarChar(100)
+  created_at DateTime @default(now())
+
+  @@map("wilayah")
+}
+
+model DesaKegiatan {
+  id          Int      @id @default(autoincrement())
+  kegiatan_id Int
+  desa        String   @db.VarChar(100)
+  target      Int      @default(0)
+  selesai     Int      @default(0)
+  color       String   @default("#2563eb") @db.VarChar(10)
+  created_at  DateTime @default(now())
+
+  kegiatan Kegiatan @relation(fields: [kegiatan_id], references: [id], onDelete: Cascade)
+
+  @@unique([kegiatan_id, desa], name: "uk_desa_kegiatan")
+  @@map("desa_kegiatan")
+}
+
+model FormBlok {
+  id            Int            @id @default(autoincrement())
+  kegiatan_id   Int
+  kode          String         @db.VarChar(20)
+  title         String         @db.VarChar(150)
+  sort_order    Int            @default(0)
+  created_at    DateTime       @default(now())
+  form_question FormQuestion[]
+
+  kegiatan Kegiatan @relation(fields: [kegiatan_id], references: [id], onDelete: Cascade)
+
+  @@map("form_blok")
+}
+
+model FormQuestion {
+  id              Int            @id @default(autoincrement())
+  blok_id         Int
+  parent_id       Int?
+  label           String         @db.VarChar(500)
+  type            QuestionType   @default(text)
+  required        Boolean        @default(false)
+  options         Json?
+  validation      String?        @db.Text
+  skip_logic      String?        @db.Text
+  skip_target     Int?
+  sort_order      Int            @default(0)
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  dokumen_jawaban DokumenJawaban[]
+
+  form_blok       FormBlok       @relation(fields: [blok_id], references: [id], onDelete: Cascade)
+  parent          FormQuestion?  @relation("ParentChild", fields: [parent_id], references: [id], onDelete: SetNull)
+  children        FormQuestion[] @relation("ParentChild")
+
+  @@map("form_question")
+}
+
+model Dokumen {
+  id              Int            @id @default(autoincrement())
+  kode            String         @unique @db.VarChar(20)
+  kegiatan_id     Int
+  petugas_id      Int
+  krt             String?        @db.VarChar(100)
+  alamat          String?        @db.VarChar(200)
+  kecamatan       String?        @db.VarChar(100)
+  desa            String?        @db.VarChar(100)
+  sls             String?        @db.VarChar(100)
+  sub_sls         String?        @db.VarChar(100)
+  status          DokumenStatus  @default(draft)
+  review_status   ReviewStatus   @default(draft)
+  flag            Int            @default(0)
+  is_prelist      Boolean        @default(false)
+  sync            Boolean        @default(false)
+  last_sent_data  Json?
+  created_at      DateTime       @default(now())
+  updated_at      DateTime       @updatedAt
+  dokumen_jawaban DokumenJawaban[]
+  dokumen_log     DokumenLog[]
+
+  kegiatan Kegiatan @relation(fields: [kegiatan_id], references: [id], onDelete: Cascade)
+  petugas  Petugas  @relation(fields: [petugas_id], references: [id], onDelete: Cascade)
+
+  @@map("dokumen")
+}
+
+model DokumenJawaban {
+  id          Int      @id @default(autoincrement())
+  dokumen_id  Int
+  question_id Int
+  value       String?  @db.Text
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  dokumen       Dokumen      @relation(fields: [dokumen_id], references: [id], onDelete: Cascade)
+  form_question FormQuestion @relation(fields: [question_id], references: [id], onDelete: Cascade)
+
+  @@unique([dokumen_id, question_id], name: "uk_dok_jawaban")
+  @@map("dokumen_jawaban")
+}
+
+model DokumenLog {
+  id         Int      @id @default(autoincrement())
+  dokumen_id Int
+  message    String   @db.Text
+  created_at DateTime @default(now())
+
+  dokumen Dokumen @relation(fields: [dokumen_id], references: [id], onDelete: Cascade)
+
+  @@map("dokumen_log")
+}
