@@ -272,7 +272,15 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           const endX = targetRect.right - containerRect.left;
           const endY = (targetRect.top + targetRect.bottom) / 2 - containerRect.top;
           
-          newArrows.push({ startX, startY, endX, endY, qCode: getQuestionCode(q, questions, blocks) });
+          newArrows.push({
+            id: q.id,
+            x1: startX,
+            y1: startY,
+            x2: endX,
+            y2: endY,
+            sourceCode: getQuestionCode(q, questions, blocks),
+            targetCode: getQuestionCode(questions.find(t => t.id === q.skipTarget), questions, blocks)
+          });
         }
       }
     });
@@ -594,31 +602,43 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     }, 1200);
   };
 
-  const handleImportQuestions = () => {
-    if (!uploadedFile || previewRows.length === 0) return;
-    
-    const newQList = previewRows.map((row, index) => ({
-      id: Date.now() + index,
-      label: row.label,
-      type: row.type,
-      req: row.req === "Ya" || row.req === true,
-      val: row.val || null,
-      skip: row.skip || null,
-      blokId: activeBlok,
-      parentId: null,
-      skipTarget: null
-    }));
+  const handleImportQuestions = async () => {
+    if (!uploadedFile || previewRows.length === 0 || !activeActivity) return;
+    const activeBlockObj = blocks.find(b => b.id === activeBlok);
+    if (!activeBlockObj) return;
 
-    setQuestions(prev => [...prev, ...newQList]);
-    setIsSuccess(true);
-    
-    setTimeout(() => {
-      setIsUploadModalOpen(false);
-      setUploadedFile(null);
-      setDetectedColumns([]);
-      setPreviewRows([]);
-      setIsSuccess(false);
-    }, 1500);
+    try {
+      setIsUploading(true);
+      const blockQs = questions.filter(q => q.blokId === activeBlok);
+      let currentSortOrder = blockQs.length;
+
+      for (const row of previewRows) {
+        await api.form.createQuestion({
+          blok_id: activeBlockObj.dbId,
+          label: row.label,
+          type: row.type,
+          required: row.req === "Ya" || row.req === true,
+          validation: row.val || null,
+          skip_logic: row.skip || null,
+          sort_order: currentSortOrder++
+        });
+      }
+
+      await fetchFormStructure();
+      setIsSuccess(true);
+      
+      setTimeout(() => {
+        setIsUploadModalOpen(false);
+        setUploadedFile(null);
+        setDetectedColumns([]);
+        setPreviewRows([]);
+        setIsSuccess(false);
+      }, 1500);
+    } catch (err) {
+      alert("Gagal mengimpor pertanyaan: " + err.message);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const orderedBlockQs = getOrderedQuestionsInBlock(activeBlok, questions);
@@ -1432,6 +1452,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 <p className="text-sm text-slate-400 font-bold">Pilih rincian untuk melihat propertinya</p>
                 <p className="text-xs text-slate-300 mt-1">Klik pada salah satu rincian kuesioner</p>
               </div>
+            )}
+          </div>
+        </div>
+      </div>
       {isConfirmAddBlockOpen && (
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4" style={{ animation: "fadeIn 0.15s ease" }}>
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-lg" style={{ animation: "scaleIn 0.2s ease" }}>

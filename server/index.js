@@ -15,10 +15,15 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import routes from './routes/index.js';
 import { testConnection } from './config/database.js';
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -37,6 +42,17 @@ app.use(express.json());
 /* ─── Routes ───────────────────────────────────────── */
 
 app.use('/api', routes);
+
+// Serve static files from Vite build output
+app.use(express.static(path.join(__dirname, '../dist')));
+
+// Fallback route to serve index.html for SPA client-side routing
+app.get('*any', (req, res) => {
+  if (req.path.startsWith('/api')) {
+    return res.status(404).json({ success: false, message: 'API Route Not Found' });
+  }
+  res.sendFile(path.join(__dirname, '../dist/index.html'));
+});
 
 /* ─── Start Server ─────────────────────────────────── */
 

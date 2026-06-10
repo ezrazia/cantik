@@ -11,21 +11,16 @@ import { api } from "../../services/api";
  */
 function LoginScreen({ onLogin }) {
   const [role, setRole] = useState("petugas");
-  const [username, setUsername] = useState("budi.santoso");
-  const [password, setPassword] = useState("petugas123");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   const handleRoleChange = (selectedRole) => {
     setRole(selectedRole);
     setError("");
-    if (selectedRole === "admin") {
-      setUsername("admin");
-      setPassword("admin123");
-    } else {
-      setUsername("budi.santoso");
-      setPassword("petugas123");
-    }
+    setUsername("");
+    setPassword("");
   };
 
   const handleLogin = async () => {
