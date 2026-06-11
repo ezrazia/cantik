@@ -49,6 +49,11 @@ function LoginScreen({ onLogin }) {
     }
   };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    handleLogin();
+  };
+
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6 slide-up overflow-x-hidden relative">
       {/* Subtle background accent */}
@@ -84,30 +89,34 @@ function LoginScreen({ onLogin }) {
         )}
 
         {/* Form */}
-        <div className="space-y-4 mb-6">
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-1">Username</label>
-            <input value={username} onChange={e => setUsername(e.target.value)}
-              className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"/>
+        <form onSubmit={handleSubmit}>
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-1">Username</label>
+              <input value={username} onChange={e => setUsername(e.target.value)}
+                placeholder="Masukkan Username"
+                className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"/>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-1">Kata Sandi</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Masukkan Kata Sandi"
+                className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"/>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5 ml-1">Kata Sandi</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
-              className="w-full px-4 py-3 text-sm bg-white border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"/>
+
+          {/* Info */}
+          <div className="flex items-center gap-2.5 bg-blue-50 rounded-xl px-4 py-3 mb-6">
+            <WifiOff size={14} className="text-blue-500 flex-shrink-0"/>
+            <p className="text-xs text-blue-600 font-medium leading-relaxed">Dapat berjalan offline di lapangan.</p>
           </div>
-        </div>
 
-        {/* Info */}
-        <div className="flex items-center gap-2.5 bg-blue-50 rounded-xl px-4 py-3 mb-6">
-          <WifiOff size={14} className="text-blue-500 flex-shrink-0"/>
-          <p className="text-xs text-blue-600 font-medium leading-relaxed">Dapat berjalan offline di lapangan.</p>
-        </div>
-
-        {/* Submit */}
-        <button onClick={handleLogin} disabled={loading}
-          className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold border-0 cursor-pointer transition-all shadow-sm active:scale-[0.98] disabled:bg-blue-400">
-          {loading ? "Menghubungkan..." : `Masuk sebagai ${role === "admin" ? "Administrator" : "Petugas Lapangan"}`}
-        </button>
+          {/* Submit */}
+          <button type="submit" disabled={loading}
+            className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold border-0 cursor-pointer transition-all shadow-sm active:scale-[0.98] disabled:bg-blue-400">
+            {loading ? "Menghubungkan..." : `Masuk sebagai ${role === "admin" ? "Administrator" : "Petugas Lapangan"}`}
+          </button>
+        </form>
 
         <p className="text-center text-[11px] text-slate-300 mt-8 font-medium">
           Desa Cantik v2.1.0

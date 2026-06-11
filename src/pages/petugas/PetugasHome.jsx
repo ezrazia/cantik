@@ -15,11 +15,13 @@ import { api } from "../../services/api";
  * @param {Object} props.currentUser
  * @returns {React.ReactElement}
  */
-function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities, currentUser }) {
+function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities, currentUser, loading }) {
   const [documents, setDocuments] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadTime, setDownloadTime] = useState(localStorage.getItem(`last_download_${currentUser.id}`) || null);
+
+  const isLoading = loading || localLoading;
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
 
@@ -75,7 +77,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
         }
       }
     } else {
-      setLoading(true);
+      setLocalLoading(true);
       try {
         const docs = await api.dokumen.getByPetugas(currentUser.id);
         setDocuments(docs);
@@ -93,7 +95,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
           }
         }
       } finally {
-        setLoading(false);
+        setLocalLoading(false);
       }
     }
   };
@@ -119,6 +121,82 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
   const kirimCount = documents.filter(d => d.status === 'terkirim' && d.review_status !== 'rejected').length;
   const ditolakCount = documents.filter(d => d.review_status === 'rejected').length;
   const antriKirimCount = documents.filter(d => d.status === 'tersimpan').length;
+
+  if (isLoading) {
+    return (
+      <PetugasLayout activeTab="petugas-home" onNavigate={onNavigate}>
+        <div className="min-h-screen bg-white animate-pulse pb-24">
+          <div className="max-w-3xl mx-auto">
+            {/* Header Skeleton */}
+            <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex justify-between items-start">
+              <div className="space-y-2">
+                <div className="h-3 w-24 bg-slate-200 rounded"></div>
+                <div className="h-6 w-48 bg-slate-300 rounded"></div>
+                <div className="h-3.5 w-32 bg-slate-200 rounded"></div>
+              </div>
+              <div className="flex gap-2">
+                <div className="w-16 h-8 bg-slate-200 rounded-lg"></div>
+                <div className="w-9 h-9 bg-slate-200 rounded-lg"></div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-8">
+              {/* Stats Skeleton */}
+              <div className="grid grid-cols-4 gap-3">
+                {[1, 2, 3, 4].map(n => (
+                  <div key={n} className="bg-slate-100 rounded-xl p-4 flex flex-col items-center gap-2">
+                    <div className="h-8 w-12 bg-slate-200 rounded"></div>
+                    <div className="h-3 w-10 bg-slate-200 rounded"></div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Actions Skeleton */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {[1, 2, 3].map(n => (
+                  <div key={n} className="border border-slate-100 bg-white rounded-xl p-5 h-32 flex flex-col justify-between">
+                    <div className="w-10 h-10 bg-slate-100 rounded-lg"></div>
+                    <div className="space-y-1.5 mt-4">
+                      <div className="h-4 w-24 bg-slate-200 rounded"></div>
+                      <div className="h-3 w-32 bg-slate-100 rounded"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Kegiatan Skeleton */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <div className="h-5 w-36 bg-slate-300 rounded"></div>
+                  <div className="h-3.5 w-16 bg-slate-200 rounded"></div>
+                </div>
+                <div className="space-y-3">
+                  {[1, 2].map(n => (
+                    <div key={n} className="bg-white rounded-2xl p-5 border border-slate-100 space-y-4">
+                      <div className="flex justify-between items-start">
+                        <div className="space-y-2 flex-1 pr-4">
+                          <div className="h-4 w-48 bg-slate-200 rounded"></div>
+                          <div className="h-3 w-full bg-slate-100 rounded"></div>
+                        </div>
+                        <div className="w-20 h-6 bg-slate-200 rounded-full"></div>
+                      </div>
+                      <div className="pt-3 border-t border-solid border-slate-50 space-y-2">
+                        <div className="flex justify-between">
+                          <div className="h-3 w-28 bg-slate-100 rounded"></div>
+                          <div className="h-3 w-10 bg-slate-200 rounded"></div>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full"></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </PetugasLayout>
+    );
+  }
 
   return (
     <PetugasLayout activeTab="petugas-home" onNavigate={onNavigate}>

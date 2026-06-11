@@ -33,6 +33,7 @@ export default function App() {
   const [activities, setActivities] = useState([]);
   const [petugas, setPetugas] = useState([]);
   const [newDataTrigger, setNewDataTrigger] = useState(0);
+  const [globalLoading, setGlobalLoading] = useState(true);
 
   // ─── PWA: Initialize auto-sync when app mounts ─────
   useEffect(() => {
@@ -42,6 +43,7 @@ export default function App() {
 
   // Load activities and officers dynamically from API
   const refreshData = async () => {
+    setGlobalLoading(true);
     try {
       const [acts, pets] = await Promise.all([
         api.kegiatan.getAll(),
@@ -79,6 +81,8 @@ export default function App() {
           console.warn('IndexedDB fallback failed:', e);
         }
       }
+    } finally {
+      setGlobalLoading(false);
     }
   };
 
@@ -119,20 +123,20 @@ export default function App() {
     "login":          <LoginScreen onLogin={handleLogin} />,
     
     // ─── PETUGAS SCREENS ────────────────────────────────
-    "petugas-home":   <PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} petugas={petugas} activities={activities} currentUser={currentUser} />,
-    "questionnaire":  <PetugasQuestionnaire onNavigate={go} petugas={petugas} activities={activities} currentUser={currentUser} isOffline={isOffline} />,
-    "petugas-sync":   <PetugasSync onNavigate={go} currentUser={currentUser} isOffline={isOffline} />,
+    "petugas-home":   <PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} />,
+    "questionnaire":  <PetugasQuestionnaire onNavigate={go} petugas={petugas} activities={activities} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} />,
+    "petugas-sync":   <PetugasSync onNavigate={go} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} />,
     "petugas-settings":<PetugasSettings onNavigate={go} currentUser={currentUser} />,
     
     // ─── ADMIN SCREENS ──────────────────────────────────
-    "admin-beranda":  <AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} currentUser={currentUser} />,
-    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} />,
-    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} />,
-    "admin-builder":  <AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} />,
-    "admin-users":    <AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} />,
-    "admin-master-petugas": <AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} />,
-    "admin-kegiatan": <AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} />,
-    "admin-tabulasi": <AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} />,
+    "admin-beranda":  <AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} />,
+    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} loading={globalLoading} />,
+    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} loading={globalLoading} />,
+    "admin-builder":  <AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} loading={globalLoading} />,
+    "admin-users":    <AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} />,
+    "admin-master-petugas": <AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} />,
+    "admin-kegiatan": <AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} loading={globalLoading} />,
+    "admin-tabulasi": <AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} loading={globalLoading} />,
   };
 
   return (

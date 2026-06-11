@@ -12,7 +12,7 @@ import { api } from "../../services/api";
  * @param {boolean} props.isOffline
  * @returns {React.ReactElement}
  */
-function PetugasSync({ onNavigate, currentUser, isOffline }) {
+function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
   const [localRtList, setLocalRtList] = useState([]);
   const [syncingAll, setSyncingAll] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({
@@ -170,6 +170,73 @@ function PetugasSync({ onNavigate, currentUser, isOffline }) {
       setSyncingAll(false);
     }
   };
+
+  const isLoading = loading || syncingAll;
+
+  if (isLoading) {
+    return (
+      <PetugasLayout activeTab="petugas-sync" onNavigate={onNavigate}>
+        <div className="min-h-screen bg-white animate-pulse pb-28">
+          <div className="max-w-3xl mx-auto">
+            {/* Header Skeleton */}
+            <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex items-center justify-between">
+              <div className="space-y-2">
+                <div className="h-3 w-16 bg-slate-200 rounded"></div>
+                <div className="h-6 w-32 bg-slate-300 rounded"></div>
+              </div>
+              <div className="w-10 h-10 bg-slate-100 rounded-lg"></div>
+            </div>
+
+            <div className="p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Column Skeleton */}
+                <div className="lg:col-span-4 space-y-4">
+                  <div className="grid grid-cols-3 gap-2">
+                    {[1, 2, 3].map(n => (
+                      <div key={n} className="bg-slate-50 p-4 rounded-xl flex flex-col items-center gap-2">
+                        <div className="h-6 w-8 bg-slate-200 rounded"></div>
+                        <div className="h-2.5 w-12 bg-slate-200 rounded"></div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="h-11 bg-slate-200 rounded-xl"></div>
+                    <div className="h-11 bg-slate-100 rounded-xl"></div>
+                  </div>
+
+                  <div className="bg-slate-50 rounded-xl p-4 space-y-2">
+                    <div className="h-3 w-16 bg-slate-200 rounded"></div>
+                    <div className="h-3 w-full bg-slate-100 rounded"></div>
+                  </div>
+                </div>
+
+                {/* Right Column Skeleton */}
+                <div className="lg:col-span-8 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="h-4 w-28 bg-slate-200 rounded"></div>
+                    <div className="h-6 w-16 bg-slate-100 rounded-lg"></div>
+                  </div>
+                  <div className="space-y-2">
+                    {[1, 2, 3].map(n => (
+                      <div key={n} className="bg-white p-4 rounded-xl border border-solid border-slate-100 flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0"></div>
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 w-48 bg-slate-200 rounded"></div>
+                          <div className="h-3 w-56 bg-slate-100 rounded"></div>
+                        </div>
+                        <div className="w-12 h-8 bg-slate-100 rounded-lg flex-shrink-0"></div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </PetugasLayout>
+    );
+  }
 
   return (
     <PetugasLayout activeTab="petugas-sync" onNavigate={onNavigate}>

@@ -14,7 +14,7 @@ import {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, activities }) {
+function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, activities, loading }) {
   const [stats, setStats] = useState({
     totalPetugas: petugas?.length || 0,
     totalKegiatan: activities?.length || 0,
@@ -77,6 +77,63 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
       bg: "bg-purple-50 hover:bg-purple-100/70"
     }
   ];
+
+  if (loading) {
+    return (
+      <AdminLayout tab="admin-beranda" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+        <div className="p-6 lg:p-8 w-full animate-pulse space-y-8">
+          {/* Welcome Banner Card Skeleton */}
+          <div className="bg-slate-200 h-48 rounded-2xl"></div>
+
+          {/* Quick Stats Grid Skeleton */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(n => (
+              <div key={n} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4 shadow-sm">
+                <div className="w-10 h-10 rounded-lg bg-slate-100"></div>
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3 w-16 bg-slate-100 rounded"></div>
+                  <div className="h-5 w-12 bg-slate-200 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Mid Row Skeleton */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            <div className="bg-white rounded-xl border border-slate-100 p-6 shadow-sm lg:col-span-2 space-y-4">
+              <div className="h-4 w-48 bg-slate-200 rounded"></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {[1, 2].map(n => (
+                  <div key={n} className="border border-slate-50 bg-white rounded-xl p-5 h-40 flex flex-col justify-between">
+                    <div className="space-y-2">
+                      <div className="h-3.5 w-16 bg-slate-100 rounded"></div>
+                      <div className="h-4 w-28 bg-slate-200 rounded"></div>
+                      <div className="h-3 w-36 bg-slate-100 rounded"></div>
+                    </div>
+                    <div className="h-8 bg-slate-100 rounded-lg"></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 p-6 shadow-sm space-y-4">
+              <div className="h-4 w-36 bg-slate-200 rounded"></div>
+              <div className="space-y-3.5">
+                {[1, 2, 3].map(n => (
+                  <div key={n} className="flex gap-4 items-center py-2">
+                    <div className="w-9 h-9 bg-slate-100 rounded-xl"></div>
+                    <div className="space-y-1.5 flex-1">
+                      <div className="h-3.5 w-24 bg-slate-200 rounded"></div>
+                      <div className="h-3 w-32 bg-slate-100 rounded"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout tab="admin-beranda" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>

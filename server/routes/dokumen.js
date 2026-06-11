@@ -197,6 +197,7 @@ router.post('/', async (req, res) => {
         is_prelist: isPrelistVal,
         sync: syncVal,
         last_sent_data: lastSentDataJson,
+        review_status: 'draft',
       };
 
       if (currentDocId) {
@@ -227,6 +228,7 @@ router.post('/', async (req, res) => {
               is_prelist: isPrelistVal,
               sync: syncVal,
               last_sent_data: status === 'terkirim' ? (values || null) : undefined,
+              review_status: 'draft',
             },
           });
         } else {
@@ -351,6 +353,7 @@ router.post('/sync', async (req, res) => {
               is_prelist: isPrelistVal,
               sync: true,
               last_sent_data: lastSentDataJson,
+              review_status: 'draft',
             },
           });
         } else {

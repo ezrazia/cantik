@@ -18,7 +18,210 @@ import { api } from "../../services/api";
  * @param {boolean} props.isOffline
  * @returns {React.ReactElement}
  */
-function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, isOffline }) {
+function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, isOffline, loading }) {
+  const isLoading = loading || loadingForm;
+
+  const getLoopValue = (qId, idx) => {
+    const raw = ans.values[qId];
+    if (!raw) return "";
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed[idx] || "";
+      } else if (typeof parsed === 'object' && parsed !== null) {
+        return parsed[idx] || "";
+      }
+    } catch (e) {}
+    return idx === 0 ? raw : "";
+  };
+
+  const handleUpdateLoopValue = (qId, idx, val) => {
+    const raw = ans.values[qId];
+    let parsed = [];
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          parsed = [raw];
+        }
+      } catch (e) {
+        parsed = [raw];
+      }
+    }
+    parsed[idx] = val;
+    const newValues = { ...ans.values, [qId]: JSON.stringify(parsed) };
+    setAns(p => ({
+      ...p,
+      values: newValues
+    }));
+    markUnsaved();
+  };
+
+  const getManualLoopCount = (q) => {
+    if (!q) return null;
+    const { isLoop, loopType } = parseValidation(q.validation);
+    if (isLoop && loopType === "manual") {
+      const savedCount = ans.values[`${q.id}_loop_count`];
+      const parsed = savedCount ? parseInt(savedCount, 10) : 1;
+      return isNaN(parsed) || parsed < 1 ? 1 : parsed;
+    }
+    
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getManualLoopCount(parent);
+      }
+    }
+    
+    return null;
+  };
+
+  const handleAddManualLoop = (qId) => {
+    const currentCount = ans.values[`${qId}_loop_count`] ? parseInt(ans.values[`${qId}_loop_count`], 10) : 1;
+    const newCount = currentCount + 1;
+    const newValues = { ...ans.values, [`${qId}_loop_count`]: newCount };
+    setAns(p => ({
+      ...p,
+      values: newValues
+    }));
+    markUnsaved();
+  };
+
+  const handleRemoveManualLoop = (qId, currentCount) => {
+    const newCount = Math.max(1, currentCount - 1);
+    const updatedValues = { ...ans.values };
+    updatedValues[`${qId}_loop_count`] = newCount;
+    
+    // Find all questions that might be children of this question
+    const childQs = questions.filter(c => c.parent_id === qId || c.parentId === qId);
+    const targetQIds = [qId, ...childQs.map(c => c.id)];
+
+    for (const id of targetQIds) {
+      const raw = ans.values[id];
+      if (raw) {
+        try {
+          let parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            if (parsed.length > newCount) {
+              parsed = parsed.slice(0, newCount);
+            }
+            updatedValues[id] = JSON.stringify(parsed);
+          }
+        } catch (e) {}
+      }
+    }
+    
+    setAns(p => ({
+      ...p,
+      values: updatedValues
+    }));
+    markUnsaved();
+  };
+
+  const handleValueChange = (q, val, idx = 0, instancesLength = 1) => {
+    let newValues = { ...ans.values };
+    let headerUpdates = {};
+
+    if (instancesLength > 1) {
+      const raw = ans.values[q.id];
+      let parsed = [];
+      if (raw) {
+        try {
+          parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) {
+            parsed = [raw];
+          }
+        } catch (e) {
+          parsed = [raw];
+        }
+      }
+      parsed[idx] = val;
+      newValues[q.id] = JSON.stringify(parsed);
+    } else {
+      newValues[q.id] = val;
+
+      const lowerLabel = q.label.toLowerCase();
+      if (lowerLabel.includes("kecamatan")) {
+        headerUpdates.kecamatan = val;
+      } else if (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) {
+        headerUpdates.desa = val;
+      } else if (lowerLabel.includes("sls") || lowerLabel.includes("rt ")) {
+        headerUpdates.sls = val;
+      } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
+        headerUpdates.alamat = val;
+      } else if (lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) {
+        headerUpdates.krt = val;
+      } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls")) {
+        headerUpdates.sub_sls = val;
+      } else if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
+        headerUpdates.umur = val;
+      } else if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
+        headerUpdates.gender = val;
+      } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
+        headerUpdates.perkawinan = val;
+      } else if (lowerLabel.includes("bekerja")) {
+        headerUpdates.bekerja = val;
+      }
+    }
+
+    const qVal = parseValidation(q.validation);
+    if (qVal.isLookupKey && val && idx === 0) {
+      const matchingDoc = localPrelist.find(doc => {
+        if (selectedRtItem && doc.id === selectedRtItem.id) return false;
+        if (doc.kode === ans.kode) return false;
+        if (doc.desa !== (headerUpdates.desa || ans.desa) || doc.sls !== (headerUpdates.sls || ans.sls)) return false;
+
+        let docValues = doc.values;
+        if (typeof docValues === 'string') {
+          try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
+        }
+
+        if (docValues && String(docValues[q.id]) === String(val)) {
+          return true;
+        }
+        return false;
+      });
+
+      if (matchingDoc) {
+        let docValues = matchingDoc.values;
+        if (typeof docValues === 'string') {
+          try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
+        }
+
+        let copyCount = 0;
+        questions.forEach(otherQ => {
+          const otherQVal = parseValidation(otherQ.validation);
+          if (otherQVal.copyOnKeyMatch) {
+            const prevVal = docValues[otherQ.id];
+            if (prevVal !== undefined && prevVal !== null && prevVal !== "" && !newValues[otherQ.id]) {
+              newValues[otherQ.id] = prevVal;
+              copyCount++;
+
+              const savedCountKey = `${otherQ.id}_loop_count`;
+              if (docValues[savedCountKey] && !newValues[savedCountKey]) {
+                newValues[savedCountKey] = docValues[savedCountKey];
+              }
+            }
+          }
+        });
+
+        if (copyCount > 0) {
+          setWarningMessage(`Data pencarian "${val}" cocok. ${copyCount} rincian disalin otomatis.`);
+          setTimeout(() => setWarningMessage(null), 5000);
+        }
+      }
+    }
+
+    setAns(p => ({
+      ...p,
+      ...headerUpdates,
+      values: newValues
+    }));
+    markUnsaved();
+  };
+
+
   const getQuestionCode = (q, allQuestions, allBlocks) => {
     if (!q) return "";
     const blockIdx = allBlocks.findIndex(b => b.id === q.blok_id) + 1;
@@ -30,13 +233,21 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
       
       // Sibling sub-questions of same parent
-      const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id);
+      const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       const sibIdx = siblings.findIndex(s => s.id === q.id);
-      const letter = String.fromCharCode(65 + (sibIdx >= 0 ? sibIdx : 0)); // A, B, C...
-      return `${parentCode}${letter}`;
+      
+      // Check if parent has parent_id (depth 2)
+      if (parent.parent_id) {
+        const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+        const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
+        return `${parentCode}.${suffix}`;
+      } else {
+        const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0)); // a, b, c...
+        return `${parentCode}${letter}`;
+      }
     } else {
       // Index among main questions of the block
-      const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id);
+      const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       const qIdx = mainQs.findIndex(s => s.id === q.id) + 1;
       const padded = qIdx.toString().padStart(2, '0');
       return `${blockIdx}${padded}`;
@@ -44,7 +255,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   const parseValidation = (str) => {
-    if (!str) return { rangeText: "", hintText: "", description: "" };
+    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null };
     const trimmed = str.trim();
     if (trimmed.startsWith('{')) {
       try {
@@ -60,7 +271,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         return {
           rangeText,
           hintText: parsed.hint || "",
-          description: parsed.description || parsed.hint || ""
+          description: parsed.description || parsed.hint || "",
+          isLoop: !!parsed.is_loop,
+          loopType: parsed.loop_type || "question",
+          loopByQuestionId: parsed.loop_by_question_id || null,
+          defaultVal: parsed.default_val || null,
+          isLookupKey: !!parsed.is_lookup_key,
+          copyOnKeyMatch: !!parsed.copy_on_key_match
         };
       } catch (e) {}
     }
@@ -69,26 +286,50 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       return {
         rangeText: `Rentang: ${trimmed.replace('range:', '').trim()}`,
         hintText: "",
-        description: ""
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false
       };
     } else if (trimmed.startsWith('min:')) {
       return {
         rangeText: `Minimal: ${trimmed.replace('min:', '').trim()}`,
         hintText: "",
-        description: ""
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false
       };
     } else if (trimmed.startsWith('gt:')) {
       return {
         rangeText: `Lebih dari: ${trimmed.replace('gt:', '').trim()}`,
         hintText: "",
-        description: ""
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false
       };
     }
     
     return {
       rangeText: "",
       hintText: "",
-      description: str
+      description: str,
+      isLoop: false,
+      loopType: "question",
+      loopByQuestionId: null,
+      defaultVal: null,
+      isLookupKey: false,
+      copyOnKeyMatch: false
     };
   };
 
@@ -164,6 +405,136 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     });
   };
 
+  const findQuestionByCode = (codeStr) => {
+    if (!codeStr) return null;
+    const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+    return questions.find(q => {
+      const qCode = getQuestionCode(q, questions, blocks);
+      const normalizedQCode = qCode.toLowerCase().replace(/\s/g, "");
+      return normalizedQCode === normalizedCode;
+    });
+  };
+
+  const computeAggregation = (op, scopeOrCode, questionCode) => {
+    let scope = "PCL";
+    let qCode = scopeOrCode;
+    if (questionCode !== undefined) {
+      scope = scopeOrCode || "PCL";
+      qCode = questionCode;
+    }
+    const targetQ = findQuestionByCode(qCode);
+    if (!targetQ) return "0";
+
+    const currentDocPclId = selectedRtItem ? (selectedRtItem.petugas_id || currentUser.id) : currentUser.id;
+    const valuesList = [];
+
+    localPrelist.forEach(doc => {
+      const matchesScope = scope.toUpperCase() === "ALL" || Number(doc.petugas_id) === Number(currentDocPclId);
+      if (matchesScope) {
+        let docVals = doc.values;
+        if (typeof docVals === 'string') {
+          try { docVals = JSON.parse(docVals); } catch { docVals = {}; }
+        }
+        if (docVals && docVals[targetQ.id] !== undefined && docVals[targetQ.id] !== "") {
+          const num = parseFloat(docVals[targetQ.id]);
+          if (!isNaN(num)) {
+            valuesList.push(num);
+          }
+        }
+      }
+    });
+
+    if (valuesList.length === 0) return "0";
+
+    switch (op.toUpperCase()) {
+      case "MAX":
+        return String(Math.max(...valuesList));
+      case "MIN":
+        return String(Math.min(...valuesList));
+      case "SUM":
+        return String(valuesList.reduce((a, b) => a + b, 0));
+      case "AVG":
+        const avg = valuesList.reduce((a, b) => a + b, 0) / valuesList.length;
+        return String(parseFloat(avg.toFixed(2)));
+      case "LAST":
+        const reversedList = [...localPrelist].reverse();
+        const lastDoc = reversedList.find(doc => {
+          const matchesScope = scope.toUpperCase() === "ALL" || Number(doc.petugas_id) === Number(currentDocPclId);
+          if (matchesScope) {
+            let docVals = doc.values;
+            if (typeof docVals === 'string') {
+              try { docVals = JSON.parse(docVals); } catch { docVals = {}; }
+            }
+            return docVals && docVals[targetQ.id] !== undefined && docVals[targetQ.id] !== "";
+          }
+          return false;
+        });
+        if (lastDoc) {
+          let docVals = lastDoc.values;
+          if (typeof docVals === 'string') {
+            try { docVals = JSON.parse(docVals); } catch { docVals = {}; }
+          }
+          return String(docVals[targetQ.id]);
+        }
+        return "0";
+      default:
+        return "0";
+    }
+  };
+
+  const getMaxBuildingNumber = () => {
+    return parseInt(computeAggregation("MAX", "PCL", "R108"), 10) || 0;
+  };
+
+  const evaluateFormula = (formulaStr, currentValues) => {
+    if (!formulaStr) return "";
+    const codeRegex = /R[0-9a-zA-Z.]+/g;
+    let evalStr = formulaStr;
+    const codes = formulaStr.match(codeRegex) || [];
+    
+    for (const code of codes) {
+      const targetQ = findQuestionByCode(code);
+      if (targetQ) {
+        const val = currentValues[targetQ.id] || "0";
+        const valNum = parseFloat(val);
+        evalStr = evalStr.replace(new RegExp(code, 'g'), isNaN(valNum) ? "0" : String(valNum));
+      } else {
+        evalStr = evalStr.replace(new RegExp(code, 'g'), "0");
+      }
+    }
+    
+    try {
+      const result = new Function(`return (${evalStr})`)();
+      return isNaN(result) ? "0" : String(result);
+    } catch (e) {
+      return "0";
+    }
+  };
+
+  // Auto-calculate formulas in real-time
+  useEffect(() => {
+    let updated = false;
+    const newValues = { ...ans.values };
+    
+    questions.forEach(q => {
+      const qVal = parseValidation(q.validation);
+      if (qVal && qVal.formula) {
+        const computedVal = evaluateFormula(qVal.formula, newValues);
+        if (newValues[q.id] !== computedVal) {
+          newValues[q.id] = computedVal;
+          updated = true;
+        }
+      }
+    });
+    
+    if (updated) {
+      setAns(p => ({
+        ...p,
+        values: newValues
+      }));
+    }
+  }, [ans.values, questions]);
+
   const { saved, markUnsaved } = useAutoSave(1100);
   
   // Unified questionnaire state
@@ -191,6 +562,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       };
     })
     .filter(act => act && act.status !== "draft" && act.status !== "selesai");
+
+  const fetchDocuments = async () => {
+    if (selectedActivity?.role === "PML") {
+      return await api.dokumen.getForReview(selectedActivity.id);
+    } else {
+      return await api.dokumen.getByPetugas(currentUser.id);
+    }
+  };
 
   // Fetch form structure and prelist when activity changes
   useEffect(() => {
@@ -251,7 +630,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
       } else {
         try {
-          const docs = await api.dokumen.getByPetugas(currentUser.id);
+          const docs = await fetchDocuments();
           if (isMounted) {
             setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
             localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
@@ -282,14 +661,41 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   const isReadOnly = 
     isPml ||
     selectedRtItem?.review_status === "approved" || 
-    (selectedRtItem?.status === "tersimpan" && selectedRtItem?.review_status !== "rejected") ||
-    selectedRtItem?.status === "terkirim";
+    ((selectedRtItem?.status === "tersimpan" || selectedRtItem?.status === "terkirim") && selectedRtItem?.review_status !== "rejected");
 
   // Evaluate if a question is visible based on skip logics and parent rules
   const isQuestionVisible = (q) => {
+    // Show If Logic evaluation
+    const showIfParentId = q.show_if_parent_id || q.showIfParentId;
+    const showIfValue = q.show_if_value || q.showIfValue;
+    if (showIfParentId) {
+      const parentVal = ans.values[showIfParentId];
+      if (parentVal === undefined || parentVal === null || parentVal === '') {
+        return false;
+      }
+      
+      const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
+      let matchesTrigger = false;
+      if (typeof parentVal === 'string' && parentVal.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(parentVal);
+          matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
+        } catch (e) {}
+      } else {
+        matchesTrigger = triggerOptions.includes(String(parentVal));
+      }
+      
+      if (!matchesTrigger) {
+        return false;
+      }
+    }
+
     if (q.parent_id) {
-      const parentVal = ans.values[q.parent_id];
-      if (parentVal === undefined || parentVal === null || parentVal === '') return false;
+      const parent = questions.find(p => p.id === q.parent_id);
+      if (parent && parent.label && parent.label.trim() !== "") {
+        const parentVal = ans.values[q.parent_id];
+        if (parentVal === undefined || parentVal === null || parentVal === '') return false;
+      }
     }
 
     // Find all questions that have skip logic targets
@@ -297,21 +703,24 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     
     for (const skipper of skippers) {
       const skipperVal = ans.values[skipper.id];
-      if (skipperVal === undefined || skipperVal === null || skipperVal === '') continue;
+      const hasValue = skipperVal !== undefined && skipperVal !== null && skipperVal !== '';
 
       // Check if the answered value matches the trigger condition
       // Supporting single choice and multi-choice (JSON string)
       let matchesTrigger = false;
-      if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
-        try {
-          const parsed = JSON.parse(skipperVal);
-          matchesTrigger = String(parsed[skipper.skip_logic]) === "1";
-        } catch (e) {}
-      } else {
-        matchesTrigger = String(skipperVal) === String(skipper.skip_logic);
+      if (hasValue) {
+        const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+        if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(skipperVal);
+            matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
+          } catch (e) {}
+        } else {
+          matchesTrigger = triggerOptions.includes(String(skipperVal));
+        }
       }
 
-      if (matchesTrigger) {
+      if (true) {
         // Find ordered list of all questions in all blocks
         const allOrdered = [];
         blocks.forEach(b => {
@@ -329,8 +738,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         const currentIdx = allOrdered.findIndex(x => x.id === q.id);
 
         if (skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
-          // If q is in between skipper and skipTarget, hide/skip it
-          if (currentIdx > skipperIdx && currentIdx < targetIdx) {
+          // If target is the immediate next question after skipper, it acts as a conditional show
+          if (targetIdx === skipperIdx + 1 && q.id === skipper.skip_target) {
+            if (!matchesTrigger) {
+              return false;
+            }
+          }
+
+          // If q is in between skipper and skipTarget, hide/skip it when trigger matches
+          if (hasValue && matchesTrigger && currentIdx > skipperIdx && currentIdx < targetIdx) {
             return false;
           }
         }
@@ -464,15 +880,20 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Fill EAV questions that map to location defaults
     const initialValues = {};
     questions.forEach(q => {
-      const lower = q.label.toLowerCase();
-      if (lower.includes("provinsi")) {
-        initialValues[q.id] = "Kalimantan Utara";
-      } else if (lower.includes("kabupaten") || lower.includes("kota")) {
-        initialValues[q.id] = "Tana Tidung";
-      } else if (lower.includes("kecamatan")) {
-        initialValues[q.id] = defaultKec;
-      } else if (lower.includes("desa") || lower.includes("kelurahan")) {
-        initialValues[q.id] = defaultDesa;
+      const { defaultVal } = parseValidation(q.validation);
+      if (defaultVal !== null) {
+        initialValues[q.id] = defaultVal;
+      } else {
+        const lower = q.label.toLowerCase();
+        if (lower.includes("provinsi")) {
+          initialValues[q.id] = "Kalimantan Utara";
+        } else if (lower.includes("kabupaten") || lower.includes("kota")) {
+          initialValues[q.id] = "Tana Tidung";
+        } else if (lower.includes("kecamatan")) {
+          initialValues[q.id] = defaultKec;
+        } else if (lower.includes("desa") || lower.includes("kelurahan")) {
+          initialValues[q.id] = defaultDesa;
+        }
       }
     });
 
@@ -551,7 +972,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         logs: newLogs
       };
 
-      const idx = cachedList.findIndex(d => d.kode === ans.kode);
+      const idx = cachedList.findIndex(d => {
+        if (selectedRtItem) {
+          if (selectedRtItem.id && d.id === selectedRtItem.id) return true;
+          return d.kode === selectedRtItem.kode;
+        }
+        return d.kode === ans.kode;
+      });
       if (idx > -1) {
         cachedList[idx] = localDoc;
       } else {
@@ -589,7 +1016,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           logs: newLogs
         };
 
-        const idx = cachedList.findIndex(d => d.kode === ans.kode);
+        const idx = cachedList.findIndex(d => {
+          if (selectedRtItem) {
+            if (selectedRtItem.id && d.id === selectedRtItem.id) return true;
+            return d.kode === selectedRtItem.kode;
+          }
+          return d.kode === ans.kode;
+        });
         if (idx > -1) { cachedList[idx] = localDoc; } else { cachedList.push(localDoc); }
 
         localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
@@ -672,7 +1105,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     try {
       const res = await api.dokumen.review(selectedRtItem.id, 'approved');
       if (res.success) {
-        const docs = await api.dokumen.getByPetugas(currentUser.id);
+        const docs = await fetchDocuments();
         localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
         setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
         setView("prelist");
@@ -702,7 +1135,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     try {
       const res = await api.dokumen.review(selectedRtItem.id, 'rejected', rejectionNote);
       if (res.success) {
-        const docs = await api.dokumen.getByPetugas(currentUser.id);
+        const docs = await fetchDocuments();
         localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
         setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
         setView("prelist");
@@ -738,6 +1171,51 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   // Filter questions for the active block
   const activeBlock = blocks.find(b => b.kode === activeTab);
   const activeQuestions = activeBlock ? questions.filter(q => q.blok_id === activeBlock.id) : [];
+
+  if (isLoading) {
+    return (
+      <PetugasLayout activeTab="questionnaire" onNavigate={onNavigate}>
+        <div className="min-h-screen bg-white animate-pulse pb-24">
+          <div className="max-w-3xl mx-auto">
+            {/* Header Skeleton */}
+            <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex items-center justify-between">
+              <div className="space-y-2 flex-1">
+                <div className="h-3.5 w-32 bg-slate-200 rounded"></div>
+                <div className="h-6 w-48 bg-slate-300 rounded"></div>
+                <div className="h-3 w-64 bg-slate-200 rounded"></div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Filter / Top Bar Skeleton */}
+              <div className="flex justify-between items-center">
+                <div className="h-4 w-28 bg-slate-200 rounded"></div>
+                <div className="h-9 w-32 bg-slate-200 rounded-xl"></div>
+              </div>
+
+              {/* List Cards Skeleton */}
+              <div className="space-y-3">
+                {[1, 2, 3, 4].map(n => (
+                  <div key={n} className="bg-white rounded-xl p-5 border border-solid border-slate-100 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0"></div>
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-40 bg-slate-200 rounded"></div>
+                      <div className="h-3 w-56 bg-slate-100 rounded"></div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="w-16 h-6 bg-slate-100 rounded-md"></div>
+                      <div className="w-16 h-6 bg-slate-100 rounded-md"></div>
+                      <div className="w-8 h-8 bg-slate-100 rounded-lg"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </PetugasLayout>
+    );
+  }
 
   return (
     <PetugasLayout activeTab="questionnaire" onNavigate={onNavigate}>
@@ -1042,250 +1520,453 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     />
                   </QCard>
                 )}
-                {activeQuestions.map((q) => {
-                  if (!isQuestionVisible(q)) return null;
+                {(() => {
+                  const renderInputs = (q, instances) => {
+                    const isTextType = q.type === 'text';
+                    const isNumberType = q.type === 'number';
+                    const isTextAreaType = q.type === 'textarea';
+                    const isChoiceType = q.type === 'select' || q.type === 'radio';
+                    const isLocationType = q.type === 'location';
+                    const isDateType = q.type === 'date';
 
-                  const isTextType = q.type === 'text';
-                  const isNumberType = q.type === 'number';
-                  const isTextAreaType = q.type === 'textarea';
-                  const isChoiceType = q.type === 'select' || q.type === 'radio';
-                  const isLocationType = q.type === 'location';
+                    return (
+                      <>
+                        {/* 1. TEXT INPUTS */}
+                        {isTextType && (
+                          <div className="space-y-3">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                <input 
+                                  type="text"
+                                  value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                  placeholder={`Isi ${q.label}${instances.length > 1 ? ` ke-${idx + 1}` : ""}`}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => {
+                                    handleValueChange(q, e.target.value.toUpperCase(), idx, instances.length);
+                                  }}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+ 
+                        {/* 2. NUMBER INPUTS */}
+                        {isNumberType && (() => {
+                          const qVal = parseValidation(q.validation);
+                          const isFormula = !!qVal.formula;
+                          return (
+                            <div className="space-y-3">
+                              {instances.map((idx) => (
+                                <div key={idx} className="space-y-1">
+                                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                  <div className="flex items-center gap-3">
+                                    <input 
+                                      type="number"
+                                      step="any"
+                                      value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                      placeholder={isFormula ? "Kalkulasi otomatis..." : "Contoh: 12"}
+                                      disabled={isReadOnly || isFormula}
+                                      onChange={(e) => {
+                                        handleValueChange(q, e.target.value, idx, instances.length);
+                                      }}
+                                      className="w-32 px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                                    />
+                                    <span className="text-xs text-slate-400 font-medium">
+                                      {isFormula ? `Kalkulasi Otomatis (Formula: ${qVal.formula})` : "Satuan Angka"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+ 
+                        {/* 3. TEXTAREA INPUTS */}
+                        {isTextAreaType && (
+                          <div className="space-y-3">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                <textarea
+                                  value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                  placeholder={`Masukkan detail ${q.label}`}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => {
+                                    handleValueChange(q, e.target.value, idx, instances.length);
+                                  }}
+                                  className="w-full h-20 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none disabled:bg-slate-50"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
-                  // Parse validation range and description hint
-                  const { rangeText, hintText, description } = parseValidation(q.validation);
-
-                  return (
-                    <QCard 
-                      key={q.id} 
-                      r={`R.${getQuestionCode(q, questions, blocks)}`} 
-                      label={q.label} 
-                      required={!!q.required} 
-                      hint={rangeText || hintText}
-                      description={description}
-                      skipInfo={q.skip_logic ? `Kondisi skip: jika bernilai ${q.skip_logic}` : null}
-                    >
-                      {/* 1. TEXT INPUTS */}
-                      {isTextType && (
-                        <input 
-                          type="text"
-                          value={ans.values[q.id] || ""}
-                          placeholder={`Isi ${q.label}`}
-                          disabled={isReadOnly}
-                          onChange={(e) => {
-                            // Text inputs are saved in CAPITAL/UPPERCASE
-                            const val = e.target.value.toUpperCase();
-                            const newValues = { ...ans.values, [q.id]: val };
-                            
-                            // Heuristic updates
-                            let headerUpdates = {};
-                            const lowerLabel = q.label.toLowerCase();
-                            if (lowerLabel.includes("kecamatan")) {
-                              headerUpdates.kecamatan = val;
-                            } else if (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) {
-                              headerUpdates.desa = val;
-                            } else if (lowerLabel.includes("sls") || lowerLabel.includes("rt ")) {
-                              headerUpdates.sls = val;
-                            } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
-                              headerUpdates.alamat = val;
-                            } else if (lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) {
-                              headerUpdates.krt = val;
-                            } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls")) {
-                              headerUpdates.sub_sls = val;
-                            }
-                            
-                            setAns(p => ({
-                              ...p,
-                              ...headerUpdates,
-                              values: newValues
-                            }));
-                            markUnsaved();
-                          }}
-                          className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
-                        />
-                      )}
-
-                      {/* 2. NUMBER INPUTS */}
-                      {isNumberType && (
-                        <div className="flex items-center gap-3">
-                          <input 
-                            type="number"
-                            value={ans.values[q.id] || ""}
-                            placeholder="Contoh: 12"
-                            disabled={isReadOnly}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              const newValues = { ...ans.values, [q.id]: val };
-                              
-                              // Heuristic update for age
-                              let headerUpdates = {};
-                              const lowerLabel = q.label.toLowerCase();
-                              if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
-                                  headerUpdates.umur = val;
-                              }
-                              
-                              setAns(p => ({
-                                ...p,
-                                ...headerUpdates,
-                                values: newValues
-                              }));
-                              markUnsaved();
-                            }}
-                            className="w-32 px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
-                          />
-                          <span className="text-xs text-slate-400 font-medium">Satuan Angka</span>
-                        </div>
-                      )}
-
-                      {/* 3. TEXTAREA INPUTS */}
-                      {isTextAreaType && (
-                        <textarea
-                          value={ans.values[q.id] || ""}
-                          placeholder={`Masukkan detail ${q.label}`}
-                          disabled={isReadOnly}
-                          onChange={(e) => {
-                            setAns(p => ({
-                              ...p,
-                              values: { ...p.values, [q.id]: e.target.value }
-                            }));
-                            markUnsaved();
-                          }}
-                          className="w-full h-20 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none disabled:bg-slate-50"
-                        />
-                      )}
-
-                      {/* 4. SELECTION / RADIO INPUTS */}
-                      {isChoiceType && (
-                        <div className="grid grid-cols-2 gap-2">
-                          {(q.options || []).map((opt) => {
-                            let isSelected = false;
-                            if (q.type === 'select') {
-                              // Multi-select: parse JSON string if exists
-                              let selectedMap = {};
-                              try {
-                                selectedMap = JSON.parse(ans.values[q.id] || "{}");
-                              } catch (e) {}
-                              isSelected = !!selectedMap[opt.value];
-                            } else {
-                              // Radio: single select
-                              isSelected = String(ans.values[q.id]) === String(opt.value);
-                            }
-
-                            return (
-                              <button 
-                                key={opt.value} 
-                                type="button" 
-                                onClick={() => {
-                                  if (isReadOnly) return;
-                                  if (q.type === 'select') {
-                                    let selectedMap = {};
-                                    try {
-                                      selectedMap = JSON.parse(ans.values[q.id] || "{}");
-                                    } catch (e) {}
-                                    selectedMap[opt.value] = selectedMap[opt.value] ? 0 : 1;
-                                    const val = JSON.stringify(selectedMap);
-                                    const newValues = { ...ans.values, [q.id]: val };
-                                    setAns(p => ({ ...p, values: newValues }));
-                                    markUnsaved();
-                                  } else {
-                                    const val = opt.value;
-                                    const newValues = { ...ans.values, [q.id]: val };
-                                    
-                                    // Heuristic maps for choice answers
-                                    let headerUpdates = {};
-                                    const lowerLabel = q.label.toLowerCase();
-                                    if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
-                                      headerUpdates.gender = val;
-                                    } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
-                                      headerUpdates.perkawinan = val;
-                                    } else if (lowerLabel.includes("bekerja")) {
-                                      headerUpdates.bekerja = val;
+                        {/* 4. SELECTION / RADIO INPUTS */}
+                        {isChoiceType && (
+                          <div className="space-y-4">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-2">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
+                                <div className="grid grid-cols-2 gap-2">
+                                  {(q.options || []).map((opt) => {
+                                    let isSelected = false;
+                                    if (q.type === 'select') {
+                                      // Multi-select: parse JSON string if exists
+                                      let selectedMap = {};
+                                      try {
+                                        const val = instances.length > 1 ? getLoopValue(q.id, idx) : ans.values[q.id];
+                                        selectedMap = JSON.parse(val || "{}");
+                                      } catch (e) {}
+                                      isSelected = !!selectedMap[opt.value];
+                                    } else {
+                                      // Radio: single select
+                                      const val = instances.length > 1 ? getLoopValue(q.id, idx) : ans.values[q.id];
+                                      isSelected = String(val) === String(opt.value);
                                     }
-                                    
-                                    setAns(p => ({
-                                      ...p,
-                                      ...headerUpdates,
-                                      values: newValues
-                                    }));
-                                    markUnsaved();
-                                  }
-                                }}
-                                disabled={isReadOnly}
-                                className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
-                                  isSelected 
-                                    ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
-                                    : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
-                                } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
-                              >
-                                <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${
-                                  q.type === 'select'
-                                    ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
-                                    : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
-                                }`}>
-                                  {isSelected && (
-                                    q.type === 'select'
-                                      ? <Check size={10} className="text-white stroke-[3px]" />
-                                      : <div className="w-2 h-2 rounded-full bg-blue-600"/>
+
+                                    return (
+                                      <button 
+                                        key={opt.value} 
+                                        type="button" 
+                                        onClick={() => {
+                                          if (isReadOnly) return;
+                                          if (q.type === 'select') {
+                                            let selectedMap = {};
+                                            try {
+                                              const val = instances.length > 1 ? getLoopValue(q.id, idx) : ans.values[q.id];
+                                              selectedMap = JSON.parse(val || "{}");
+                                            } catch (e) {}
+                                            selectedMap[opt.value] = selectedMap[opt.value] ? 0 : 1;
+                                            const valStr = JSON.stringify(selectedMap);
+                                            handleValueChange(q, valStr, idx, instances.length);
+                                          } else {
+                                            const val = opt.value;
+                                            handleValueChange(q, val, idx, instances.length);
+                                          }
+                                        }}
+                                        disabled={isReadOnly}
+                                        className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
+                                          isSelected 
+                                            ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
+                                            : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
+                                        } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
+                                      >
+                                        <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${
+                                          q.type === 'select'
+                                            ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
+                                            : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
+                                        }`}>
+                                          {isSelected && (
+                                            q.type === 'select'
+                                              ? <Check size={10} className="text-white stroke-[3px]" />
+                                              : <div className="w-2 h-2 rounded-full bg-blue-600"/>
+                                          )}
+                                        </div>
+                                        {opt.value}. {opt.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* 5. GEOTAGGING/LOCATION INPUT */}
+                        {isLocationType && (
+                          <div className="space-y-4">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                <div className="flex flex-col gap-3">
+                                  <div className="flex gap-2">
+                                    <input 
+                                      type="text"
+                                      value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                      placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
+                                      readOnly
+                                      disabled={isReadOnly}
+                                      className="flex-1 px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={isReadOnly}
+                                      onClick={() => {
+                                        if (navigator.geolocation) {
+                                          navigator.geolocation.getCurrentPosition(
+                                            (position) => {
+                                              const coords = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
+                                              handleValueChange(q, coords, idx, instances.length);
+                                            },
+                                            (error) => {
+                                              console.error("Geotagging error:", error);
+                                              alert("Gagal mengambil lokasi: " + error.message);
+                                            },
+                                            { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                                          );
+                                        } else {
+                                          alert("Browser Anda tidak mendukung layanan Geotagging.");
+                                        }
+                                      }}
+                                      className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                    >
+                                      <MapPin size={14} />
+                                      <span>Ambil Lokasi</span>
+                                    </button>
+                                  </div>
+                                  {((instances.length > 1 ? getLoopValue(q.id, idx) : ans.values[q.id]) || "") && (
+                                    <p className="text-[10px] text-slate-400 font-medium">
+                                      Lokasi terekam pada koordinat di atas.
+                                    </p>
                                   )}
                                 </div>
-                                {opt.value}. {opt.label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* 5. GEOTAGGING/LOCATION INPUT */}
-                      {isLocationType && (
-                        <div className="flex flex-col gap-3">
-                          <div className="flex gap-2">
-                            <input 
-                              type="text"
-                              value={ans.values[q.id] || ""}
-                              placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
-                              readOnly
-                              disabled={isReadOnly}
-                              className="flex-1 px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
-                            />
-                            <button
-                              type="button"
-                              disabled={isReadOnly}
-                              onClick={() => {
-                                if (navigator.geolocation) {
-                                  navigator.geolocation.getCurrentPosition(
-                                    (position) => {
-                                      const coords = `${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
-                                      setAns(p => ({
-                                        ...p,
-                                        values: { ...p.values, [q.id]: coords }
-                                      }));
-                                      markUnsaved();
-                                    },
-                                    (error) => {
-                                      console.error("Geotagging error:", error);
-                                      alert("Gagal mengambil lokasi: " + error.message);
-                                    },
-                                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-                                  );
-                                } else {
-                                  alert("Browser Anda tidak mendukung layanan Geotagging.");
-                                }
-                              }}
-                              className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
-                            >
-                              <MapPin size={14} />
-                              <span>Ambil Lokasi</span>
-                            </button>
+                              </div>
+                            ))}
                           </div>
-                          {ans.values[q.id] && (
-                            <p className="text-[10px] text-slate-400 font-medium">
-                              Lokasi terekam pada koordinat di atas.
+                        )}
+ 
+                        {/* 6. DATE/TIME INPUTS */}
+                        {isDateType && (
+                          <div className="space-y-4">
+                            {instances.map((idx) => {
+                              let dateType = "date";
+                              let isAutoNow = false;
+                              if (q.validation && q.validation.trim().startsWith('{')) {
+                                try {
+                                  const parsed = JSON.parse(q.validation);
+                                  dateType = parsed.date_type || "date";
+                                  isAutoNow = !!parsed.auto_now;
+                                } catch (e) {}
+                              }
+ 
+                              const handleAutoNowClick = () => {
+                                const now = new Date();
+                                let valueToSet = "";
+                                if (dateType === "date") {
+                                  valueToSet = now.toISOString().split("T")[0];
+                                } else if (dateType === "datetime-local") {
+                                  const tzOffset = now.getTimezoneOffset() * 60000;
+                                  const localISOTime = (new Date(now.getTime() - tzOffset)).toISOString().slice(0, 16);
+                                  valueToSet = localISOTime;
+                                } else if (dateType === "time") {
+                                  const hours = String(now.getHours()).padStart(2, "0");
+                                  const minutes = String(now.getMinutes()).padStart(2, "0");
+                                  valueToSet = `${hours}:${minutes}`;
+                                }
+ 
+                                handleValueChange(q, valueToSet, idx, instances.length);
+                              };
+ 
+                              return (
+                                <div key={idx} className="space-y-1">
+                                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <input 
+                                      type={dateType}
+                                      value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                      disabled={isReadOnly}
+                                      onChange={(e) => {
+                                        handleValueChange(q, e.target.value, idx, instances.length);
+                                      }}
+                                      className="flex-1 px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                                    />
+                                    {isAutoNow && !isReadOnly && (
+                                      <button
+                                        type="button"
+                                        onClick={handleAutoNowClick}
+                                        className="px-4 py-3 bg-blue-55 hover:bg-blue-100 text-blue-600 rounded-xl text-xs font-semibold border border-solid border-blue-200 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                                      >
+                                        <Clock size={14} />
+                                        <span>Waktu Sekarang</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </>
+                    );
+                  };
+
+                  const renderQuestionRow = (q, depth = 0, forceCard = false) => {
+                    if (!isQuestionVisible(q)) return null;
+
+                    if (q.type === 'note') {
+                      let labelText = q.label || "";
+                      const isBuildingNote = labelText.toLowerCase().includes("no bangunan terakhir") ||
+                        labelText.toLowerCase().includes("nomor urut bangunan") ||
+                        labelText.includes("{{no_bangunan_terakhir}}") ||
+                        (() => {
+                          const sortedBlockQs = activeQuestions.slice().sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                          const myIdx = sortedBlockQs.findIndex(x => x.id === q.id);
+                          const nextQ = myIdx >= 0 && myIdx < sortedBlockQs.length - 1 ? sortedBlockQs[myIdx + 1] : null;
+                          return nextQ && nextQ.label && nextQ.label.toLowerCase().includes("nomor urut bangunan");
+                        })();
+
+                      const lastBuildingNum = getMaxBuildingNumber();
+                      
+                      if (isBuildingNote && !labelText.includes("{{no_bangunan_terakhir}}")) {
+                        labelText = `No. bangunan terakhir: **{{no_bangunan_terakhir}}**`;
+                      }
+
+                      return (
+                        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5 flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100 text-amber-600 flex-shrink-0 mt-0.5">
+                            <Landmark size={14}/>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full mb-2">
+                              CATATAN
+                            </span>
+                            <p className="text-xs font-semibold text-amber-900 leading-relaxed break-words">
+                              {renderNoteText(labelText, computeAggregation)}
                             </p>
-                          )}
+                          </div>
                         </div>
-                      )}
-                    </QCard>
-                  );
-                })}
+                      );
+                    }
+
+                    const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+                    const hasChildren = childQs.length > 0;
+
+                    const { rangeText, hintText, description, isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+
+                    let loopCount = 1;
+                    const manualCount = getManualLoopCount(q);
+                    if (manualCount !== null) {
+                      loopCount = manualCount;
+                    } else if (isLoop && loopByQuestionId) {
+                      const triggerValue = ans.values[loopByQuestionId];
+                      const parsedTrigger = parseInt(triggerValue, 10);
+                      loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+                      if (loopCount <= 0) return null;
+                    }
+                    const instances = Array.from({ length: loopCount }, (_, idx) => idx);
+
+                    const qCode = getQuestionCode(q, questions, blocks);
+
+                    if (depth === 0 || forceCard) {
+                      return (
+                        <QCard 
+                          key={q.id} 
+                          r={`R.${qCode}`} 
+                          label={q.label} 
+                          required={!!q.required} 
+                          hint={rangeText || hintText}
+                          description={description}
+                          skipInfo={q.skip_logic ? `Kondisi skip: jika bernilai ${q.skip_logic}` : null}
+                        >
+                          {hasChildren ? (
+                            <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
+                              {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1))}
+                            </div>
+                          ) : (
+                            renderInputs(q, instances)
+                          )}
+
+                          {isLoop && loopType === "manual" && (
+                            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-dashed border-slate-100">
+                              {!isReadOnly && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddManualLoop(q.id)}
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                  >
+                                    <Plus size={14} />
+                                    Tambah Isian
+                                  </button>
+                                  {loopCount > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveManualLoop(q.id, loopCount)}
+                                      className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                    >
+                                      <X size={14} />
+                                      Hapus Terakhir
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              <span className="text-xs text-slate-500 font-semibold ml-auto">
+                                Total: {loopCount} isian
+                              </span>
+                            </div>
+                          )}
+                        </QCard>
+                      );
+                    } else {
+                      return (
+                        <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
+                                {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+                              </div>
+                              <p className="text-xs font-bold text-slate-700 mt-1">{q.label}</p>
+                              {(rangeText || hintText) && <p className="text-[10px] text-slate-450 mt-0.5">{rangeText || hintText}</p>}
+                            </div>
+                          </div>
+                          <div className="pl-4 mt-2">
+                            {hasChildren ? (
+                              <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
+                                {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1))}
+                              </div>
+                            ) : (
+                              renderInputs(q, instances)
+                            )}
+
+                            {isLoop && loopType === "manual" && (
+                              <div className="flex items-center gap-3 mt-3 pt-2 border-t border-dashed border-slate-100">
+                                {!isReadOnly && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddManualLoop(q.id)}
+                                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                    >
+                                      <Plus size={12} />
+                                      Tambah Isian
+                                    </button>
+                                    {loopCount > 1 && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleRemoveManualLoop(q.id, loopCount)}
+                                        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                      >
+                                        <X size={12} />
+                                        Hapus Terakhir
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                                <span className="text-[11px] text-slate-500 font-semibold ml-auto">
+                                  Total: {loopCount} isian
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+                  };
+
+                  const topLevelQs = activeQuestions.filter(q => !q.parent_id && !q.parentId);
+                  return topLevelQs.flatMap(q => {
+                    const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+                    const hasChildren = childQs.length > 0;
+                    
+                    if (hasChildren && (!q.label || q.label.trim() === "")) {
+                      return childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, 0, true));
+                    }
+                    return [renderQuestionRow(q)];
+                  });
+                })()}
 
                 {/* Bottom navigation buttons */}
                 <div className="flex gap-3 pt-6 pb-4">
@@ -1529,6 +2210,35 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       )}
     </PetugasLayout>
   );
+}
+
+function renderNoteText(text, computeAggregation) {
+  if (!text) return null;
+  let resolvedText = text;
+
+  // Handle building number legacy tag
+  if (resolvedText.includes("{{no_bangunan_terakhir}}")) {
+    const maxVal = computeAggregation("MAX", "R108");
+    resolvedText = resolvedText.replace(/\{\{no_bangunan_terakhir\}\}/g, maxVal);
+  }
+
+  // Handle generic dynamic tags like {{MAXPCLR101}}, {{MAXALLR101}}, {{MAX_PCL_R101}}
+  const tagRegex = /\{\{(MAX|MIN|AVG|SUM|LAST)_?(PCL|ALL)?_?([a-zA-Z0-9.]+)\}\}/gi;
+  resolvedText = resolvedText.replace(tagRegex, (match, op, scope, code) => {
+    const finalScope = scope || "PCL";
+    return computeAggregation(op, finalScope, code);
+  });
+
+  const parts = resolvedText.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  return parts.map((part, i) => {
+    if (/^\*\*[^*]+\*\*$/.test(part)) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    if (/^\*[^*]+\*$/.test(part)) {
+      return <em key={i}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
 }
 
 export default PetugasQuestionnaire;

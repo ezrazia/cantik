@@ -6,7 +6,7 @@ import ConfirmModal from "../../components/ui/ConfirmModal";
 import useDropdown from "../../hooks/useDropdown";
 import { 
   Search, Eye, Check, X, AlertTriangle, Filter, Upload, 
-  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3
+  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus
 } from "lucide-react";
 
 /**
@@ -46,12 +46,14 @@ function ReviewQCard({ r, label, required, hint, skipInfo, children }) {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas }) {
+function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading }) {
   const [filter, setFilter] = useState("all");
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState("");
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+
+  const isLoading = propLoading || loading;
 
   // Form structure states
   const [blocks, setBlocks] = useState([]);
@@ -269,6 +271,136 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     setAns(prev => ({
       ...prev,
       [qId]: value
+    }));
+  };
+
+  const getQuestionCode = (q, allQuestions, allBlocks) => {
+    if (!q) return "";
+    const blockIdx = allBlocks.findIndex(b => b.id === q.blok_id) + 1;
+    if (blockIdx === 0) return "";
+    
+    if (q.parent_id) {
+      const parent = allQuestions.find(p => p.id === q.parent_id);
+      if (!parent) return "";
+      const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
+      
+      // Sibling sub-questions of same parent
+      const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const sibIdx = siblings.findIndex(s => s.id === q.id);
+      
+      // Check if parent has parent_id (depth 2)
+      if (parent.parent_id) {
+        const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+        const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
+        return `${parentCode}.${suffix}`;
+      } else {
+        const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0)); // a, b, c...
+        return `${parentCode}${letter}`;
+      }
+    } else {
+      // Index among main questions of the block
+      const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const qIdx = mainQs.findIndex(s => s.id === q.id) + 1;
+      const padded = qIdx.toString().padStart(2, '0');
+      return `${blockIdx}${padded}`;
+    }
+  };
+
+  const getManualLoopCount = (q) => {
+    if (!q) return null;
+    let isLoop = false;
+    let loopType = "question";
+    if (q.validation && q.validation.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(q.validation);
+        isLoop = !!parsed.is_loop;
+        loopType = parsed.loop_type || "question";
+      } catch (e) {}
+    }
+    if (isLoop && loopType === "manual") {
+      const savedCount = ans[`${q.id}_loop_count`];
+      const parsed = savedCount ? parseInt(savedCount, 10) : 1;
+      return isNaN(parsed) || parsed < 1 ? 1 : parsed;
+    }
+    
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getManualLoopCount(parent);
+      }
+    }
+    
+    return null;
+  };
+
+  const handleAddManualLoop = (qId) => {
+    const currentCount = ans[`${qId}_loop_count`] ? parseInt(ans[`${qId}_loop_count`], 10) : 1;
+    const newCount = currentCount + 1;
+    setAns(prev => ({
+      ...prev,
+      [`${qId}_loop_count`]: newCount
+    }));
+  };
+
+  const handleRemoveManualLoop = (qId, currentCount) => {
+    const newCount = Math.max(1, currentCount - 1);
+    const updatedValues = { ...ans };
+    updatedValues[`${qId}_loop_count`] = newCount;
+    
+    // Find all questions that might be children of this question
+    const childQs = questions.filter(c => c.parent_id === qId || c.parentId === qId);
+    const targetQIds = [qId, ...childQs.map(c => c.id)];
+
+    for (const id of targetQIds) {
+      const raw = ans[id];
+      if (raw) {
+        try {
+          let parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            if (parsed.length > newCount) {
+              parsed = parsed.slice(0, newCount);
+            }
+            updatedValues[id] = JSON.stringify(parsed);
+          }
+        } catch (e) {}
+      }
+    }
+    
+    setAns(updatedValues);
+  };
+
+  const getLoopValue = (qId, idx) => {
+    const raw = ans[qId];
+    if (!raw) return "";
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed[idx] || "";
+      } else if (typeof parsed === 'object' && parsed !== null) {
+        return parsed[idx] || "";
+      }
+    } catch (e) {}
+    return idx === 0 ? raw : "";
+  };
+
+  const handleUpdateLoopValue = (qId, idx, val) => {
+    const raw = ans[qId];
+    let parsed = [];
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          parsed = [raw];
+        }
+      } catch (e) {
+        parsed = [raw];
+      }
+    }
+    parsed[idx] = val;
+    setAns(prev => ({
+      ...prev,
+      [qId]: JSON.stringify(parsed)
     }));
   };
 
@@ -497,79 +629,262 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             </div>
 
             <div className="space-y-4 max-w-xl pb-10">
-              {blockQuestions.map((q, idx) => {
-                const value = ans[q.id] ?? '';
-                const hasOptions = q.options && Array.isArray(q.options);
-                
-                return (
-                  <ReviewQCard 
-                    key={q.id} 
-                    r={idx + 1} 
-                    label={q.label} 
-                    required={!!q.required}
-                    skipInfo={q.skip_logic}
-                  >
-                    {isEditing ? (
-                      q.type === 'select' ? (
-                        <select 
-                          value={value} 
-                          onChange={e => setVal(q.id, e.target.value)}
-                          className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
-                        >
-                          <option value="">Pilih Opsi</option>
-                          {q.options?.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
-                      ) : q.type === 'radio' ? (
-                        <div className="flex flex-wrap gap-4 py-1.5">
-                          {q.options?.map(opt => (
-                            <label key={opt.value} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                              <input 
-                                type="radio" 
-                                name={`q_${q.id}`} 
-                                value={opt.value}
-                                checked={String(value) === String(opt.value)}
-                                onChange={() => setVal(q.id, opt.value)}
-                              />
-                              {opt.label}
-                            </label>
+              {(() => {
+                const renderInputForQuestion = (q, instances, value, hasOptions) => {
+                  return (
+                    <>
+                      {isEditing ? (
+                        <div className="space-y-4">
+                          {instances.map((iIdx) => (
+                            <div key={iIdx} className="space-y-1">
+                              {instances.length > 1 && <label className="text-[10px] font-bold text-slate-455 block">Isian Ke-{iIdx + 1}</label>}
+                              {q.type === 'select' ? (
+                                <select 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
+                                >
+                                  <option value="">Pilih Opsi</option>
+                                  {q.options?.map(opt => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              ) : q.type === 'radio' ? (
+                                <div className="flex flex-wrap gap-4 py-1.5">
+                                  {q.options?.map(opt => (
+                                    <label key={opt.value} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+                                      <input 
+                                        type="radio" 
+                                        name={`q_${q.id}_${iIdx}`} 
+                                        value={opt.value}
+                                        checked={String(instances.length > 1 ? getLoopValue(q.id, iIdx) : value) === String(opt.value)}
+                                        onChange={() => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, opt.value) : setVal(q.id, opt.value)}
+                                      />
+                                      {opt.label}
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : q.type === 'number' ? (
+                                <input 
+                                  type="number" 
+                                  step="any"
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
+                                />
+                              ) : q.type === 'date' ? (
+                                <input 
+                                  type={(() => {
+                                    if (q.validation && q.validation.trim().startsWith('{')) {
+                                      try {
+                                        const parsed = JSON.parse(q.validation);
+                                        return parsed.date_type || "date";
+                                      } catch (e) {}
+                                    }
+                                    return "date";
+                                  })()}
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
+                                />
+                              ) : q.type === 'textarea' ? (
+                                <textarea
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 min-h-[80px]"
+                                />
+                              ) : (
+                                <input 
+                                  type="text" 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
+                                />
+                              )}
+                            </div>
                           ))}
                         </div>
-                      ) : q.type === 'number' ? (
-                        <input 
-                          type="number" 
-                          value={value} 
-                          onChange={e => setVal(q.id, e.target.value)}
-                          className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
-                        />
-                      ) : q.type === 'textarea' ? (
-                        <textarea
-                          value={value}
-                          onChange={e => setVal(q.id, e.target.value)}
-                          className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 min-h-[80px]"
-                        />
                       ) : (
-                        <input 
-                          type="text" 
-                          value={value} 
-                          onChange={e => setVal(q.id, e.target.value)}
-                          className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
-                        />
-                      )
-                    ) : (
-                      <div className="px-4 py-3 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
-                        <span className="text-xs font-bold text-slate-600">
-                          {hasOptions 
-                            ? (q.options.find(opt => String(opt.value) === String(value))?.label || value || '-') 
-                            : (value || '-')
-                          }
-                        </span>
+                        instances.length > 1 ? (
+                          <div className="space-y-2">
+                            {instances.map((iIdx) => {
+                              const loopVal = getLoopValue(q.id, iIdx);
+                              return (
+                                <div key={iIdx} className="px-4 py-2.5 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
+                                  <span className="text-[10px] font-bold text-slate-400">Isian Ke-{iIdx + 1}:</span>
+                                  <span className="text-xs font-bold text-slate-600">
+                                    {hasOptions 
+                                      ? (q.options.find(opt => String(opt.value) === String(loopVal))?.label || loopVal || '-') 
+                                      : (loopVal || '-')
+                                    }
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="px-4 py-3 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
+                            <span className="text-xs font-bold text-slate-600">
+                              {hasOptions 
+                                ? (q.options.find(opt => String(opt.value) === String(value))?.label || value || '-') 
+                                : (value || '-')
+                              }
+                            </span>
+                          </div>
+                        )
+                      )}
+                    </>
+                  );
+                };
+
+                const renderQuestionRow = (q, depth = 0, forceCard = false) => {
+                  const value = ans[q.id] ?? '';
+                  const hasOptions = q.options && Array.isArray(q.options);
+                  
+                  let isLoop = false;
+                  let loopType = "question";
+                  let loopByQuestionId = null;
+                  if (q.validation && q.validation.trim().startsWith('{')) {
+                    try {
+                      const parsed = JSON.parse(q.validation);
+                      isLoop = !!parsed.is_loop;
+                      loopType = parsed.loop_type || "question";
+                      loopByQuestionId = parsed.loop_by_question_id || null;
+                    } catch (e) {}
+                  }
+
+                  let loopCount = 1;
+                  const manualCount = getManualLoopCount(q);
+                  if (manualCount !== null) {
+                    loopCount = manualCount;
+                  } else if (isLoop && loopByQuestionId) {
+                    const triggerValue = ans[loopByQuestionId];
+                    const parsedTrigger = parseInt(triggerValue, 10);
+                    loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+                    if (loopCount <= 0) return null;
+                  }
+
+                  const instances = Array.from({ length: loopCount }, (_, idx) => idx);
+                  const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+                  const hasChildren = childQs.length > 0;
+                  const qCode = getQuestionCode(q, questions, blocks);
+
+                  if (depth === 0 || forceCard) {
+                    return (
+                      <ReviewQCard 
+                        key={q.id} 
+                        r={qCode} 
+                        label={q.label} 
+                        required={!!q.required}
+                        skipInfo={q.skip_logic}
+                      >
+                        {hasChildren ? (
+                          <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
+                            {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1))}
+                          </div>
+                        ) : (
+                          renderInputForQuestion(q, instances, value, hasOptions)
+                        )}
+
+                        {isLoop && loopType === "manual" && (
+                          <div className="flex items-center gap-3 mt-4 pt-3 border-t border-dashed border-slate-100">
+                            {isEditing && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddManualLoop(q.id)}
+                                  className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                >
+                                  <Plus size={14} />
+                                  Tambah Isian
+                                </button>
+                                {loopCount > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveManualLoop(q.id, loopCount)}
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                  >
+                                    <X size={14} />
+                                    Hapus Terakhir
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            <span className="text-xs text-slate-500 font-semibold ml-auto">
+                              Total: {loopCount} isian
+                            </span>
+                          </div>
+                        )}
+                      </ReviewQCard>
+                    );
+                  } else {
+                    return (
+                      <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Q.{qCode}</span>
+                              {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+                            </div>
+                            <h4 className="text-xs font-bold text-slate-700 mt-1">{q.label}</h4>
+                          </div>
+                        </div>
+                        <div className="pl-4 mt-2">
+                          {hasChildren ? (
+                            <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
+                              {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1))}
+                            </div>
+                          ) : (
+                            renderInputForQuestion(q, instances, value, hasOptions)
+                          )}
+
+                          {isLoop && loopType === "manual" && (
+                            <div className="flex items-center gap-3 mt-3 pt-2 border-t border-dashed border-slate-100">
+                              {isEditing && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddManualLoop(q.id)}
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                  >
+                                    <Plus size={12} />
+                                    Tambah Isian
+                                  </button>
+                                  {loopCount > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveManualLoop(q.id, loopCount)}
+                                      className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                    >
+                                      <X size={12} />
+                                      Hapus Terakhir
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                              <span className="text-[11px] text-slate-500 font-semibold ml-auto">
+                                Total: {loopCount} isian
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </ReviewQCard>
-                );
-              })}
+                    );
+                  }
+                };
+
+                const topLevelQs = blockQuestions.filter(q => !q.parent_id && !q.parentId);
+                return topLevelQs.flatMap(q => {
+                  const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+                  const hasChildren = childQs.length > 0;
+                  
+                  if (hasChildren && (!q.label || q.label.trim() === "")) {
+                    return childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, 0, true));
+                  }
+                  return [renderQuestionRow(q)];
+                });
+              })()}
+            </div>
 
               {/* Block bottom navigation */}
               <div className="flex gap-3 max-w-xl mt-6">
@@ -597,9 +912,58 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             </div>
           </div>
         </div>
-      </div>
     );
   };
+
+  if (isLoading && !viewingRecord) {
+    return (
+      <AdminLayout tab="admin-review" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+        <div className="p-6 lg:p-8 w-full animate-pulse space-y-6">
+          {/* Header Skeleton */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4">
+            <div className="space-y-2">
+              <div className="h-7 w-48 bg-slate-200 rounded-lg"></div>
+              <div className="h-4 w-32 bg-slate-100 rounded-md"></div>
+            </div>
+            <div className="flex gap-2">
+              <div className="h-10 w-32 bg-slate-200 rounded-xl"></div>
+              <div className="h-10 w-48 bg-slate-150 rounded-xl"></div>
+            </div>
+          </div>
+
+          {/* Tabs Skeleton */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
+            <div className="flex flex-wrap gap-2">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="h-8 w-20 bg-slate-100 rounded-lg"></div>
+              ))}
+            </div>
+            <div className="h-8 w-24 bg-slate-200 rounded-lg"></div>
+          </div>
+
+          {/* Table Skeleton */}
+          <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm">
+            <div className="px-6 py-4 border-b border-slate-50 bg-slate-50/50">
+              <div className="h-4 w-48 bg-slate-200 rounded"></div>
+            </div>
+            <div className="p-6 space-y-4">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="flex justify-between items-center py-2 border-b border-slate-50">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="h-6 w-16 bg-slate-100 rounded"></div>
+                    <div className="h-4.5 w-40 bg-slate-200 rounded"></div>
+                    <div className="h-4 w-24 bg-slate-100 rounded"></div>
+                    <div className="h-4 w-28 bg-slate-150 rounded"></div>
+                  </div>
+                  <div className="h-7 w-20 bg-slate-200 rounded-lg"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout tab="admin-review" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>

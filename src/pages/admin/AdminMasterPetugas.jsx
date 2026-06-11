@@ -18,7 +18,7 @@ import {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData }) {
+function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData, loading }) {
   const isGlobal = true;
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const projectStatus = activeActivity ? activeActivity.status : "draft";
@@ -861,8 +861,67 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
     return filteredByVillage.filter(p => p.status === statusId).length;
   };
 
+  if (loading) {
+    return (
+      <AdminLayout tab={isGlobal ? "admin-master-petugas" : "admin-users"} onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+        <div className="p-6 lg:p-8 w-full animate-pulse space-y-6">
+          {/* Header Skeleton */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+            <div className="space-y-2">
+              <div className="h-7 w-48 bg-slate-200 rounded-lg"></div>
+              <div className="h-4 w-64 bg-slate-100 rounded-md"></div>
+            </div>
+            <div className="flex gap-2">
+              <div className="h-10 w-24 bg-slate-200 rounded-xl"></div>
+              <div className="h-10 w-32 bg-slate-150 rounded-xl"></div>
+            </div>
+          </div>
+
+          {/* Quick Stats Grid Skeleton */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+            {[1, 2, 3, 4].map(n => (
+              <div key={n} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4 shadow-sm">
+                <div className="w-10 h-10 rounded-lg bg-slate-100"></div>
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3 w-16 bg-slate-100 rounded"></div>
+                  <div className="h-5 w-12 bg-slate-200 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Search bar skeleton */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-6">
+            <div className="flex gap-2">
+              <div className="h-8 w-20 bg-slate-100 rounded-lg"></div>
+              <div className="h-8 w-20 bg-slate-100 rounded-lg"></div>
+            </div>
+            <div className="h-10 w-64 bg-slate-100 rounded-xl"></div>
+          </div>
+
+          {/* Table Skeleton */}
+          <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm">
+            <div className="p-6 space-y-4">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <div key={n} className="flex justify-between items-center py-2 border-b border-slate-50">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="w-8 h-8 bg-slate-100 rounded-lg"></div>
+                    <div className="h-4.5 w-32 bg-slate-200 rounded"></div>
+                    <div className="h-4 w-24 bg-slate-100 rounded"></div>
+                    <div className="h-4 w-28 bg-slate-150 rounded"></div>
+                  </div>
+                  <div className="h-7 w-20 bg-slate-200 rounded-lg"></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
+
   return (
-    <AdminLayout tab={isGlobal ? "admin-master-petugas" : "admin-users"} onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+    <AdminLayout tab="admin-master-petugas" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
       <style>{`
         .kegiatan-scroll-container {
           overflow-x: auto;
@@ -906,10 +965,18 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
           scrollbar-width: thin;
         }
 
-        /* ─── Custom Modal Animations ─── */
-        @keyframes customFadeIn {
+        /* Animations */
+        @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
+        }
+        @keyframes slideUp {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes zoomIn {
+          from { opacity: 0; transform: scale(0.95); }
+          to { opacity: 1; transform: scale(1); }
         }
         @keyframes springZoomIn {
           0% { opacity: 0; transform: scale(0.92) translateY(8px); }
@@ -925,16 +992,16 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
           to { transform: translateX(0); opacity: 1; }
         }
         .animate-custom-fade {
-          animation: customFadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+          animation: fadeIn 0.25s ease-out both;
         }
         .animate-spring-zoom {
-          animation: springZoomIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-        }
-        .animate-slide-right {
-          animation: slideInFromRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+          animation: springZoomIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
         }
         .animate-slide-left {
           animation: slideInFromLeft 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .animate-slide-right {
+          animation: slideInFromRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
         }
 
         /* ─── Sidebar Slide-in & Resize Animations ─── */

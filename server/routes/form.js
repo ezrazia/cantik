@@ -149,7 +149,7 @@ router.delete('/blok/:id', async (req, res) => {
 router.post('/question', async (req, res) => {
   const {
     blok_id, parent_id, label, type, required, options,
-    validation, skip_logic, skip_target, sort_order
+    validation, skip_logic, skip_target, show_if_parent_id, show_if_value, sort_order
   } = req.body;
 
   if (!blok_id || !label) {
@@ -168,6 +168,8 @@ router.post('/question', async (req, res) => {
         validation: validation || null,
         skip_logic: skip_logic || null,
         skip_target: skip_target ? parseInt(skip_target, 10) : null,
+        show_if_parent_id: show_if_parent_id ? parseInt(show_if_parent_id, 10) : null,
+        show_if_value: show_if_value || null,
         sort_order: sort_order || 0,
       },
     });
@@ -189,9 +191,10 @@ router.post('/question', async (req, res) => {
  */
 router.put('/question/:id', async (req, res) => {
   const { id } = req.params;
+  console.log('PUT /question id:', id, 'body:', req.body);
   const {
     blok_id, parent_id, label, type, required, options,
-    validation, skip_logic, skip_target, sort_order
+    validation, skip_logic, skip_target, show_if_parent_id, show_if_value, sort_order
   } = req.body;
 
   try {
@@ -209,6 +212,8 @@ router.put('/question/:id', async (req, res) => {
         validation: validation || null,
         skip_logic: skip_logic || null,
         skip_target: skip_target ? parseInt(skip_target, 10) : null,
+        show_if_parent_id: show_if_parent_id ? parseInt(show_if_parent_id, 10) : null,
+        show_if_value: show_if_value || null,
         sort_order: sort_order || 0,
       },
     });

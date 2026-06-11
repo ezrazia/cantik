@@ -55,7 +55,7 @@ MOCK_DESA_HIERARCHY.forEach(d => {
  * @param {Function} props.setPetugas
  * @returns {React.ReactElement}
  */
-function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activities, setActivities, petugas, setPetugas, refreshData }) {
+function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activities, setActivities, petugas, setPetugas, refreshData, loading }) {
   const [selectedActivity, setSelectedActivity] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
@@ -562,6 +562,56 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
         return <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-50 text-slate-700 border border-slate-200/50">Draft (Hidden)</span>;
     }
   };
+
+  if (loading) {
+    return (
+      <AdminLayout tab="admin-kegiatan" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
+        <div className="p-6 lg:p-8 w-full animate-pulse space-y-6">
+          {/* Header Skeleton */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+            <div className="space-y-2">
+              <div className="h-7 w-48 bg-slate-200 rounded-lg"></div>
+              <div className="h-4 w-64 bg-slate-100 rounded-md"></div>
+            </div>
+            <div className="h-10 w-32 bg-slate-200 rounded-xl"></div>
+          </div>
+
+          {/* Quick Stats Grid Skeleton */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {[1, 2, 3, 4].map(n => (
+              <div key={n} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4 shadow-sm">
+                <div className="w-10 h-10 rounded-lg bg-slate-100"></div>
+                <div className="space-y-1.5 flex-1">
+                  <div className="h-3 w-16 bg-slate-100 rounded"></div>
+                  <div className="h-5 w-12 bg-slate-200 rounded"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Search bar skeleton */}
+          <div className="h-10 w-64 bg-slate-100 rounded-xl mb-6"></div>
+
+          {/* Grid of Cards Skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[1, 2, 3].map(n => (
+              <div key={n} className="border border-slate-100 rounded-2xl p-6 bg-white space-y-4 shadow-sm h-48 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div className="h-5 w-24 bg-slate-200 rounded-full"></div>
+                    <div className="h-3.5 w-16 bg-slate-100 rounded"></div>
+                  </div>
+                  <div className="h-4.5 w-3/4 bg-slate-200 rounded"></div>
+                  <div className="h-3 w-full bg-slate-100 rounded"></div>
+                </div>
+                <div className="h-5 w-32 bg-slate-100 rounded"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </AdminLayout>
+    );
+  }
 
   return (
     <AdminLayout tab="admin-kegiatan" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>

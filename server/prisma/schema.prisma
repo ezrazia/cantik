@@ -167,6 +167,8 @@ model FormQuestion {
   validation      String?        @db.Text
   skip_logic      String?        @db.Text
   skip_target     Int?
+  show_if_parent_id Int?
+  show_if_value   String?        @db.Text
   sort_order      Int            @default(0)
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
@@ -175,6 +177,8 @@ model FormQuestion {
   form_blok       FormBlok       @relation(fields: [blok_id], references: [id], onDelete: Cascade)
   parent          FormQuestion?  @relation("ParentChild", fields: [parent_id], references: [id], onDelete: SetNull)
   children        FormQuestion[] @relation("ParentChild")
+  show_if_parent  FormQuestion?  @relation("ShowIfRelation", fields: [show_if_parent_id], references: [id], onDelete: SetNull)
+  show_if_children FormQuestion[] @relation("ShowIfRelation")
 
   @@map("form_question")
 }
