@@ -12,7 +12,7 @@ import useDropdown from '../../hooks/useDropdown';
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activities, petugas, loading }) {
+function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activities, petugas, loading, refreshData }) {
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const status = activeActivity ? activeActivity.status : "draft";
 
@@ -20,27 +20,33 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   const [dashboardStats, setDashboardStats] = useState(null);
   const [localLoading, setLocalLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchStats = async () => {
     if (!activeActivity) return;
-    
-    const fetchStats = async () => {
-      setLocalLoading(true);
-      try {
-        const [desaData, dashData] = await Promise.all([
-          api.desa.getStats(activeActivity.id),
-          api.dashboard.getStats(activeActivity.id)
-        ]);
-        setDesaStats(desaData);
-        setDashboardStats(dashData);
-      } catch (err) {
-        console.error("Gagal mengambil stats dashboard:", err);
-      } finally {
-        setLocalLoading(false);
-      }
-    };
+    setLocalLoading(true);
+    try {
+      const [desaData, dashData] = await Promise.all([
+        api.desa.getStats(activeActivity.id),
+        api.dashboard.getStats(activeActivity.id)
+      ]);
+      setDesaStats(desaData);
+      setDashboardStats(dashData);
+    } catch (err) {
+      console.error("Gagal mengambil stats dashboard:", err);
+    } finally {
+      setLocalLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchStats();
   }, [selectedProject, activeActivity]);
+
+  const handleRefresh = async () => {
+    if (refreshData) {
+      await refreshData();
+    }
+    await fetchStats();
+  };
 
   const isLoading = loading || localLoading;
 
@@ -98,6 +104,10 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   const total   = filteredDesa.reduce((a,b)=>a+b.target,0);
   const selesai = filteredDesa.reduce((a,b)=>a+b.selesai,0);
   
+  const draft = (villageDropdown.selected === "Semua Desa" && dashboardStats)
+    ? dashboardStats.summary.draft
+    : filteredPetugas.reduce((a, b) => a + (b.assignments?.[selectedProject]?.draft || 0), 0);
+
   // Use backend stats for overall view or fallback to estimated proportions if a specific village is filtered
   const review = villageDropdown.selected === "Semua Desa" && dashboardStats
     ? dashboardStats.summary.pending
@@ -108,7 +118,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     : Math.round(selesai * 0.1);
 
   const stats = [
-    { icon: FileText, l: "Total Target", v: total, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
+    { icon: FileText, l: "Draft", v: draft, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
     { icon: CheckCircle, l: "Selesai", v: selesai, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
     { icon: Clock, l: "Review", v: review, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500" },
     { icon: XCircle, l: "Ditolak", v: ditolak, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500" },
@@ -118,7 +128,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     { name: "Disetujui", value: selesai, color: "#16a34a" },
     { name: "Pending",   value: review, color: "#f59e0b" },
     { name: "Ditolak",   value: ditolak, color: "#dc2626" },
-    { name: "Draft",     value: (total - selesai - review - ditolak) > 0 ? (total - selesai - review - ditolak) : 0,  color: "#94a3b8" },
+    { name: "Draft",     value: draft,  color: "#94a3b8" },
   ];
 
   const CHART_DATA = dashboardStats?.chartData?.length > 0
@@ -244,7 +254,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                 {villageDropdown.isOpen && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={villageDropdown.close}/>
-                    <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56" style={{ animation: 'scaleIn 0.15s ease' }}>
+                    <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
                       {villages.map(v => (
                         <button
                           key={v}
@@ -265,8 +275,12 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
           </div>
 
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium bg-white border border-slate-200 hover:border-blue-200 hover:text-blue-600 rounded-xl text-slate-500 cursor-pointer transition-all">
-              <RefreshCw size={14}/> Refresh
+            <button 
+              onClick={handleRefresh}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium bg-white border border-slate-200 hover:border-blue-200 hover:text-blue-600 rounded-xl text-slate-500 cursor-pointer transition-all disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''}/> Refresh
             </button>
           </div>
         </div>
@@ -422,7 +436,9 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                 </thead>
                 <tbody>
                   {filteredPetugas.map(p => {
-                    const pct = Math.round((p.selesai / p.target) * 100);
+                    const assignment = p.assignments?.[selectedProject];
+                    const selesai = assignment?.selesai || 0;
+                    const draft = assignment?.draft || 0;
                     return (
                       <tr key={p.name} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-3.5 border-t border-slate-50">
@@ -435,11 +451,11 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                         </td>
                         <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500">{p.desa}</td>
                         <td className="px-6 py-3.5 border-t border-slate-50">
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden max-w-[80px]">
-                              <div className="h-full bg-blue-600 rounded-full" style={{ width: `${pct}%` }}/>
-                            </div>
-                            <span className="mono text-[11px] text-slate-500 font-medium">{p.selesai}/{p.target}</span>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-semibold text-slate-700">{selesai} Selesai</span>
+                            {draft > 0 && (
+                              <span className="text-[10px] text-slate-400 font-medium">{draft} Draft</span>
+                            )}
                           </div>
                         </td>
                         <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-400">{p.sync}</td>

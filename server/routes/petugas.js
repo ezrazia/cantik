@@ -45,6 +45,7 @@ router.get('/', async (req, res) => {
         const docsForKegiatan = p.dokumen.filter(d => d.kegiatan_id === pk.kegiatan_id);
         const target = docsForKegiatan.length;
         const selesai = docsForKegiatan.filter(d => ['tersimpan', 'terkirim'].includes(d.status)).length;
+        const draft = docsForKegiatan.filter(d => d.status === 'draft').length;
 
         let parsedSls = [];
         if (pk.sls_assignments) {
@@ -64,6 +65,7 @@ router.get('/', async (req, res) => {
           pengawas: pk.pengawas || null,
           target,
           selesai,
+          draft,
         };
       });
 

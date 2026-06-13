@@ -7,6 +7,7 @@
  *   node db/seeder.js
  */
 
+import { readFileSync } from 'fs';
 import bcrypt from 'bcryptjs';
 import prisma from '../config/database.js';
 
@@ -157,35 +158,9 @@ async function seed() {
     console.log('📌 Petugas-Kegiatan seeded (9 records)');
 
     // ── 7. Insert Wilayah ──
-    const wilayahList = [
-      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: 'RT 01 A Tideng Pale' },
-      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 01 Tideng Pale', sub_sls: 'RT 01 B Tideng Pale' },
-      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 02 Tideng Pale', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Tideng Pale', sls: 'SLS 03 Tideng Pale', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Tideng Pale Timur', sls: 'SLS 01 Tideng Pale Timur', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Tideng Pale Timur', sls: 'SLS 02 Tideng Pale Timur', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Limbu Sedulun', sls: 'SLS 01 Limbu Sedulun', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Limbu Sedulun', sls: 'SLS 02 Limbu Sedulun', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Limbu Sedulun', sls: 'SLS 03 Limbu Sedulun', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Gunawan', sls: 'SLS 01 Gunawan', sub_sls: null },
-      { kecamatan: 'Sesayap', desa: 'Gunawan', sls: 'SLS 02 Gunawan', sub_sls: null },
-      { kecamatan: 'Sesayap Hilir', desa: 'Sesayap Hilir', sls: 'SLS 01 Sesayap Hilir', sub_sls: null },
-      { kecamatan: 'Sesayap Hilir', desa: 'Sesayap Hilir', sls: 'SLS 02 Sesayap Hilir', sub_sls: null },
-      { kecamatan: 'Sesayap Hilir', desa: 'Seludau', sls: 'SLS 01 Seludau', sub_sls: null },
-      { kecamatan: 'Sesayap Hilir', desa: 'Seludau', sls: 'SLS 02 Seludau', sub_sls: null },
-      { kecamatan: 'Sesayap Hilir', desa: 'Bebatu', sls: 'SLS 01 Bebatu', sub_sls: null },
-      { kecamatan: 'Sesayap Hilir', desa: 'Sepala Dalung', sls: 'SLS 01 Sepala Dalung', sub_sls: null },
-      { kecamatan: 'Tana Lia', desa: 'Tanah Merah', sls: 'SLS 01 Tanah Merah', sub_sls: null },
-      { kecamatan: 'Tana Lia', desa: 'Tanah Merah', sls: 'SLS 02 Tanah Merah', sub_sls: null },
-      { kecamatan: 'Tana Lia', desa: 'Sambungan', sls: 'SLS 01 Sambungan', sub_sls: null },
-      { kecamatan: 'Tana Lia', desa: 'Tengku Dacing', sls: 'SLS 01 Tengku Dacing', sub_sls: null },
-      { kecamatan: 'Betayau', desa: 'Kujau', sls: 'SLS 01 Kujau', sub_sls: null },
-      { kecamatan: 'Betayau', desa: 'Buong Baru', sls: 'SLS 01 Buong Baru', sub_sls: null },
-      { kecamatan: 'Betayau', desa: 'Betayau', sls: 'SLS 01 Betayau', sub_sls: null },
-      { kecamatan: 'Muruk Rian', desa: 'Rian', sls: 'SLS 01 Rian', sub_sls: null },
-      { kecamatan: 'Muruk Rian', desa: 'Kapuas', sls: 'SLS 01 Kapuas', sub_sls: null },
-      { kecamatan: 'Muruk Rian', desa: 'Belayan', sls: 'SLS 01 Belayan', sub_sls: null }
-    ];
+    const wilayahList = JSON.parse(
+      readFileSync(new URL('./wilayah_data.json', import.meta.url), 'utf8')
+    );
 
     await prisma.wilayah.createMany({
       data: wilayahList

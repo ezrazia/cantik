@@ -173,13 +173,35 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
     }
   }, [petugas, selectedProject, allWilayah, isGlobal]);
 
-  const dbSubSlsHierarchy = allWilayah
-    .filter(w => w.sub_sls)
-    .map(w => ({ name: w.sub_sls, sls: w.sls }));
+  const dbSubSlsHierarchy = (() => {
+    const unique = [];
+    const seen = new Set();
+    allWilayah
+      .filter(w => w.sub_sls)
+      .forEach(w => {
+        const key = `${w.sub_sls}||${w.sls}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push({ name: w.sub_sls, sls: w.sls });
+        }
+      });
+    return unique;
+  })();
 
-  const dbSlsHierarchy = allWilayah
-    .filter(w => w.sls)
-    .map(w => ({ name: w.sls, desa: w.desa }));
+  const dbSlsHierarchy = (() => {
+    const unique = [];
+    const seen = new Set();
+    allWilayah
+      .filter(w => w.sls)
+      .forEach(w => {
+        const key = `${w.sls}||${w.desa}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push({ name: w.sls, desa: w.desa });
+        }
+      });
+    return unique;
+  })();
 
   // Dropdown for village filter (contextual view)
   const villageDropdown = useDropdown("Semua Desa");
@@ -346,12 +368,18 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
   const totalSelesaiDesa = filteredByVillage.reduce((acc, curr) => acc + curr.selesai, 0);
   const progressKumulatif = totalTargetDesa > 0 ? Math.round((totalSelesaiDesa / totalTargetDesa) * 100) : 0;
 
-  // Handler Refresh Data simulasi
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 800);
+  // Handler Refresh Data via API
+  const handleRefresh = async () => {
+    if (refreshData) {
+      setIsRefreshing(true);
+      try {
+        await refreshData();
+      } catch (err) {
+        console.error("Gagal refresh data petugas:", err);
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
   };
 
   // ─── Helper: Auto-generate username dari nama ───

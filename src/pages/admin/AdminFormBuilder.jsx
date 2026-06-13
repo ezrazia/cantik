@@ -5,8 +5,9 @@ import {
   Hash, Eye, Save, Settings, Plus, ChevronDown, List, Type, 
   Trash2, Upload, Database, FileText, X, Check, GripVertical, 
   CornerDownRight, Edit3, Trash, AlertTriangle, ArrowRight, MapPin, Variable,
-  StickyNote, Bold, Italic, Calendar
+  StickyNote, Bold, Italic, Calendar, User, Users, Smartphone
 } from "lucide-react";
+
 
 const ROMAN_NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
 
@@ -21,11 +22,14 @@ function getQuestionCode(q, allQuestions, allBlocks) {
   if (!q) return "";
   // Notes do NOT count in the R-numbering
   if (q.type === 'note') return "";
-  if (!q.blokId || !q.blokId.startsWith("Blok ")) return "";
-
-  const standardBlocks = allBlocks.filter(b => b.id.startsWith("Blok "));
-  const blockIdx = standardBlocks.findIndex(b => b.id === q.blokId) + 1;
+  const standardBlocks = allBlocks.filter(b => {
+    const idStr = String(b.kode || b.id || "");
+    return idStr.startsWith("Blok ");
+  });
+  const blockIdx = standardBlocks.findIndex(b => (b.id === q.blokId || b.kode === q.blokId)) + 1;
   if (blockIdx === 0) return "";
+
+
   
   if (q.parentId) {
     const parent = allQuestions.find(p => p.id === q.parentId);
@@ -162,6 +166,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const [showAdd, setShowAdd] = useState(false);
   const [newQ, setNewQ] = useState({ label: "", type: "text", req: true });
   const [localLoading, setLocalLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewActiveBlok, setPreviewActiveBlok] = useState("");
+
+  const handleOpenPreview = () => {
+    setPreviewActiveBlok(activeBlok || (blocks[0]?.id || ""));
+    setShowPreview(true);
+  };
 
   const isLoading = loading || localLoading;
 
@@ -229,10 +240,19 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
         const mappedQuestions = res.questions.map(q => {
           const correspondingBlock = res.blocks.find(b => b.id === q.blok_id);
+          let typeVal = q.type;
+          if (q.type === 'select' && q.validation) {
+            try {
+              const parsed = JSON.parse(q.validation);
+              if (parsed.is_search) {
+                typeVal = 'search';
+              }
+            } catch (e) {}
+          }
           return {
             id: q.id,
             label: q.label,
-            type: q.type,
+            type: typeVal,
             req: !!q.required,
             val: q.validation,
             skip: q.skip_logic,
@@ -333,7 +353,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     return () => window.removeEventListener("resize", updateArrows);
   }, [questions, activeBlok, blocks]);
 
-  const typeIcon = { text: Type, number: Hash, radio: List, select: ChevronDown, location: MapPin, note: StickyNote, date: Calendar };
+  const typeIcon = { text: Type, number: Hash, radio: List, select: ChevronDown, location: MapPin, note: StickyNote, date: Calendar, pcl: User, pml: Users };
 
   // Add block logic
   const handleConfirmAddBlock = async () => {
@@ -538,14 +558,40 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
     const freshQuestion = { ...questionObj, ...updates };
 
+    let finalType = freshQuestion.type;
+    let finalVal = freshQuestion.val;
+    
+    if (freshQuestion.type === 'search') {
+      finalType = 'select';
+      let parsed = {};
+      try {
+        if (freshQuestion.val && freshQuestion.val.trim().startsWith('{')) {
+          parsed = JSON.parse(freshQuestion.val);
+        }
+      } catch (e) {}
+      parsed.is_search = true;
+      finalVal = JSON.stringify(parsed);
+    } else {
+      let parsed = {};
+      try {
+        if (freshQuestion.val && freshQuestion.val.trim().startsWith('{')) {
+          parsed = JSON.parse(freshQuestion.val);
+          if (parsed.is_search) {
+            delete parsed.is_search;
+            finalVal = JSON.stringify(parsed);
+          }
+        }
+      } catch (e) {}
+    }
+
     const dbPayload = {
       blok_id: blockObj.dbId,
       parent_id: freshQuestion.parentId,
       label: freshQuestion.label,
-      type: freshQuestion.type,
+      type: finalType,
       required: freshQuestion.req,
       options: freshQuestion.options,
-      validation: freshQuestion.val,
+      validation: finalVal,
       skip_logic: freshQuestion.skip,
       skip_target: freshQuestion.skipTarget,
       show_if_parent_id: freshQuestion.showIfParentId,
@@ -562,7 +608,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
   const handleAddOption = (q, options) => {
     const nextIndex = options.length;
-    const nextValue = q.type === 'select' 
+    const nextValue = (q.type === 'select' || q.type === 'search')
       ? String.fromCharCode(97 + nextIndex) // a, b, c...
       : String(nextIndex + 1); // 1, 2, 3...
     const newOptions = [...options, { value: nextValue, label: `Pilihan ${nextIndex + 1}` }];
@@ -576,7 +622,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
   const handleDeleteOption = (q, options, idx) => {
     const newOptions = options.filter((_, i) => i !== idx).map((opt, i) => {
-      const newValue = q.type === 'select'
+      const newValue = (q.type === 'select' || q.type === 'search')
         ? String.fromCharCode(97 + i)
         : String(i + 1);
       return { ...opt, value: newValue };
@@ -804,7 +850,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-500 cursor-pointer hover:bg-slate-50 transition-all">
+            <button 
+              onClick={handleOpenPreview}
+              className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-500 cursor-pointer hover:bg-slate-50 transition-all"
+            >
               <Eye size={14}/> Preview
             </button>
             <button 
@@ -1057,8 +1106,11 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       <option value="number">Number</option>
                       <option value="radio">Radio/Pilihan</option>
                       <option value="select">Select/Dropdown</option>
+                      <option value="search">Searchable Dropdown</option>
                       <option value="location">Geotagging</option>
                       <option value="date">Tanggal/Waktu</option>
+                      <option value="pcl">PCL (Daftar Petugas)</option>
+                      <option value="pml">PML (Daftar Pengawas)</option>
                     </select>
                   </div>
                 </div>
@@ -1402,7 +1454,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               }
 
               // === REGULAR QUESTION PROPERTIES ===
-              let parsedVal = { type: "unlimited", min: "", max: "", hint: "" };
+              let parsedVal = { type: "unlimited", min: "", max: "", hint: "", sub_label: "" };
               if (selected.val) {
                 const trimmed = selected.val.trim();
                 if (trimmed.startsWith('{')) {
@@ -1442,7 +1494,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase">Label Pertanyaan (Utama)</label>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase">Pertanyaan Utama</label>
                         {canEdit && (
                           <VariableInserterDropdown
                             questions={questions}
@@ -1482,11 +1534,23 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     </div>
 
                     <div>
+                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Label Pertanyaan</label>
+                      <textarea
+                        value={parsedVal.sub_label || ""}
+                        readOnly={!canEdit}
+                        placeholder="Contoh: Pastikan kembali ke responden..."
+                        onChange={e => updateValObj({ sub_label: e.target.value })}
+                        rows={2}
+                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
+                      />
+                    </div>
+
+                    <div>
                       <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Petunjuk Pengisian (Keterangan)</label>
                       <textarea
                         value={parsedVal.hint || ""}
                         readOnly={!canEdit}
-                        placeholder="Contoh: Isi dengan umur dalam satuan tahun genap..."
+                        placeholder="Contoh: SHM = Surat Hak Milik..."
                         onChange={e => updateValObj({ hint: e.target.value })}
                         rows={2}
                         className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
@@ -1506,11 +1570,14 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             <option value="number">Number</option>
                             <option value="radio">Radio</option>
                             <option value="select">Select (Multi-Select)</option>
+                            <option value="search">Searchable Dropdown</option>
                             <option value="location">Geotagging</option>
                             <option value="date">Tanggal/Waktu</option>
+                            <option value="pcl">PCL (Daftar Petugas)</option>
+                            <option value="pml">PML (Daftar Pengawas)</option>
                           </select>
                         ) : (
-                          <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type}</div>
+                          <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type === "search" ? "Searchable Dropdown" : selected.type}</div>
                         )}
                       </div>
                       <div>
@@ -1617,7 +1684,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       </div>
                     )}
 
-                    {(selected.type === "radio" || selected.type === "select") && (
+                    {(selected.type === "radio" || selected.type === "select" || selected.type === "search") && (
                       <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
                         <div className="flex items-center justify-between">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase">Daftar Pilihan Opsi</label>
@@ -2190,6 +2257,230 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           </div>
         </div>
       )}
+
+      {/* ─── PETUGAS PREVIEW MODAL ────────────────────────── */}
+      {showPreview && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 md:p-6" style={{ animation: 'fadeIn 0.25s ease' }}>
+          <div className="bg-slate-50 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl relative border border-slate-200 flex flex-col h-[680px] max-h-[85vh]" style={{ animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            
+            {/* App Navigation Header */}
+            <div className="bg-blue-600 text-white px-6 py-4 flex items-center justify-between shadow-md flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold tracking-tight">Pratinjau Kuesioner Petugas</h3>
+                  <p className="text-[10px] text-blue-100 font-medium">Simulasi pengisian data kuesioner</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowPreview(false)}
+                className="w-8 h-8 rounded-full bg-white/10 border-0 flex items-center justify-center text-white hover:bg-white/20 cursor-pointer transition-all active:scale-[0.9]"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Block Switcher Tabs */}
+            <div className="bg-white border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto px-6 py-3 scrollbar-none flex-shrink-0" style={{ display: 'flex', flexWrap: 'nowrap' }}>
+              {blocks.map(b => (
+                <button
+                  key={b.id}
+                  onClick={() => setPreviewActiveBlok(b.id)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
+                    previewActiveBlok === b.id 
+                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-100' 
+                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  {b.id}: {b.title}
+                </button>
+              ))}
+            </div>
+
+            {/* Simulator Content Area (Scrollable Form Fields) */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              <div className="bg-blue-50 text-blue-700 rounded-xl p-4 border border-blue-100 text-xs leading-relaxed font-semibold">
+                ℹ️ Ini adalah pratinjau interaktif dari kuesioner petugas. Anda dapat mengisi nilai secara langsung di bawah ini untuk menguji form builder.
+              </div>
+
+              {questions.filter(q => q.blokId === previewActiveBlok && !q.parentId).map((q, idx) => {
+                const subQs = questions.filter(child => child.blokId === previewActiveBlok && child.parentId === q.id);
+                
+                // Parse Options safely
+                let parsedOpts = [];
+                if (q.options) {
+                  if (Array.isArray(q.options)) {
+                    parsedOpts = q.options;
+                  } else if (typeof q.options === 'string') {
+                    try {
+                      parsedOpts = JSON.parse(q.options);
+                    } catch (e) {
+                      parsedOpts = q.options.split(',').map(o => o.trim());
+                    }
+                  }
+                }
+
+                // Normalise array options if they are stored as objects like [{label, value}] or [{value}]
+                const normalizedOpts = parsedOpts.map(opt => {
+                  if (opt && typeof opt === 'object') {
+                    return opt.label || opt.value || JSON.stringify(opt);
+                  }
+                  return opt;
+                });
+
+                return (
+                  <div key={q.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <span className="mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-0.5">R.{getQuestionCode(q, questions, blocks)}</span>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 leading-snug">{q.label}</p>
+                          {q.val && q.val.includes('hint:') && (
+                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">Hint: {q.val.split('hint:')[1]?.split(';')[0]}</p>
+                          )}
+                        </div>
+                      </div>
+                      {q.req ? (
+                        <span className="text-[10px] text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-md flex-shrink-0">Wajib</span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-medium bg-slate-50 px-2 py-0.5 rounded-md flex-shrink-0">Opsional</span>
+                      )}
+                    </div>
+
+                    {/* Question Input Control Rendering */}
+                    <div className="pt-1">
+                      {q.type === "text" && (
+                        <input type="text" placeholder="Masukkan jawaban teks..." className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
+                      )}
+                      {q.type === "number" && (
+                        <input type="number" placeholder="Masukkan angka..." className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
+                      )}
+                      {q.type === "select" && (
+                        <select className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold cursor-pointer outline-none">
+                          <option value="">Pilih opsi...</option>
+                          {normalizedOpts.map((opt, i) => (
+                            <option key={i} value={opt}>{opt}</option>
+                          ))}
+                        </select>
+                      )}
+                      {q.type === "radio" && (
+                        <div className="space-y-2.5">
+                          {normalizedOpts.map((opt, i) => (
+                            <label key={i} className="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer font-medium">
+                              <input type="radio" name={q.id} value={opt} className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500" />
+                              <span>{opt}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      {q.type === "location" && (
+                        <div className="flex items-center gap-2 px-4 py-3 border border-dashed border-slate-200 bg-slate-50/30 rounded-xl text-sm text-slate-500 font-medium">
+                          <MapPin size={15} className="text-slate-400 animate-bounce" />
+                          <span>Ambil Koordinat GPS (Simulator)</span>
+                        </div>
+                      )}
+                      {q.type === "date" && (
+                        <input type="date" className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/20 text-slate-700 font-semibold outline-none" />
+                      )}
+                      {q.type === "pcl" && (
+                        <div className="flex items-center gap-2 px-4 py-3 border border-slate-200 bg-slate-50/50 rounded-xl text-sm text-slate-600 font-semibold">
+                          <User size={15} className="text-slate-400" />
+                          <span>PCL: {selectedProject || "Nama Petugas"}</span>
+                        </div>
+                      )}
+                      {q.type === "pml" && (
+                        <div className="flex items-center gap-2 px-4 py-3 border border-slate-200 bg-slate-50/50 rounded-xl text-sm text-slate-600 font-semibold">
+                          <Users size={15} className="text-slate-400" />
+                          <span>PML: Pengawas Lapangan</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sub Questions Rendering inside Container */}
+                    {subQs.length > 0 && (
+                      <div className="pl-4 border-l-2 border-slate-100 space-y-4 mt-3 pt-1">
+                        {subQs.map(child => {
+                          let childOpts = [];
+                          if (child.options) {
+                            if (Array.isArray(child.options)) {
+                              childOpts = child.options;
+                            } else if (typeof child.options === 'string') {
+                              try {
+                                childOpts = JSON.parse(child.options);
+                              } catch (e) {
+                                childOpts = child.options.split(',').map(o => o.trim());
+                              }
+                            }
+                          }
+
+                          const normalizedChildOpts = childOpts.map(opt => {
+                            if (opt && typeof opt === 'object') {
+                              return opt.label || opt.value || JSON.stringify(opt);
+                            }
+                            return opt;
+                          });
+
+                          return (
+                            <div key={child.id} className="space-y-2">
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-start gap-2.5">
+                                  <span className="mono text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-md mt-0.5">R.{getQuestionCode(child, questions, blocks)}</span>
+                                  <p className="text-xs font-bold text-slate-700 leading-snug">{child.label}</p>
+                                </div>
+                                {child.req ? (
+                                  <span className="text-[9px] text-red-500 font-medium bg-red-50 px-1.5 py-0.5 rounded-md flex-shrink-0">Wajib</span>
+                                ) : (
+                                  <span className="text-[9px] text-slate-400 font-medium bg-slate-50 px-1.5 py-0.5 rounded-md flex-shrink-0">Opsional</span>
+                                )}
+                              </div>
+                              <div className="pt-0.5">
+                                {child.type === "text" && (
+                                  <input type="text" placeholder="Masukkan jawaban..." className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
+                                )}
+                                {child.type === "number" && (
+                                  <input type="number" placeholder="Masukkan angka..." className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
+                                )}
+                                {child.type === "select" && (
+                                  <select className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold cursor-pointer outline-none">
+                                    <option value="">Pilih opsi...</option>
+                                    {normalizedChildOpts.map((opt, i) => (
+                                      <option key={i} value={opt}>{opt}</option>
+                                    ))}
+                                  </select>
+                                )}
+                                {child.type === "radio" && (
+                                  <div className="space-y-2">
+                                    {normalizedChildOpts.map((opt, i) => (
+                                      <label key={i} className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer font-medium">
+                                        <input type="radio" name={child.id} value={opt} className="w-3.5 h-3.5 text-blue-600 border-slate-300 focus:ring-blue-500" />
+                                        <span>{opt}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {questions.filter(q => q.blokId === previewActiveBlok).length === 0 && (
+                <div className="bg-white rounded-2xl p-12 border border-slate-200 text-center text-slate-400">
+                  <FileText size={36} className="mx-auto mb-3 text-slate-300" />
+                  <p className="text-sm font-semibold">Blok ini belum memiliki rincian pertanyaan.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
     </AdminLayout>
   );
 }

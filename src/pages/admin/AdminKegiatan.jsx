@@ -3,7 +3,7 @@ import AdminLayout from "../../components/layouts/AdminLayout";
 import { 
   Plus, Search, Edit, Trash2, Calendar, Check, X, AlertTriangle, 
   Users, Briefcase, ChevronRight, UserPlus, UserMinus, Eye, FileText, CheckCircle, ArrowLeft, ShieldAlert, ChevronDown,
-  Save
+  Save, Target
 } from "lucide-react";
 import { api } from "../../services/api";
 
@@ -101,19 +101,37 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     : MOCK_DESA_HIERARCHY;
 
   const dbSlsHierarchy = allWilayah.length > 0
-    ? Array.from(new Set(allWilayah.filter(w => w.sls).map(w => w.sls)))
-        .map(slsName => {
-          const matched = allWilayah.find(w => w.sls === slsName);
-          return { name: slsName, desa: matched ? matched.desa : "" };
-        })
-        .sort((a, b) => a.name.localeCompare(b.name))
+    ? (() => {
+        const unique = [];
+        const seen = new Set();
+        allWilayah
+          .filter(w => w.sls)
+          .forEach(w => {
+            const key = `${w.sls}||${w.desa}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              unique.push({ name: w.sls, desa: w.desa });
+            }
+          });
+        return unique.sort((a, b) => a.name.localeCompare(b.name));
+      })()
     : MOCK_SLS_HIERARCHY;
 
   const dbSubSlsHierarchy = allWilayah.length > 0
-    ? allWilayah
-        .filter(w => w.sub_sls)
-        .map(w => ({ name: w.sub_sls, sls: w.sls }))
-        .sort((a, b) => a.name.localeCompare(b.name))
+    ? (() => {
+        const unique = [];
+        const seen = new Set();
+        allWilayah
+          .filter(w => w.sub_sls)
+          .forEach(w => {
+            const key = `${w.sub_sls}||${w.sls}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              unique.push({ name: w.sub_sls, sls: w.sls, desa: w.desa });
+            }
+          });
+        return unique.sort((a, b) => a.name.localeCompare(b.name));
+      })()
     : MOCK_SUB_SLS_HIERARCHY;
 
   useEffect(() => {
@@ -151,6 +169,54 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     setTempLokus(nextLokus);
   };
 
+  const handleBulkLokusChange = (type, action) => {
+    if (selectedActivity.status !== "draft") return;
+    const currentLokus = tempLokus || { kecamatan: [], desa: [], sls: [], subSls: [] };
+    
+    let nextValues = [...(currentLokus[type] || [])];
+    
+    // Determine the items that are eligible to be selected/deselected
+    let targetItems = [];
+    if (type === "kecamatan") {
+      targetItems = dbKecamatan;
+    } else if (type === "desa") {
+      targetItems = dbDesaHierarchy.filter(d => (currentLokus.kecamatan || []).includes(d.kecamatan)).map(d => d.name);
+    } else if (type === "sls") {
+      targetItems = dbSlsHierarchy.filter(s => (currentLokus.desa || []).includes(s.desa)).map(s => s.name);
+    } else if (type === "subSls") {
+      targetItems = dbSubSlsHierarchy.filter(sub => (currentLokus.sls || []).includes(sub.sls)).map(sub => sub.name);
+    }
+    
+    if (action === "select_all") {
+      // Add all targetItems to nextValues if not already present
+      targetItems.forEach(item => {
+        if (!nextValues.includes(item)) {
+          nextValues.push(item);
+        }
+      });
+    } else if (action === "deselect_all") {
+      // Remove all targetItems from nextValues
+      nextValues = nextValues.filter(v => !targetItems.includes(v));
+    }
+    
+    let nextLokus = { ...currentLokus, [type]: nextValues };
+    
+    // Cascade constraints down:
+    const activeKec = nextLokus.kecamatan || [];
+    const allowedDesas = dbDesaHierarchy.filter(d => activeKec.includes(d.kecamatan)).map(d => d.name);
+    nextLokus.desa = (nextLokus.desa || []).filter(d => allowedDesas.includes(d));
+    
+    const activeDesas = nextLokus.desa || [];
+    const allowedSls = dbSlsHierarchy.filter(s => activeDesas.includes(s.desa)).map(s => s.name);
+    nextLokus.sls = (nextLokus.sls || []).filter(s => allowedSls.includes(s));
+    
+    const activeSls = nextLokus.sls || [];
+    const allowedSub = dbSubSlsHierarchy.filter(sub => activeSls.includes(sub.sls)).map(sub => sub.name);
+    nextLokus.subSls = (nextLokus.subSls || []).filter(sub => allowedSub.includes(sub));
+    
+    setTempLokus(nextLokus);
+  };
+
   const handleSaveLokusClick = () => {
     triggerConfirm(
       "save_lokus",
@@ -158,14 +224,6 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
       async () => {
         try {
           const res = await api.kegiatan.update(selectedActivity.id, {
-            name: selectedActivity.name,
-            description: selectedActivity.description || selectedActivity.desc,
-            progress: selectedActivity.progress,
-            color: selectedActivity.color,
-            text_color: selectedActivity.text_color,
-            bg_color: selectedActivity.bg_color,
-            start_date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : null,
-            status: selectedActivity.status,
             lokus: tempLokus
           });
           if (res && res.success) {
@@ -184,7 +242,8 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     name: "",
     desc: "",
     date: "",
-    status: "draft"
+    status: "draft",
+    fokus: ""
   });
 
   // Form states untuk edit kegiatan
@@ -192,7 +251,8 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
     name: "",
     desc: "",
     date: "",
-    status: "draft"
+    status: "draft",
+    fokus: ""
   });
 
   // Filter & Search Logic untuk kegiatan
@@ -262,13 +322,14 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
             bg_color: bgColor,
             start_date: newActivity.date || null,
             status: newActivity.status,
-            lokus: { kecamatan: [], desa: [], sls: [], subSls: [] }
+            lokus: { kecamatan: [], desa: [], sls: [], subSls: [] },
+            fokus: newActivity.fokus || null
           };
 
           const res = await api.kegiatan.create(payload);
           if (res && res.success) {
             await refreshData();
-            setNewActivity({ name: "", desc: "", date: "", status: "draft" });
+            setNewActivity({ name: "", desc: "", date: "", status: "draft", fokus: "" });
             setShowAddModal(false);
           }
         } catch (err) {
@@ -284,7 +345,8 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
       name: selectedActivity.name,
       desc: selectedActivity.description || "",
       date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : "",
-      status: selectedActivity.status
+      status: selectedActivity.status,
+      fokus: selectedActivity.fokus || ""
     });
     setShowEditModal(true);
   };
@@ -305,7 +367,8 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
             name: editForm.name.trim(),
             description: editForm.desc.trim(),
             start_date: editForm.date || null,
-            status: editForm.status
+            status: editForm.status,
+            fokus: editForm.fokus || null
           };
           
           const res = await api.kegiatan.update(selectedActivity.id, payload);
@@ -325,7 +388,8 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
               name: editForm.name.trim(),
               description: editForm.desc.trim(),
               start_date: editForm.date,
-              status: editForm.status
+              status: editForm.status,
+              fokus: editForm.fokus
             }));
             
             setShowEditModal(false);
@@ -471,6 +535,11 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
         }
       });
 
+      // 0. Cek Fokus Pendataan wajib terisi
+      if (!selectedActivity.fokus || selectedActivity.fokus.trim() === "") {
+        errors.push("Fokus Pendataan wajib dipilih sebelum mempublikasikan kegiatan.");
+      }
+
       if (errors.length > 0) {
         setValidationErrors(errors);
         setShowValidationModal(true);
@@ -482,15 +551,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
           async () => {
             try {
               const payload = {
-                name: selectedActivity.name,
-                description: selectedActivity.description || selectedActivity.desc,
-                progress: selectedActivity.progress,
-                color: selectedActivity.color,
-                text_color: selectedActivity.text_color,
-                bg_color: selectedActivity.bg_color,
-                start_date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : null,
-                status: "published",
-                lokus: selectedActivity.lokus
+                status: "published"
               };
               const res = await api.kegiatan.update(selectedActivity.id, payload);
               if (res && res.success) {
@@ -526,15 +587,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
       async () => {
         try {
           const payload = {
-            name: selectedActivity.name,
-            description: selectedActivity.description || selectedActivity.desc,
-            progress: selectedActivity.progress,
-            color: selectedActivity.color,
-            text_color: selectedActivity.text_color,
-            bg_color: selectedActivity.bg_color,
-            start_date: selectedActivity.start_date ? selectedActivity.start_date.split('T')[0] : null,
-            status: "selesai",
-            lokus: selectedActivity.lokus
+            status: "selesai"
           };
           const res = await api.kegiatan.update(selectedActivity.id, payload);
           if (res && res.success) {
@@ -809,6 +862,11 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                   <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
                     <Calendar size={11}/> Mulai: {selectedActivity.start_date ? new Date(selectedActivity.start_date).toLocaleDateString("id-ID", { day: 'numeric', month: 'long', year: 'numeric' }) : "-"}
                   </span>
+                  {selectedActivity.fokus && (
+                    <span className="text-[10px] font-bold text-blue-600 flex items-center gap-1 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-100">
+                      <Target size={11} className="text-blue-500" /> Fokus: {selectedActivity.fokus}
+                    </span>
+                  )}
                 </div>
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight leading-snug">{selectedActivity.name}</h1>
               </div>
@@ -878,11 +936,19 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
               
               {/* Left Column: Description & Details */}
               <div className="lg:col-span-2 space-y-6 w-full">
-                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm">
-                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Deskripsi & Ruang Lingkup</h3>
-                  <div className="text-sm text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">
-                    {selectedActivity.description || selectedActivity.desc}
+                <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-4">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Deskripsi & Ruang Lingkup</h3>
+                    <div className="text-sm text-slate-700 leading-relaxed font-medium whitespace-pre-wrap">
+                      {selectedActivity.description || selectedActivity.desc}
+                    </div>
                   </div>
+                  {selectedActivity.fokus && (
+                    <div className="border-t border-slate-100 pt-3 flex items-center gap-2">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase">Fokus Pendataan:</span>
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">{selectedActivity.fokus}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Lokus Kegiatan Card */}
@@ -929,10 +995,30 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                   </div>
 
                   {/* Hierarchy selection columns */}
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-3">
-                    {/* Kecamatan */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-3">                    {/* Kecamatan */}
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Kecamatan</span>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Kecamatan</span>
+                        {selectedActivity.status === "draft" && (
+                          <div className="flex gap-1.5 text-[9px] font-bold">
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("kecamatan", "select_all")}
+                              className="text-blue-600 hover:text-blue-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Semua
+                            </button>
+                            <span className="text-slate-350 font-normal">|</span>
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("kecamatan", "deselect_all")}
+                              className="text-red-600 hover:text-red-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {dbKecamatan.map(kec => {
                           const isChecked = (tempLokus?.kecamatan || []).includes(kec);
@@ -953,11 +1039,30 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                           );
                         })}
                       </div>
-                    </div>
-
-                    {/* Desa */}
+                    </div>                    {/* Desa */}
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Desa</span>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Desa</span>
+                        {selectedActivity.status === "draft" && (tempLokus?.kecamatan || []).length > 0 && (
+                          <div className="flex gap-1.5 text-[9px] font-bold">
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("desa", "select_all")}
+                              className="text-blue-600 hover:text-blue-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Semua
+                            </button>
+                            <span className="text-slate-355 font-normal">|</span>
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("desa", "deselect_all")}
+                              className="text-red-600 hover:text-red-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {(tempLokus?.kecamatan || []).length > 0 ? (
                           dbDesaHierarchy
@@ -985,10 +1090,31 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                         )}
                       </div>
                     </div>
-
+ 
                     {/* SLS */}
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">SLS</span>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">SLS</span>
+                        {selectedActivity.status === "draft" && (tempLokus?.desa || []).length > 0 && (
+                          <div className="flex gap-1.5 text-[9px] font-bold">
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("sls", "select_all")}
+                              className="text-blue-600 hover:text-blue-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Semua
+                            </button>
+                            <span className="text-slate-355 font-normal">|</span>
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("sls", "deselect_all")}
+                              className="text-red-600 hover:text-red-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {(tempLokus?.desa || []).length > 0 ? (
                           dbSlsHierarchy
@@ -1007,7 +1133,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                                     onChange={() => handleLokusChange("sls", s.name)}
                                     className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
                                   />
-                                  <span className="truncate">{s.name}</span>
+                                  <span className="truncate">{s.name} {s.desa}</span>
                                 </label>
                               );
                             })
@@ -1016,10 +1142,31 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                         )}
                       </div>
                     </div>
-
+ 
                     {/* Sub SLS */}
                     <div className="flex flex-col">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase mb-2">Sub SLS</span>
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">Sub SLS</span>
+                        {selectedActivity.status === "draft" && (tempLokus?.sls || []).length > 0 && (
+                          <div className="flex gap-1.5 text-[9px] font-bold">
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("subSls", "select_all")}
+                              className="text-blue-600 hover:text-blue-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Semua
+                            </button>
+                            <span className="text-slate-355 font-normal">|</span>
+                            <button 
+                              type="button"
+                              onClick={() => handleBulkLokusChange("subSls", "deselect_all")}
+                              className="text-red-600 hover:text-red-800 bg-transparent border-0 cursor-pointer p-0"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        )}
+                      </div>
                       <div className="border border-slate-100 rounded-xl p-3 bg-slate-50/20 max-h-[180px] overflow-y-auto space-y-2 scrollbar-thin text-[11px]">
                         {(tempLokus?.sls || []).length > 0 ? (
                           (() => {
@@ -1039,7 +1186,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                                       onChange={() => handleLokusChange("subSls", sub.name)}
                                       className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
                                     />
-                                    <span className="truncate">{sub.name.split(' RT')[0]}</span>
+                                    <span className="truncate">{sub.name} {sub.desa}</span>
                                   </label>
                                 );
                               });
@@ -1078,6 +1225,37 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                     <span className="text-lg font-bold text-slate-800 block mt-1">{assignedOfficers.length} Orang</span>
                   </div>
                 </div>
+
+                {/* Akun Admin Kegiatan Card */}
+                {selectedActivity.status === "published" && selectedActivity.activity_admin && (
+                  <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2.5 border-b border-slate-50 pb-3">
+                      <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center text-emerald-600">
+                        <Save size={16} />
+                      </div>
+                      <div>
+                        <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Akun Admin Kegiatan
+                        </h3>
+                        <p className="text-[10px] text-slate-400 font-medium">Gunakan akun ini untuk login khusus memantau kegiatan ini.</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Username</label>
+                        <div className="px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-700 font-mono font-bold select-all">
+                          {selectedActivity.activity_admin.username}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Password</label>
+                        <div className="px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-700 font-mono font-bold select-all">
+                          {selectedActivity.activity_admin.plain_password}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Right Column: Assigned Officers */}
@@ -1261,6 +1439,28 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-2">Fokus Pendataan</label>
+                <div className="relative">
+                  <select 
+                    value={newActivity.fokus} 
+                    onChange={e => setNewActivity({ ...newActivity, fokus: e.target.value })}
+                    required
+                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer appearance-none pr-10"
+                  >
+                    <option value="">-- Pilih Fokus Pendataan --</option>
+                    <option value="Keluarga">Keluarga</option>
+                    <option value="Rumah Tangga">Rumah Tangga</option>
+                    <option value="Tim">Tim</option>
+                    <option value="Individu">Individu</option>
+                    <option value="Perusahaan">Perusahaan</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                    <ChevronDown size={16} />
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Tanggal Pelaksanaan</label>
@@ -1358,6 +1558,28 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                   placeholder="Jelaskan tujuan dan ruang lingkup..." 
                   className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 bg-white text-slate-700 transition-all font-medium resize-none"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-2">Fokus Pendataan</label>
+                <div className="relative">
+                  <select 
+                    value={editForm.fokus} 
+                    onChange={e => setEditForm({ ...editForm, fokus: e.target.value })}
+                    required
+                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer appearance-none pr-10"
+                  >
+                    <option value="">-- Pilih Fokus Pendataan --</option>
+                    <option value="Keluarga">Keluarga</option>
+                    <option value="Rumah Tangga">Rumah Tangga</option>
+                    <option value="Tim">Tim</option>
+                    <option value="Individu">Individu</option>
+                    <option value="Perusahaan">Perusahaan</option>
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                    <ChevronDown size={16} />
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">

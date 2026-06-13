@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin } from "lucide-react";
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2 } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import useAutoSave from "../../hooks/useAutoSave";
 import { api } from "../../services/api";
+import SearchableSelect from "../../components/ui/SearchableSelect";
 
 /**
  * Halaman pengisian kuesioner petugas — clean & BPS standard.
@@ -19,6 +20,45 @@ import { api } from "../../services/api";
  * @returns {React.ReactElement}
  */
 function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, isOffline, loading }) {
+  // Unified questionnaire state
+  const [ans, setAns] = useState({
+    kode: "",
+    krt: "",
+    alamat: "",
+    kecamatan: "",
+    desa: "",
+    sls: "",
+    sub_sls: "",
+    is_prelist: false,
+    values: {} // Object map { [question_id]: value }
+  });
+
+  const [view, setView] = useState("select_activity"); // select_activity | prelist | form
+  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [localPrelist, setLocalPrelist] = useState([]);
+  const [localActivities, setLocalActivities] = useState(activities || []);
+  const [selectedRtItem, setSelectedRtItem] = useState(null);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  
+  // Dynamic form schema states
+  const [blocks, setBlocks] = useState([]);
+  const [questions, setQuestions] = useState([]);
+  const [loadingForm, setLoadingForm] = useState(false);
+
+  const [activeTab, setActiveTab] = useState(""); // Block kode (e.g. "Blok I", "Blok II")
+  const [selectedLogItem, setSelectedLogItem] = useState(null);
+  const [warningMessage, setWarningMessage] = useState(null);
+  const [rejectionNoteItem, setRejectionNoteItem] = useState(null);
+  const [rejectionNote, setRejectionNote] = useState("");
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: null
+  });
+
+  const { saved, markUnsaved } = useAutoSave(1100);
+
   const isLoading = loading || loadingForm;
 
   const getLoopValue = (qId, idx) => {
@@ -224,8 +264,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const getQuestionCode = (q, allQuestions, allBlocks) => {
     if (!q) return "";
-    const blockIdx = allBlocks.findIndex(b => b.id === q.blok_id) + 1;
+    const standardBlocks = allBlocks.filter(b => {
+      const idStr = String(b.kode || b.id || "");
+      return idStr.startsWith("Blok ");
+    });
+    const blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
     if (blockIdx === 0) return "";
+
+
+
     
     if (q.parent_id) {
       const parent = allQuestions.find(p => p.id === q.parent_id);
@@ -255,7 +302,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   const parseValidation = (str) => {
-    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null };
+    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null, subLabel: "" };
     const trimmed = str.trim();
     if (trimmed.startsWith('{')) {
       try {
@@ -277,7 +324,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           loopByQuestionId: parsed.loop_by_question_id || null,
           defaultVal: parsed.default_val || null,
           isLookupKey: !!parsed.is_lookup_key,
-          copyOnKeyMatch: !!parsed.copy_on_key_match
+          copyOnKeyMatch: !!parsed.copy_on_key_match,
+          subLabel: parsed.sub_label || ""
         };
       } catch (e) {}
     }
@@ -292,7 +340,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         loopByQuestionId: null,
         defaultVal: null,
         isLookupKey: false,
-        copyOnKeyMatch: false
+        copyOnKeyMatch: false,
+        subLabel: ""
       };
     } else if (trimmed.startsWith('min:')) {
       return {
@@ -304,7 +353,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         loopByQuestionId: null,
         defaultVal: null,
         isLookupKey: false,
-        copyOnKeyMatch: false
+        copyOnKeyMatch: false,
+        subLabel: ""
       };
     } else if (trimmed.startsWith('gt:')) {
       return {
@@ -316,7 +366,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         loopByQuestionId: null,
         defaultVal: null,
         isLookupKey: false,
-        copyOnKeyMatch: false
+        copyOnKeyMatch: false,
+        subLabel: ""
       };
     }
     
@@ -329,7 +380,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       loopByQuestionId: null,
       defaultVal: null,
       isLookupKey: false,
-      copyOnKeyMatch: false
+      copyOnKeyMatch: false,
+      subLabel: ""
     };
   };
 
@@ -369,27 +421,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return true;
   };
 
-  const [view, setView] = useState("select_activity"); // select_activity | prelist | form
-  const [selectedActivity, setSelectedActivity] = useState(null);
-  const [localPrelist, setLocalPrelist] = useState([]);
-  const [selectedRtItem, setSelectedRtItem] = useState(null);
-  
-  // Dynamic form schema states
-  const [blocks, setBlocks] = useState([]);
-  const [questions, setQuestions] = useState([]);
-  const [loadingForm, setLoadingForm] = useState(false);
 
-  const [activeTab, setActiveTab] = useState(""); // Block kode (e.g. "Blok I", "Blok II")
-  const [selectedLogItem, setSelectedLogItem] = useState(null);
-  const [warningMessage, setWarningMessage] = useState(null);
-  const [rejectionNoteItem, setRejectionNoteItem] = useState(null);
-  const [rejectionNote, setRejectionNote] = useState("");
-  const [confirmDialog, setConfirmDialog] = useState({
-    isOpen: false,
-    title: "",
-    message: "",
-    onConfirm: null
-  });
 
   const isPml = selectedActivity?.role === "PML";
 
@@ -535,26 +567,28 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
   }, [ans.values, questions]);
 
-  const { saved, markUnsaved } = useAutoSave(1100);
-  
-  // Unified questionnaire state
-  const [ans, setAns] = useState({
-    kode: "",
-    krt: "",
-    alamat: "",
-    kecamatan: "",
-    desa: "",
-    sls: "",
-    sub_sls: "",
-    is_prelist: false,
-    values: {} // Object map { [question_id]: value }
-  });
+
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
 
+  useEffect(() => {
+    if (isOffline) return;
+    const fetchLatestActivities = async () => {
+      try {
+        const res = await api.kegiatan.getAll();
+        if (Array.isArray(res)) {
+          setLocalActivities(res);
+        }
+      } catch (err) {
+        console.error("Gagal refresh kegiatan di petugas:", err);
+      }
+    };
+    fetchLatestActivities();
+  }, [activities, isOffline]);
+
   const officerActivities = (currentPetugas.projects || [])
     .map(projName => {
-      const act = activities?.find(a => a.name === projName);
+      const act = localActivities?.find(a => a.name === projName);
       if (!act) return null;
       return {
         ...act,
@@ -576,6 +610,20 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     if (!selectedActivity) return;
 
     let isMounted = true;
+    const mapQuestionsType = (qs) => {
+      return (qs || []).map(q => {
+        if (q.type === 'select') {
+          try {
+            const parsed = JSON.parse(q.validation || '{}');
+            if (parsed.is_search) {
+              return { ...q, type: 'search' };
+            }
+          } catch (e) {}
+        }
+        return q;
+      });
+    };
+
     const loadFormStructure = async () => {
       setLoadingForm(true);
       if (isOffline) {
@@ -584,7 +632,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           try {
             const data = JSON.parse(cached);
             setBlocks(data.blocks || []);
-            setQuestions(data.questions || []);
+            setQuestions(mapQuestionsType(data.questions || []));
           } catch (e) {
             console.error("Gagal parse cached form structure:", e);
           }
@@ -594,7 +642,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           const res = await api.form.getStructure(selectedActivity.id);
           if (res.success && isMounted) {
             setBlocks(res.blocks || []);
-            setQuestions(res.questions || []);
+            setQuestions(mapQuestionsType(res.questions || []));
             localStorage.setItem(`form_structure_${selectedActivity.id}`, JSON.stringify({
               blocks: res.blocks,
               questions: res.questions
@@ -607,7 +655,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             try {
               const data = JSON.parse(cached);
               setBlocks(data.blocks || []);
-              setQuestions(data.questions || []);
+              setQuestions(mapQuestionsType(data.questions || []));
             } catch (err) {
               console.error(err);
             }
@@ -784,8 +832,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
     
     // Check main location headers in the first block if label matches Lokasi
-    if (blockKode === "Blok I" || blockKode === blocks[0]?.kode) {
-      if (!ans.kode || !ans.kecamatan || !ans.desa) {
+    if (blockKode === blocks[0]?.kode) {
+      if (!ans.kode || ans.kode.trim() === "") {
         hasEmptyRequired = true;
       }
     }
@@ -794,6 +842,58 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     if (hasValidationError) return 'error';
     if (hasEmptyRequired) return 'warning';
     return 'safe';
+  };
+
+  const getValidationSummary = () => {
+    const errors = [];
+    const warnings = [];
+
+    // Check first block code
+    if (!ans.kode || ans.kode.trim() === "") {
+      warnings.push(`[${blocks[0]?.kode || 'Pengantar'}] Kode Dokumen / Nomor Urut belum diisi.`);
+    }
+
+    questions.forEach(q => {
+      if (!isQuestionVisible(q)) return;
+
+      const val = ans.values[q.id];
+      const block = blocks.find(b => b.id === q.blok_id);
+      const blockName = block ? block.kode : "Form";
+
+      if (val !== undefined && val !== null && val !== '') {
+        if (q.type === 'number' && q.validation) {
+          const numVal = Number(val);
+          if (isNaN(numVal)) {
+            errors.push(`[${blockName}] Isian ${q.label} harus berupa angka.`);
+          } else {
+            let ruleValid = true;
+            const rule = q.validation.trim();
+            if (rule.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(rule);
+                if (parsed.type === 'range') ruleValid = numVal >= Number(parsed.min) && numVal <= Number(parsed.max);
+                else if (parsed.type === 'min') ruleValid = numVal >= Number(parsed.min);
+                else if (parsed.type === 'gt') ruleValid = numVal > Number(parsed.min);
+              } catch (e) {}
+            } else if (rule.startsWith('range:')) {
+              const parts = rule.replace('range:', '').trim().split('-');
+              ruleValid = numVal >= Number(parts[0]) && numVal <= Number(parts[1]);
+            } else if (rule.startsWith('min:')) {
+              ruleValid = numVal >= Number(rule.replace('min:', '').trim());
+            } else if (rule.startsWith('gt:')) {
+              ruleValid = numVal > Number(rule.replace('gt:', '').trim());
+            }
+            if (!ruleValid) {
+              errors.push(`[${blockName}] Nilai ${q.label} diluar rentang yang diizinkan.`);
+            }
+          }
+        }
+      } else if (q.required) {
+        warnings.push(`[${blockName}] Isian wajib ${q.label} masih kosong.`);
+      }
+    });
+
+    return { errors, warnings };
   };
 
   const handleSelectActivity = (act) => {
@@ -885,7 +985,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         initialValues[q.id] = defaultVal;
       } else {
         const lower = q.label.toLowerCase();
-        if (lower.includes("provinsi")) {
+        if (q.type === 'pcl') {
+          initialValues[q.id] = currentUser.name;
+        } else if (q.type === 'pml') {
+          initialValues[q.id] = currentPetugas.assignments?.[selectedActivity?.name]?.pengawas || "";
+        } else if (lower.includes("provinsi")) {
           initialValues[q.id] = "Kalimantan Utara";
         } else if (lower.includes("kabupaten") || lower.includes("kota")) {
           initialValues[q.id] = "Tana Tidung";
@@ -922,6 +1026,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       setView("prelist");
       return;
     }
+
     askConfirmation(
       "Simpan Kuesioner",
       "Apakah Anda yakin ingin menyelesaikan dan menyimpan kuesioner ini? Status akan berubah menjadi Tersimpan.",
@@ -945,7 +1050,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       kode: ans.kode,
       kegiatan_id: selectedActivity.id,
       petugas_id: currentUser.id,
-      krt: ans.krt || "Tanpa Nama KRT",
+      krt: ans.krt || "Tanpa Nama",
       alamat: ans.alamat,
       kecamatan: ans.kecamatan,
       desa: ans.desa,
@@ -957,79 +1062,36 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       log_message: selectedRtItem ? "Kuesioner diperbarui PCL (Tersimpan)" : "Kuesioner baru disimpan PCL (Tersimpan)"
     };
 
-    if (isOffline) {
-      const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
-      let cachedList = [];
-      if (cached) {
-        try { cachedList = JSON.parse(cached); } catch { cachedList = []; }
-      }
-
-      const localDoc = {
-        ...payload,
-        id: selectedRtItem?.id || null,
-        review_status: selectedRtItem?.review_status || "draft",
-        sync: false,
-        logs: newLogs
-      };
-
-      const idx = cachedList.findIndex(d => {
-        if (selectedRtItem) {
-          if (selectedRtItem.id && d.id === selectedRtItem.id) return true;
-          return d.kode === selectedRtItem.kode;
-        }
-        return d.kode === ans.kode;
-      });
-      if (idx > -1) {
-        cachedList[idx] = localDoc;
-      } else {
-        cachedList.push(localDoc);
-      }
-
-      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
-      setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
-      setView("prelist");
-    } else {
-      try {
-        const res = await api.dokumen.save(payload);
-        if (res.success) {
-          const docs = await api.dokumen.getByPetugas(currentUser.id);
-          setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
-          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
-          setView("prelist");
-        } else {
-          alert("Gagal menyimpan ke server: " + res.message);
-        }
-      } catch (e) {
-        console.error("Save online error, fallback to offline local saving", e);
-        alert("Gagal terhubung ke server. Data dialihkan disimpan offline.");
-        
-        // Offline fallback
-        const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
-        let cachedList = [];
-        if (cached) { try { cachedList = JSON.parse(cached); } catch { cachedList = []; } }
-
-        const localDoc = {
-          ...payload,
-          id: selectedRtItem?.id || null,
-          review_status: selectedRtItem?.review_status || "draft",
-          sync: false,
-          logs: newLogs
-        };
-
-        const idx = cachedList.findIndex(d => {
-          if (selectedRtItem) {
-            if (selectedRtItem.id && d.id === selectedRtItem.id) return true;
-            return d.kode === selectedRtItem.kode;
-          }
-          return d.kode === ans.kode;
-        });
-        if (idx > -1) { cachedList[idx] = localDoc; } else { cachedList.push(localDoc); }
-
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
-        setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
-        setView("prelist");
-      }
+    const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+    let cachedList = [];
+    if (cached) {
+      try { cachedList = JSON.parse(cached); } catch { cachedList = []; }
     }
+
+    const localDoc = {
+      ...payload,
+      id: selectedRtItem?.id || null,
+      review_status: selectedRtItem?.review_status || "draft",
+      sync: false,
+      logs: newLogs
+    };
+
+    const idx = cachedList.findIndex(d => {
+      if (selectedRtItem) {
+        if (selectedRtItem.id && d.id === selectedRtItem.id) return true;
+        return d.kode === selectedRtItem.kode;
+      }
+      return d.kode === ans.kode;
+    });
+    if (idx > -1) {
+      cachedList[idx] = localDoc;
+    } else {
+      cachedList.push(localDoc);
+    }
+
+    localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
+    setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+    setView("prelist");
   };
 
   const handleCancelSave = () => {
@@ -1090,6 +1152,112 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         alert("Terjadi kesalahan jaringan.");
       }
     }
+  };
+
+  const handleDeleteDoc = (item) => {
+    askConfirmation(
+      "Hapus Kuesioner",
+      `Apakah Anda yakin ingin menghapus kuesioner untuk ${item.krt || "Tanpa Nama KRT"} (${item.kode})? Tindakan ini tidak dapat dibatalkan.`,
+      () => executeDeleteDoc(item)
+    );
+  };
+
+  const executeDeleteDoc = async (item) => {
+    // Hapus dari local storage terlebih dahulu
+    const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+    let cachedList = [];
+    if (cached) {
+      try {
+        cachedList = JSON.parse(cached);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    const updatedList = cachedList.filter(d => {
+      if (item.id && d.id === item.id) return false;
+      return d.kode !== item.kode;
+    });
+
+    localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(updatedList));
+    setLocalPrelist(updatedList.filter(d => d.kegiatan_id === selectedActivity.id));
+
+    // Jika online dan item memiliki id, hapus juga di database server
+    if (!isOffline && item.id) {
+      try {
+        await api.dokumen.delete(item.id);
+      } catch (e) {
+        console.error("Gagal menghapus kuesioner di server:", e);
+      }
+    }
+  };
+
+  const handleIntermediateSave = async () => {
+    if (!ans.kode || !ans.kode.trim()) {
+      alert("Kode Dokumen / Nomor Urut wajib diisi terlebih dahulu sebelum menyimpan.");
+      return;
+    }
+
+    const timestamp = new Date().toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit' }) + " " + new Date().toLocaleDateString("id-ID", { day: '2-digit', month: '2-digit', year: 'numeric' });
+    let currentLogs = selectedRtItem?.logs || [];
+    if (typeof currentLogs === 'string') {
+      try { currentLogs = JSON.parse(currentLogs); } catch { currentLogs = []; }
+    }
+    
+    const newLogs = selectedRtItem
+      ? [...currentLogs, `${timestamp}: Kuesioner disimpan sementara (Draft)`]
+      : [`${timestamp}: Kuesioner dibuat (Draft)`, `${timestamp}: Kuesioner disimpan sementara (Draft)`];
+
+    const currentStatus = selectedRtItem?.status || "draft";
+
+    const payload = {
+      id: selectedRtItem?.id,
+      kode: ans.kode,
+      kegiatan_id: selectedActivity.id,
+      petugas_id: currentUser.id,
+      krt: ans.krt || "Tanpa Nama",
+      alamat: ans.alamat,
+      kecamatan: ans.kecamatan,
+      desa: ans.desa,
+      sls: ans.sls,
+      sub_sls: ans.sub_sls,
+      status: currentStatus,
+      is_prelist: ans.is_prelist,
+      values: ans.values,
+      log_message: "Kuesioner disimpan sementara (Draft)"
+    };
+
+    const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+    let cachedList = [];
+    if (cached) {
+      try { cachedList = JSON.parse(cached); } catch { cachedList = []; }
+    }
+
+    const localDoc = {
+      ...payload,
+      id: selectedRtItem?.id || null,
+      review_status: selectedRtItem?.review_status || "draft",
+      sync: false,
+      logs: newLogs
+    };
+
+    const idx = cachedList.findIndex(d => {
+      if (selectedRtItem) {
+        if (selectedRtItem.id && d.id === selectedRtItem.id) return true;
+        return d.kode === selectedRtItem.kode;
+      }
+      return d.kode === ans.kode;
+    });
+    if (idx > -1) {
+      cachedList[idx] = localDoc;
+    } else {
+      cachedList.push(localDoc);
+    }
+
+    localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(cachedList));
+    setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+    setSelectedRtItem(localDoc);
+    alert("Progres berhasil disimpan sementara.");
   };
 
   const handlePmlApprove = () => {
@@ -1278,13 +1446,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 </button>
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] text-slate-400 font-medium truncate">Kegiatan: {selectedActivity.name}</p>
-                  <h2 className="text-base font-bold text-slate-900 truncate">Daftar Prelist RT</h2>
+                  <h2 className="text-base font-bold text-slate-900 truncate">Daftar Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}</h2>
                 </div>
               </div>
 
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-slate-400 font-semibold">{localPrelist.length} Rumah Tangga</span>
+                  <span className="text-xs text-slate-400 font-semibold">{localPrelist.length} {selectedActivity.fokus || 'Rumah Tangga'}</span>
                   {!isPml && (
                     <button onClick={handleAddNew}
                       disabled={loadingForm || blocks.length === 0}
@@ -1312,49 +1480,67 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         }`}>{i + 1}</div>
                         
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{item.krt || "Tanpa Nama KRT"}</p>
-                          <p className="text-xs text-slate-450 mt-0.5 font-medium truncate">{item.alamat || "Alamat belum diisi"}</p>
-                        </div>
-
-                        <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                          {/* Completion Badge */}
-                          <Badge status={item.review_status === "rejected" ? "rejected" : item.status}/>
+                          <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
+                            {item.krt || "Tanpa Nama"} - <span className="text-slate-400 font-mono text-xs">{item.kode}</span>
+                          </p>
                           
-                          {/* Review status badge */}
-                          {item.review_status === "approved" ? (
-                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-emerald-50 text-emerald-700 flex items-center gap-1">
-                              <span className="w-1 h-1 rounded-full bg-emerald-500" />
-                              Approved
-                            </span>
-                          ) : item.review_status === "rejected" ? (
-                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 flex items-center gap-1">
-                              <span className="w-1 h-1 rounded-full bg-rose-500" />
-                              Rejected
-                            </span>
-                          ) : (
-                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-md bg-slate-50 text-slate-650 flex items-center gap-1">
-                              <span className="w-1 h-1 rounded-full bg-slate-400" />
-                              Draft
-                            </span>
-                          )}
+                          {/* Badges and actions placed below info to avoid layout overflow on mobile */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+                            {/* PCL completion status badge */}
+                            {!isPml && (
+                              <Badge status={item.review_status === "rejected" ? "rejected" : item.status}/>
+                            )}
+                            
+                            {/* PML review status badge */}
+                            {isPml && (
+                              item.review_status === "approved" ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-emerald-500" />
+                                  Approved
+                                </span>
+                              ) : item.review_status === "rejected" ? (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-rose-500" />
+                                  Rejected
+                                </span>
+                              ) : (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-50 text-slate-650 flex items-center gap-1">
+                                  <span className="w-1 h-1 rounded-full bg-slate-400" />
+                                  Draft
+                                </span>
+                              )
+                            )}
 
-                          {/* Activity Logs trigger */}
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedLogItem(item);
-                            }}
-                            className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer flex-shrink-0"
-                            title="Log Aktivitas"
-                          >
-                            <MessageSquare size={14} />
-                          </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedLogItem(item);
+                              }}
+                              className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
+                              title="Log Aktivitas"
+                            >
+                              <MessageSquare size={12} />
+                            </button>
+
+                            {!isPml && item.status !== "terkirim" && item.review_status !== "rejected" && item.review_status !== "approved" && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDoc(item);
+                                }}
+                                className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 border border-solid border-rose-200/60 flex items-center justify-center text-rose-500 hover:text-rose-700 transition-all cursor-pointer"
+                                title="Hapus Kuesioner"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
                     {localPrelist.length === 0 && (
                       <div className="bg-slate-50 rounded-xl py-12 text-center border border-dashed border-slate-200">
-                        <p className="text-xs text-slate-550 font-semibold">Prelist Kosong</p>
+                        <p className="text-xs text-slate-550 font-semibold">Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')} Kosong</p>
                         <p className="text-[10px] text-slate-400 mt-1">Klik Tambah Baru untuk mengisi kuesioner baru</p>
                       </div>
                     )}
@@ -1436,10 +1622,20 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       {activeTab} – {activeBlock?.title || "Isi Kuesioner"}
                     </h2>
                   </div>
-                  <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg flex-shrink-0 transition-all ${
-                    saved ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50"
-                  }`}>
-                    <Save size={12}/> {saved ? "Tersimpan" : "Menyimpan..."}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all ${
+                      saved ? "text-emerald-600 bg-emerald-50" : "text-amber-600 bg-amber-50"
+                    }`}>
+                      <Save size={12}/> {saved ? "Tersimpan" : "Menyimpan..."}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowSummaryModal(true)}
+                      className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
+                      title="Rangkuman Galat"
+                    >
+                      <Info size={14} />
+                    </button>
                   </div>
                 </div>
 
@@ -1506,7 +1702,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 
                 {/* Prepend code input at the top of Block I */}
                 {isFirstBlock && (
-                  <QCard r="kode" label="Kode Dokumen / Nomor Urut RT" required hint="Kode unik identifikasi rumah tangga">
+                  <QCard r="kode" label={`Kode Dokumen / Nomor Urut ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}`} required hint={`Kode unik identifikasi ${selectedActivity.fokus?.toLowerCase() || 'rumah tangga'}`}>
                     <input 
                       type="text" 
                       value={ans.kode} 
@@ -1514,13 +1710,23 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         setAns(p => ({ ...p, kode: e.target.value }));
                         markUnsaved();
                       }}
-                      placeholder="Contoh: RT-001" 
+                      placeholder={`Contoh: ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}-001`} 
                       disabled={isReadOnly || (selectedRtItem && selectedRtItem.status !== 'draft')}
                       className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     />
                   </QCard>
                 )}
                 {(() => {
+                  const activityPetugas = (petugas || []).filter(p => 
+                    p.projects?.includes(selectedActivity?.name)
+                  );
+                  const pclList = activityPetugas.filter(p => 
+                    p.projectRoles?.[selectedActivity?.name] === "PCL"
+                  );
+                  const pmlList = activityPetugas.filter(p => 
+                    p.projectRoles?.[selectedActivity?.name] === "PML"
+                  );
+
                   const renderInputs = (q, instances) => {
                     const isTextType = q.type === 'text';
                     const isNumberType = q.type === 'number';
@@ -1528,9 +1734,85 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     const isChoiceType = q.type === 'select' || q.type === 'radio';
                     const isLocationType = q.type === 'location';
                     const isDateType = q.type === 'date';
+                    const isPclType = q.type === 'pcl';
+                    const isPmlType = q.type === 'pml';
+                    const isSearchType = q.type === 'search';
 
                     return (
                       <>
+                        {/* Searchable Dropdown */}
+                        {isSearchType && (
+                          <div className="space-y-3">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                <SearchableSelect
+                                  value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                  options={q.options || []}
+                                  disabled={isReadOnly}
+                                  placeholder="Cari dan pilih opsi..."
+                                  onChange={(val) => {
+                                    handleValueChange(q, val, idx, instances.length);
+                                  }}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* PCL INPUTS (Dropdown) */}
+                        {isPclType && (
+                          <div className="space-y-3">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                <select 
+                                  value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => {
+                                    handleValueChange(q, e.target.value, idx, instances.length);
+                                  }}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  <option value="">-- Pilih PCL --</option>
+                                  {pclList.map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                  {pclList.length === 0 && (petugas || []).map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* PML INPUTS (Dropdown) */}
+                        {isPmlType && (
+                          <div className="space-y-3">
+                            {instances.map((idx) => (
+                              <div key={idx} className="space-y-1">
+                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                <select 
+                                  value={instances.length > 1 ? getLoopValue(q.id, idx) : (ans.values[q.id] || "")}
+                                  disabled={isReadOnly}
+                                  onChange={(e) => {
+                                    handleValueChange(q, e.target.value, idx, instances.length);
+                                  }}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  <option value="">-- Pilih PML --</option>
+                                  {pmlList.map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                  {pmlList.length === 0 && (petugas || []).map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
                         {/* 1. TEXT INPUTS */}
                         {isTextType && (
                           <div className="space-y-3">
@@ -1814,18 +2096,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       }
 
                       return (
-                        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5 flex items-start gap-3">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-amber-100 text-amber-600 flex-shrink-0 mt-0.5">
-                            <Landmark size={14}/>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full mb-2">
-                              CATATAN
-                            </span>
-                            <p className="text-xs font-semibold text-amber-900 leading-relaxed break-words">
-                              {renderNoteText(labelText, computeAggregation)}
-                            </p>
-                          </div>
+                        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5">
+                          <p className="text-sm font-semibold text-amber-900 leading-relaxed break-words">
+                            {renderNoteText(labelText, computeAggregation)}
+                          </p>
                         </div>
                       );
                     }
@@ -1833,7 +2107,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
                     const hasChildren = childQs.length > 0;
 
-                    const { rangeText, hintText, description, isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+                    const { rangeText, hintText, description, isLoop, loopType, loopByQuestionId, subLabel } = parseValidation(q.validation);
 
                     let loopCount = 1;
                     const manualCount = getManualLoopCount(q);
@@ -1853,12 +2127,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       return (
                         <QCard 
                           key={q.id} 
-                          r={`R.${qCode}`} 
+                          r={qCode} 
                           label={q.label} 
+                          subLabel={subLabel}
                           required={!!q.required} 
-                          hint={rangeText || hintText}
                           description={description}
-                          skipInfo={q.skip_logic ? `Kondisi skip: jika bernilai ${q.skip_logic}` : null}
                         >
                           {hasChildren ? (
                             <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
@@ -1909,7 +2182,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
                               </div>
                               <p className="text-xs font-bold text-slate-700 mt-1">{q.label}</p>
-                              {(rangeText || hintText) && <p className="text-[10px] text-slate-450 mt-0.5">{rangeText || hintText}</p>}
+                              {subLabel && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
                             </div>
                           </div>
                           <div className="pl-4 mt-2">
@@ -2099,7 +2372,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-slate-400 text-center py-6">Belum ada log aktivitas untuk keluarga ini.</p>
+                <p className="text-xs text-slate-400 text-center py-6">Belum ada log aktivitas untuk {selectedActivity.fokus?.toLowerCase() || 'rumah tangga'} ini.</p>
               )}
             </div>
             
@@ -2155,6 +2428,88 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         </div>
       )}
 
+      {/* Validation Summary Modal */}
+      {showSummaryModal && (() => {
+        const { errors, warnings } = getValidationSummary();
+        return (
+          <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden flex flex-col" style={{ maxHeight: "80vh", animation: "scaleUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+              <div className="px-6 py-4 bg-slate-50 border-b border-solid border-slate-100 flex items-center justify-between flex-shrink-0">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Rangkuman Kualitas Isian</h3>
+                  <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedRtItem?.krt || "Baru"} ({ans.kode})</p>
+                </div>
+                <button 
+                  onClick={() => setShowSummaryModal(false)}
+                  className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-650 transition-all cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="p-6 overflow-y-auto space-y-5 flex-1 scrollbar-thin">
+                {/* Total Stats summary */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-rose-50/50 border border-solid border-rose-100 p-3 rounded-xl text-center">
+                    <span className="mono text-lg font-bold text-rose-600">{errors.length}</span>
+                    <span className="text-[9px] text-slate-400 font-bold block mt-0.5">Kesalahan (Galat)</span>
+                  </div>
+                  <div className="bg-amber-50/50 border border-solid border-amber-100 p-3 rounded-xl text-center">
+                    <span className="mono text-lg font-bold text-amber-600">{warnings.length}</span>
+                    <span className="text-[9px] text-slate-400 font-bold block mt-0.5">Isian Belum Lengkap</span>
+                  </div>
+                </div>
+
+                {/* Errors list */}
+                {errors.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-rose-700 flex items-center gap-1.5">
+                      <AlertCircle size={14} /> Kesalahan Validasi Nilai ({errors.length})
+                    </h4>
+                    <ul className="space-y-1.5 text-[11px] font-semibold text-rose-600 leading-normal pl-4 list-disc bg-rose-50/30 p-3 rounded-xl border border-solid border-rose-100/50">
+                      {errors.map((err, idx) => (
+                        <li key={idx}>{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Warnings list */}
+                {warnings.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-bold text-amber-700 flex items-center gap-1.5">
+                      <AlertTriangle size={14} /> Isian Wajib Kosong ({warnings.length})
+                    </h4>
+                    <ul className="space-y-1.5 text-[11px] font-semibold text-amber-600 leading-normal pl-4 list-disc bg-amber-50/30 p-3 rounded-xl border border-solid border-amber-100/50">
+                      {warnings.map((warn, idx) => (
+                        <li key={idx}>{warn}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {errors.length === 0 && warnings.length === 0 && (
+                  <div className="py-8 text-center flex flex-col items-center justify-center">
+                    <CheckCircle size={32} className="text-emerald-500 mb-2" />
+                    <p className="text-xs font-bold text-slate-700">Kuesioner Sempurna!</p>
+                    <p className="text-[10px] text-slate-400 mt-1">Semua isian wajib terisi dan memenuhi aturan validasi.</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end flex-shrink-0">
+                <button 
+                  onClick={() => setShowSummaryModal(false)}
+                  className="px-4.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Warning Alert Modal */}
       {warningMessage && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -2206,6 +2561,20 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               </button>
             </div>
           </div>
+        </div>
+      )}
+      
+      {/* Floating Save button (only in form view, not read-only, positioned above bottom menu, small size) */}
+      {view === "form" && selectedActivity && !isReadOnly && (
+        <div className="fixed bottom-24 right-6 z-50 md:right-[calc(50vw-18rem)]">
+          <button
+            type="button"
+            onClick={handleIntermediateSave}
+            className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white flex items-center justify-center shadow-lg hover:shadow-xl transition-all border-0 cursor-pointer"
+            title="Simpan Sementara"
+          >
+            <Save size={18} />
+          </button>
         </div>
       )}
     </PetugasLayout>

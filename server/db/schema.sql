@@ -91,15 +91,23 @@ CREATE TABLE IF NOT EXISTS petugas_kegiatan (
 -- 5. WILAYAH — Referensi wilayah flat
 -- =============================================
 CREATE TABLE IF NOT EXISTS wilayah (
-  id          INT AUTO_INCREMENT PRIMARY KEY,
-  kecamatan   VARCHAR(100) NOT NULL,
-  desa        VARCHAR(100) NOT NULL,
-  sls         VARCHAR(100) DEFAULT NULL,
-  sub_sls     VARCHAR(100) DEFAULT NULL,
-  created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  kecamatan     VARCHAR(100) NOT NULL,
+  desa          VARCHAR(100) NOT NULL,
+  sls           VARCHAR(100) DEFAULT NULL,
+  sub_sls       VARCHAR(100) DEFAULT NULL,
+  kode_wilayah  VARCHAR(16) DEFAULT NULL,
+  kdprov        VARCHAR(2) DEFAULT NULL,
+  kdkab         VARCHAR(2) DEFAULT NULL,
+  kdkec         VARCHAR(3) DEFAULT NULL,
+  kddesa        VARCHAR(3) DEFAULT NULL,
+  kdsls         VARCHAR(4) DEFAULT NULL,
+  kdsubsls      VARCHAR(2) DEFAULT NULL,
+  created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
   INDEX idx_wilayah_kecamatan (kecamatan),
-  INDEX idx_wilayah_desa (desa)
+  INDEX idx_wilayah_desa (desa),
+  INDEX idx_wilayah_kode (kode_wilayah)
 ) ENGINE=InnoDB;
 
 -- =============================================
@@ -147,7 +155,7 @@ CREATE TABLE IF NOT EXISTS form_question (
   blok_id     INT NOT NULL,
   parent_id   INT DEFAULT NULL,
   label       VARCHAR(300) NOT NULL,
-  type        ENUM('text','number','select','radio','date','textarea','location') DEFAULT 'text',
+  type        ENUM('text','number','select','radio','date','textarea','location','note','pcl','pml') DEFAULT 'text',
   required    BOOLEAN DEFAULT FALSE,
   options     JSON DEFAULT NULL,
   validation  TEXT DEFAULT NULL,

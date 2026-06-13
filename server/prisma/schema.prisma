@@ -34,6 +34,8 @@ enum QuestionType {
   textarea
   location
   note
+  pcl
+  pml
 }
 
 enum DokumenStatus {
@@ -49,12 +51,17 @@ enum ReviewStatus {
 }
 
 model Admin {
-  id         Int      @id @default(autoincrement())
-  username   String   @unique @db.VarChar(50)
-  password   String   @db.VarChar(255)
-  nama       String   @db.VarChar(100)
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  id             Int       @id @default(autoincrement())
+  username       String    @unique @db.VarChar(50)
+  password       String    @db.VarChar(255)
+  plain_password String?   @db.VarChar(100)
+  nama           String    @db.VarChar(100)
+  role           String    @default("superadmin") @db.VarChar(20)
+  kegiatan_id    Int?
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
+
+  kegiatan    Kegiatan? @relation(fields: [kegiatan_id], references: [id], onDelete: Cascade)
 
   @@map("admin")
 }
@@ -90,12 +97,14 @@ model Kegiatan {
   start_date       DateTime?         @db.Date
   status           KegiatanStatus    @default(draft)
   lokus            Json?
+  fokus            String?           @db.VarChar(50)
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
   petugas_kegiatan PetugasKegiatan[]
   desa_kegiatan    DesaKegiatan[]
   form_blok        FormBlok[]
   dokumen          Dokumen[]
+  admin            Admin[]
 
   @@map("kegiatan")
 }
@@ -117,12 +126,19 @@ model PetugasKegiatan {
 }
 
 model Wilayah {
-  id         Int      @id @default(autoincrement())
-  kecamatan  String   @db.VarChar(100)
-  desa       String   @db.VarChar(100)
-  sls        String?  @db.VarChar(100)
-  sub_sls    String?  @db.VarChar(100)
-  created_at DateTime @default(now())
+  id            Int      @id @default(autoincrement())
+  kecamatan     String   @db.VarChar(100)
+  desa          String   @db.VarChar(100)
+  sls           String?  @db.VarChar(100)
+  sub_sls       String?  @db.VarChar(100)
+  kode_wilayah  String?  @db.VarChar(16)
+  kdprov        String?  @db.VarChar(2)
+  kdkab         String?  @db.VarChar(2)
+  kdkec         String?  @db.VarChar(3)
+  kddesa        String?  @db.VarChar(3)
+  kdsls         String?  @db.VarChar(4)
+  kdsubsls      String?  @db.VarChar(2)
+  created_at    DateTime @default(now())
 
   @@map("wilayah")
 }
@@ -185,7 +201,7 @@ model FormQuestion {
 
 model Dokumen {
   id              Int            @id @default(autoincrement())
-  kode            String         @unique @db.VarChar(20)
+  kode              String         @unique @db.VarChar(50)
   kegiatan_id     Int
   petugas_id      Int
   krt             String?        @db.VarChar(100)

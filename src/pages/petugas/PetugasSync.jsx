@@ -15,6 +15,7 @@ import { api } from "../../services/api";
 function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
   const [localRtList, setLocalRtList] = useState([]);
   const [syncingAll, setSyncingAll] = useState(false);
+  const [fetchingData, setFetchingData] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({
     isOpen: false,
     title: "",
@@ -32,6 +33,23 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       }
     } else {
       setLocalRtList([]);
+    }
+  };
+
+  const handleRefreshServer = async () => {
+    if (isOffline) {
+      refreshList();
+      return;
+    }
+    setFetchingData(true);
+    try {
+      const docs = await api.dokumen.getByPetugas(currentUser.id);
+      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+      setLocalRtList(docs);
+    } catch (e) {
+      console.error("Gagal refresh data dari server:", e);
+    } finally {
+      setFetchingData(false);
     }
   };
 
@@ -58,11 +76,182 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
   // Show both in queue: ready to send (tersimpan) and synced (terkirim)
   const queueItems = localRtList.filter(rt => rt.status === "tersimpan" || rt.status === "terkirim");
 
-  const handleSyncItem = (item) => {
+  const validateDocument = async (item) => {
+    let blocks = [];
+    let questions = [];
+    
+    const cached = localStorage.getItem(`form_structure_${item.kegiatan_id}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        blocks = parsed.blocks || [];
+        questions = parsed.questions || [];
+      } catch (e) {}
+    }
+    
+    if (blocks.length === 0 || questions.length === 0) {
+      try {
+        const res = await api.form.getStructure(item.kegiatan_id);
+        if (res.success) {
+          blocks = res.blocks || [];
+          questions = res.questions || [];
+          localStorage.setItem(`form_structure_${item.kegiatan_id}`, JSON.stringify({ blocks, questions }));
+        }
+      } catch (e) {
+        console.error("Gagal load form structure untuk validasi kirim:", e);
+      }
+    }
+    
+    if (blocks.length === 0 || questions.length === 0) {
+      return { isValid: true, errors: [] };
+    }
+    
+    const errors = [];
+    const values = item.values || {};
+    
+    const isQuestionVisible = (q) => {
+      const showIfParentId = q.show_if_parent_id || q.showIfParentId;
+      const showIfValue = q.show_if_value || q.showIfValue;
+      if (showIfParentId) {
+        const parentVal = values[showIfParentId];
+        if (parentVal === undefined || parentVal === null || parentVal === '') {
+          return false;
+        }
+        
+        const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
+        let matchesTrigger = false;
+        if (typeof parentVal === 'string' && parentVal.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(parentVal);
+            matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
+          } catch (e) {}
+        } else {
+          matchesTrigger = triggerOptions.includes(String(parentVal));
+        }
+        
+        if (!matchesTrigger) return false;
+      }
+
+      if (q.parent_id) {
+        const parent = questions.find(p => p.id === q.parent_id);
+        if (parent && parent.label && parent.label.trim() !== "") {
+          const parentVal = values[q.parent_id];
+          if (parentVal === undefined || parentVal === null || parentVal === '') return false;
+        }
+      }
+      
+      const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
+      for (const skipper of skippers) {
+        const skipperVal = values[skipper.id];
+        const hasValue = skipperVal !== undefined && skipperVal !== null && skipperVal !== '';
+        
+        let matchesTrigger = false;
+        if (hasValue) {
+          const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+          if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(skipperVal);
+              matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
+            } catch (e) {}
+          } else {
+            matchesTrigger = triggerOptions.includes(String(skipperVal));
+          }
+        }
+        
+        if (hasValue && matchesTrigger) {
+          const allOrdered = [];
+          blocks.forEach(b => {
+            const blockQs = questions.filter(x => x.blok_id === b.id);
+            const mainQs = blockQs.filter(x => !x.parent_id);
+            mainQs.forEach(parent => {
+              allOrdered.push(parent);
+              const children = blockQs.filter(x => x.parent_id === parent.id);
+              allOrdered.push(...children);
+            });
+          });
+
+          const skipperIdx = allOrdered.findIndex(x => x.id === skipper.id);
+          const targetIdx = allOrdered.findIndex(x => x.id === skipper.skip_target);
+          const currentIdx = allOrdered.findIndex(x => x.id === q.id);
+
+          if (skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
+            if (targetIdx === skipperIdx + 1 && q.id === skipper.skip_target) {
+              if (!matchesTrigger) return false;
+            }
+            if (currentIdx > skipperIdx && currentIdx < targetIdx) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    };
+    
+    if (!item.kode || item.kode.trim() === "") {
+      errors.push(`[${blocks[0]?.kode || 'Pengantar'}] Kode Dokumen / Nomor Urut belum diisi.`);
+    }
+    
+    questions.forEach(q => {
+      if (!isQuestionVisible(q)) return;
+      
+      const val = values[q.id];
+      const block = blocks.find(b => b.id === q.blok_id);
+      const blockName = block ? block.kode : "Form";
+      
+      if (val !== undefined && val !== null && val !== '') {
+        if (q.type === 'number' && q.validation) {
+          const numVal = Number(val);
+          if (isNaN(numVal)) {
+            errors.push(`[${blockName}] Isian ${q.label} harus berupa angka.`);
+          } else {
+            let ruleValid = true;
+            const rule = q.validation.trim();
+            if (rule.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(rule);
+                if (parsed.type === 'range') ruleValid = numVal >= Number(parsed.min) && numVal <= Number(parsed.max);
+                else if (parsed.type === 'min') ruleValid = numVal >= Number(parsed.min);
+                else if (parsed.type === 'gt') ruleValid = numVal > Number(parsed.min);
+              } catch (e) {}
+            } else if (rule.startsWith('range:')) {
+              const parts = rule.replace('range:', '').trim().split('-');
+              ruleValid = numVal >= Number(parts[0]) && numVal <= Number(parts[1]);
+            } else if (rule.startsWith('min:')) {
+              ruleValid = numVal >= Number(rule.replace('min:', '').trim());
+            } else if (rule.startsWith('gt:')) {
+              ruleValid = numVal > Number(rule.replace('gt:', '').trim());
+            }
+            if (!ruleValid) {
+              errors.push(`[${blockName}] Nilai ${q.label} diluar rentang yang diizinkan.`);
+            }
+          }
+        }
+      } else if (q.required) {
+        errors.push(`[${blockName}] Isian wajib ${q.label} masih kosong.`);
+      }
+    });
+    
+    return {
+      isValid: errors.length === 0,
+      errors
+    };
+  };
+
+  const handleSyncItem = async (item) => {
     if (isOffline) {
       alert("Tidak dapat mengirim data saat offline. Silakan hubungkan internet terlebih dahulu.");
       return;
     }
+
+    setSyncingAll(true);
+    const validation = await validateDocument(item);
+    setSyncingAll(false);
+
+    if (!validation.isValid) {
+      alert(`Gagal mengirim dokumen ${item.kode} karena belum lengkap:\n\n${validation.errors.join('\n')}\n\nSilakan perbaiki isian kuesioner terlebih dahulu.`);
+      return;
+    }
+
     askConfirmation(
       "Kirim Dokumen",
       `Apakah Anda yakin ingin mengirim dokumen ${item.krt || 'KRT'} (${item.kode}) ke server BPS?`,
@@ -75,6 +264,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     try {
       // Create payload in format expected by backend sync
       const payloadDoc = {
+        id: item.id,
         kode: item.kode,
         kegiatan_id: item.kegiatan_id,
         krt: item.krt,
@@ -105,12 +295,28 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     }
   };
 
-  const handleSyncAll = () => {
+  const handleSyncAll = async () => {
     if (antriKirim.length === 0) return;
     if (isOffline) {
       alert("Tidak dapat melakukan sinkronisasi saat offline.");
       return;
     }
+
+    setSyncingAll(true);
+    const invalidDocs = [];
+    for (const item of antriKirim) {
+      const validation = await validateDocument(item);
+      if (!validation.isValid) {
+        invalidDocs.push(`- ${item.kode} (${item.krt || 'Tanpa Nama'}): ${validation.errors.length} Galat`);
+      }
+    }
+    setSyncingAll(false);
+
+    if (invalidDocs.length > 0) {
+      alert(`Beberapa dokumen memiliki galat/belum lengkap dan tidak dapat dikirim:\n\n${invalidDocs.join('\n')}\n\nSilakan lengkapi/perbaiki kuesioner tersebut terlebih dahulu.`);
+      return;
+    }
+
     askConfirmation(
       "Kirim Semua Dokumen",
       `Apakah Anda yakin ingin mengirim semua (${antriKirim.length}) dokumen yang ada di antrean ke server?`,
@@ -122,6 +328,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     setSyncingAll(true);
     try {
       const payloadDocs = antriKirim.map(item => ({
+        id: item.id,
         kode: item.kode,
         kegiatan_id: item.kegiatan_id,
         krt: item.krt,
@@ -171,7 +378,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     }
   };
 
-  const isLoading = loading || syncingAll;
+  const isLoading = loading || syncingAll || fetchingData;
 
   if (isLoading) {
     return (
@@ -250,11 +457,11 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
                 <h2 className="text-xl font-bold text-slate-900 tracking-tight">Kirim & Unduh</h2>
               </div>
               <button 
-                onClick={refreshList}
-                disabled={syncingAll}
+                onClick={handleRefreshServer}
+                disabled={isLoading}
                 className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center border-0 cursor-pointer hover:bg-blue-100 transition-all disabled:opacity-50"
               >
-                <RefreshCcw size={18} className={syncingAll ? "animate-spin" : ""} />
+                <RefreshCcw size={18} className={isLoading ? "animate-spin" : ""} />
               </button>
             </div>
           </div>

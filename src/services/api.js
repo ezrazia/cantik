@@ -113,6 +113,7 @@ export const api = {
     save: (data) => request('/dokumen', { method: 'POST', body: data }),
     sync: (petugasId, documents) => request('/dokumen/sync', { method: 'POST', body: { petugas_id: petugasId, documents } }),
     review: (id, review_status, notes = '') => request(`/dokumen/review/${id}`, { method: 'POST', body: { review_status, notes } }),
+    delete: (id) => request(`/dokumen/${id}`, { method: 'DELETE' }),
   },
 
   // ─── DESA KEGIATAN STATS ──────────────────────────────

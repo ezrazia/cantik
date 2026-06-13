@@ -124,9 +124,37 @@
   outline-offset: 2px;
 }
 
-input:focus, input:focus-visible, select:focus, select:focus-visible, textarea:focus, textarea:focus-visible {
+input:focus, input:focus-visible, textarea:focus, textarea:focus-visible {
   outline: none !important;
-  box-shadow: none !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+  border-color: var(--blue-500) !important;
+}
+
+/* ─── Premium Select Dropdown Styling ─── */
+select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b' stroke-width='2'%3e%3cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'/%3e%3c/svg%3e") !important;
+  background-position: right 0.6rem center !important;
+  background-repeat: no-repeat !important;
+  background-size: 0.9em 0.9em !important;
+  padding-right: 1.8rem !important;
+  border-radius: var(--radius-md) !important;
+  cursor: pointer;
+  transition: all 0.2s var(--ease);
+}
+
+select:focus, select:focus-visible {
+  outline: none !important;
+  border-color: var(--blue-500) !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+}
+
+select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  font-family: var(--sans) !important;
 }
 
 /* Reduced motion */

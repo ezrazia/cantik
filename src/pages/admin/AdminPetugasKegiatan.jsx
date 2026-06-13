@@ -18,10 +18,11 @@ import {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData, loading }) {
+function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData, loading, currentUser }) {
   const isGlobal = false;
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const projectStatus = activeActivity ? activeActivity.status : "draft";
+  const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
 
   const getStatusConfig = () => {
     switch (projectStatus) {
@@ -170,17 +171,46 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
     }
   }, [petugas, selectedProject, allWilayah, isGlobal]);
 
-  const dbSubSlsHierarchy = allWilayah
-    .filter(w => w.sub_sls)
-    .map(w => ({ name: w.sub_sls, sls: w.sls }));
+  const dbSubSlsHierarchy = (() => {
+    const unique = [];
+    const seen = new Set();
+    allWilayah
+      .filter(w => w.sub_sls)
+      .forEach(w => {
+        const key = `${w.sub_sls}||${w.sls}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push({ name: w.sub_sls, sls: w.sls });
+        }
+      });
+    return unique;
+  })();
 
-  const dbSlsHierarchy = allWilayah
-    .filter(w => w.sls)
-    .map(w => ({ name: w.sls, desa: w.desa }));
+  const dbSlsHierarchy = (() => {
+    const unique = [];
+    const seen = new Set();
+    allWilayah
+      .filter(w => w.sls)
+      .forEach(w => {
+        const key = `${w.sls}||${w.desa}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          unique.push({ name: w.sls, desa: w.desa });
+        }
+      });
+    return unique;
+  })();
 
   // Dropdown for village filter (contextual view)
   const villageDropdown = useDropdown("Semua Desa");
-  const villages = ["Semua Desa", ...dbDesa.map(d => d.name)];
+  const activeDesas = activeActivity
+    ? (typeof activeActivity.lokus === 'string'
+        ? (JSON.parse(activeActivity.lokus)?.desa || [])
+        : (activeActivity.lokus?.desa || []))
+    : [];
+  const villages = isGlobal
+    ? ["Semua Desa", ...dbDesa.map(d => d.name)]
+    : ["Semua Desa", ...activeDesas.map(d => `Desa ${d}`)];
 
   // Dropdown for activities/projects filter (global view)
   const allProjects = activities ? activities.map(a => a.name) : [
@@ -343,12 +373,18 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
   const totalSelesaiDesa = filteredByVillage.reduce((acc, curr) => acc + curr.selesai, 0);
   const progressKumulatif = totalTargetDesa > 0 ? Math.round((totalSelesaiDesa / totalTargetDesa) * 100) : 0;
 
-  // Handler Refresh Data simulasi
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 800);
+  // Handler Refresh Data via API
+  const handleRefresh = async () => {
+    if (refreshData) {
+      setIsRefreshing(true);
+      try {
+        await refreshData();
+      } catch (err) {
+        console.error("Gagal refresh data petugas kegiatan:", err);
+      } finally {
+        setIsRefreshing(false);
+      }
+    }
   };
 
   // Handler Buka Konfirmasi Tambah Petugas
@@ -965,7 +1001,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                     {villageDropdown.isOpen && (
                       <>
                         <div className="fixed inset-0 z-10" onClick={villageDropdown.close}/>
-                        <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56" style={{ animation: 'scaleIn 0.15s ease' }}>
+                        <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
                           {villages.map(v => (
                             <button
                               key={v}
@@ -1083,7 +1119,13 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                 </div>
                 <div>
                   <p className="text-xs text-slate-400 font-medium">Jumlah Desa</p>
-                  <p className="mono text-xl font-bold text-amber-600">{dbDesa.length}</p>
+                  <p className="mono text-xl font-bold text-amber-600">
+                    {activeActivity ? (
+                      typeof activeActivity.lokus === 'string'
+                        ? (JSON.parse(activeActivity.lokus)?.desa?.length || 0)
+                        : (activeActivity.lokus?.desa?.length || 0)
+                    ) : 0}
+                  </p>
                 </div>
               </div>
             </>
@@ -1106,7 +1148,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
               {projectFilterDropdown.isOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={projectFilterDropdown.close}/>
-                  <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-64" style={{ animation: 'scaleIn 0.15s ease' }}>
+                  <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-64 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
                     {availableProjects.map(proj => (
                       <button
                         key={proj}
@@ -1165,7 +1207,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
               {colDropdown.isOpen && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={colDropdown.close}/>
-                  <div className="absolute right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-2 border border-slate-100 w-52" style={{ animation: 'scaleIn 0.15s ease' }}>
+                  <div className="absolute right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-2 border border-slate-100 w-52 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
                     <p className="px-4 py-1.5 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-50 mb-1">Tampilkan Kolom</p>
                     {isGlobal ? (
                       ["Nama", "Username", "ID", "Asal Desa", "Nomor Telepon", "Kegiatan", "Status", "Aksi"].map(col => {
@@ -1411,7 +1453,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                             <>
                               {visibleColsLocal.includes("Petugas") && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
-                                  {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
+                                  {(projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin ? (
                                     <select
                                       value={p.projectRoles?.[selectedProject] || "PCL"}
                                       onChange={async (e) => {
@@ -1455,7 +1497,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                   {(() => {
                                     const role = p.projectRoles?.[selectedProject] || "PCL";
                                     if (role === "PCL") {
-                                      if (projectStatus === "draft" || projectStatus === "uji_coba") {
+                                      if ((projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin) {
                                         const selections = rowSelections[p.id] || { desa: "", sls: "", subSls: "" };
                                         return (
                                           <div className="flex flex-col sm:flex-row gap-1">
@@ -1531,7 +1573,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         x.projectRoles?.[selectedProject] === "PCL" &&
                                         !(x.assignments?.[selectedProject]?.pengawas === p.name)
                                       );
-                                      if (projectStatus === "draft" || projectStatus === "uji_coba") {
+                                      if ((projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin) {
                                         return (
                                           <div className="flex flex-wrap items-center gap-1 max-w-[260px]">
                                             {/* Chips for supervised PCLs */}
@@ -1585,17 +1627,11 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                               )}
                               {visibleColsLocal.includes("Progress Pencacahan") && projectStatus !== "draft" && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
-                                  <div className="flex items-center gap-3 whitespace-nowrap">
-                                    <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden max-w-[120px] flex-shrink-0">
-                                      <div 
-                                        className={`h-full rounded-full transition-all duration-500 ${
-                                          p.status === 'done' ? 'bg-emerald-500' : 'bg-blue-600'
-                                        }`} 
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                    <span className="mono text-xs text-slate-600 font-bold whitespace-nowrap">{selesaiVal}/{targetVal}</span>
-                                    <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap">({pct}%)</span>
+                                  <div className="flex flex-col gap-0.5 justify-center">
+                                    <span className="text-xs font-semibold text-slate-700">{selesaiVal} Selesai</span>
+                                    {(activityAss.draft || 0) > 0 && (
+                                      <span className="text-[10px] text-slate-400 font-medium">{(activityAss.draft || 0)} Draft</span>
+                                    )}
                                   </div>
                                 </td>
                               )}
@@ -1801,7 +1837,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                       <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
                         <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Konfigurasi Penugasan ({selectedProject})</p>
                         
-                        {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
+                        {(projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin ? (
                           <>
                             {/* Peran Petugas */}
                             <div>
@@ -1999,12 +2035,14 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                       </button>
                     )}
                     
-                    <button 
-                      onClick={() => setShowDeleteConfirm(true)}
-                      className="w-full flex items-center justify-center gap-2 py-3 text-xs font-semibold text-red-500 bg-transparent hover:bg-red-50 rounded-xl border-0 cursor-pointer transition-all mt-1"
-                    >
-                      <Trash2 size={13}/> {isGlobal ? "Hapus Petugas Permanen" : "Keluarkan dari Kegiatan"}
-                    </button>
+                    {!isKegiatanAdmin && (
+                      <button 
+                        onClick={() => setShowDeleteConfirm(true)}
+                        className="w-full flex items-center justify-center gap-2 py-3 text-xs font-semibold text-red-500 bg-transparent hover:bg-red-50 rounded-xl border-0 cursor-pointer transition-all mt-1"
+                      >
+                        <Trash2 size={13}/> {isGlobal ? "Hapus Petugas Permanen" : "Keluarkan dari Kegiatan"}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

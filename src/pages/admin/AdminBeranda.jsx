@@ -21,9 +21,11 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
     totalDesa: 0,
     activePetugas: petugas?.filter(p => p.status === "active").length || 0
   });
+  const [localLoading, setLocalLoading] = useState(false);
 
   useEffect(() => {
     const fetchDashboardStats = async () => {
+      setLocalLoading(true);
       try {
         const res = await api.dashboard.getStats();
         if (res && res.success) {
@@ -36,10 +38,14 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
         }
       } catch (err) {
         console.error("Gagal mengambil dashboard stats:", err);
+      } finally {
+        setLocalLoading(false);
       }
     };
     fetchDashboardStats();
   }, [petugas, activities]);
+
+  const isLoading = loading || localLoading;
 
   // Calculate dynamic officers count for each activity
   const activeActivities = activities.map(act => {
@@ -78,7 +84,7 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
     }
   ];
 
-  if (loading) {
+  if (isLoading) {
     return (
       <AdminLayout tab="admin-beranda" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
         <div className="p-6 lg:p-8 w-full animate-pulse space-y-8">
@@ -276,8 +282,8 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg ${act.bgColor || "bg-blue-50"} ${act.textColor || "text-blue-600"}`}>
                         {act.officers > 0 ? `${act.officers} Petugas` : "Menunggu Petugas"}
                       </span>
-                      {act.progress > 0 && (
-                        <span className="text-[10px] font-bold text-slate-500">{act.progress}% Selesai</span>
+                      {act.status !== "draft" && (
+                        <span className="text-[10px] font-bold text-slate-500">{act.progress || 0}% Selesai</span>
                       )}
                     </div>
                     <h4 className="text-xs font-bold text-slate-800 tracking-tight">{act.name}</h4>
@@ -285,10 +291,10 @@ function AdminBeranda({ onNavigate, selectedProject, onProjectChange, petugas, a
                   </div>
 
                   <div>
-                    {act.progress > 0 ? (
+                    {act.status !== "draft" ? (
                       <div className="space-y-3">
                         <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${act.color || "bg-blue-600"}`} style={{ width: `${act.progress}%` }}/>
+                          <div className={`h-full rounded-full ${act.color || "bg-blue-600"}`} style={{ width: `${act.progress || 0}%` }}/>
                         </div>
                         <button 
                           onClick={() => {

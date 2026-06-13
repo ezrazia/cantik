@@ -26,8 +26,29 @@ import { offlineDB } from "./services/offlineStorage";
  * @returns {React.ReactElement}
  */
 export default function App() {
-  const [screen, setScreen] = useState("login");
-  const [currentUser, setCurrentUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = localStorage.getItem("currentUser");
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const [screen, setScreen] = useState(() => {
+    const savedUser = localStorage.getItem("currentUser");
+    if (savedUser) {
+      const savedScreen = localStorage.getItem("currentScreen");
+      if (savedScreen && savedScreen !== "login") {
+        return savedScreen;
+      }
+      const user = JSON.parse(savedUser);
+      if (user.role === "superadmin" || user.role === "admin") {
+        return "admin-beranda";
+      } else if (user.role === "admin_kegiatan") {
+        return "admin-dash";
+      }
+      return "petugas-home";
+    }
+    return "login";
+  });
+
   const [isOffline, setIsOffline] = useState(false);
   const [selectedProject, setSelectedProject] = useState(""); // empty string represents "Pilih Kegiatan"
   const [activities, setActivities] = useState([]);
@@ -51,6 +72,20 @@ export default function App() {
       ]);
       setActivities(acts);
       setPetugas(pets);
+      
+      // Sync currentUser state and localStorage with latest database values (e.g. assigned projects)
+      const storedUser = localStorage.getItem("currentUser");
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        if (parsedUser.role === 'petugas') {
+          const latestInfo = pets.find(p => p.id === parsedUser.id);
+          if (latestInfo) {
+            const updatedUser = { ...parsedUser, ...latestInfo };
+            setCurrentUser(updatedUser);
+            localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+          }
+        }
+      }
       
       // PWA: Cache data ke IndexedDB untuk offline access
       try {
@@ -88,22 +123,47 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
-  }, [currentUser]); // Refresh data when login/logout/change occurs
+  }, [currentUser?.id]); // Refresh data when login/logout occurs
 
   /**
-   * Handler untuk login sukses.
+   * Handler login.
+   * @param {Object} user
    */
   const handleLogin = (user) => {
     setCurrentUser(user);
-    go(user.role === "admin" ? "admin-beranda" : "petugas-home");
+    localStorage.setItem("currentUser", JSON.stringify(user));
+    
+    let targetScreen = "login";
+    if (user.role === "superadmin" || user.role === "admin") {
+      targetScreen = "admin-beranda";
+    } else if (user.role === "admin_kegiatan") {
+      targetScreen = "admin-dash";
+    } else {
+      targetScreen = "petugas-home";
+    }
+    
+    setScreen(targetScreen);
+    localStorage.setItem("currentScreen", targetScreen);
   };
+
+  // Lock selectedProject for admin_kegiatan to their managed activity
+  useEffect(() => {
+    if (currentUser?.role === "admin_kegiatan" && currentUser.kegiatan_id && activities.length > 0) {
+      const managedActivity = activities.find(a => a.id === currentUser.kegiatan_id);
+      if (managedActivity && selectedProject !== managedActivity.name) {
+        setSelectedProject(managedActivity.name);
+      }
+    }
+  }, [currentUser, activities, selectedProject]);
 
   /**
    * Handler logout.
    */
   const handleLogout = () => {
     setCurrentUser(null);
-    go("login");
+    localStorage.removeItem("currentUser");
+    localStorage.removeItem("currentScreen");
+    setScreen("login");
   };
 
   /**
@@ -115,6 +175,7 @@ export default function App() {
       handleLogout();
     } else {
       setScreen(s);
+      localStorage.setItem("currentScreen", s);
     }
   };
 
@@ -130,10 +191,10 @@ export default function App() {
     
     // ─── ADMIN SCREENS ──────────────────────────────────
     "admin-beranda":  <AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} />,
-    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} loading={globalLoading} />,
-    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} loading={globalLoading} />,
+    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} loading={globalLoading} refreshData={refreshData} currentUser={currentUser} />,
+    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} loading={globalLoading} currentUser={currentUser} />,
     "admin-builder":  <AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} loading={globalLoading} />,
-    "admin-users":    <AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} />,
+    "admin-users":    <AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} currentUser={currentUser} />,
     "admin-master-petugas": <AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} />,
     "admin-kegiatan": <AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} loading={globalLoading} />,
     "admin-tabulasi": <AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} loading={globalLoading} />,

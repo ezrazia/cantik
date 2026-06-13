@@ -3,6 +3,95 @@ import prisma from '../config/database.js';
 
 const router = Router();
 
+// Helper to generate formatted document code: (kodeprov,kab,kec)-kegiatan(initials)-pcl(initials)-urutanPrelist
+async function getFormattedKode(tx, docData) {
+  const { kode, kegiatan_id, petugas_id, kecamatan, desa } = docData;
+  
+  // Only format if the code is a new/temporary offline code (starts with "NEW-")
+  if (!kode || !kode.startsWith('NEW-')) {
+    return kode;
+  }
+
+  // 1. Get region code (kodeprov + kab + kec)
+  let kodeprov = '65';
+  let kab = '03';
+  let kec = '000';
+  
+  if (kecamatan || desa) {
+    const wilayah = await tx.wilayah.findFirst({
+      where: {
+        kecamatan: kecamatan ? String(kecamatan).trim() : undefined,
+        desa: desa ? String(desa).trim() : undefined,
+      }
+    });
+    if (wilayah) {
+      kodeprov = wilayah.kdprov || '65';
+      kab = wilayah.kdkab || '03';
+      kec = wilayah.kdkec || '000';
+    }
+  }
+  const codeArea = `${kodeprov}${kab}${kec}`;
+
+  // 2. Get Kegiatan initials
+  let kegiatanInitials = 'KG';
+  if (kegiatan_id) {
+    const kegiatan = await tx.kegiatan.findUnique({
+      where: { id: parseInt(kegiatan_id, 10) }
+    });
+    if (kegiatan && kegiatan.name) {
+      const parts = kegiatan.name.trim().split(/\s+/);
+      kegiatanInitials = parts.map(part => {
+        if (/^\d+$/.test(part)) {
+          return part; // keep year/number fully
+        }
+        return part[0] ? part[0].toUpperCase() : '';
+      }).join('').replace(/[^A-Z0-9]/g, '');
+    }
+  }
+
+  // 3. Get PCL initials
+  let pclInitials = 'PCL';
+  if (petugas_id) {
+    const petugas = await tx.petugas.findUnique({
+      where: { id: parseInt(petugas_id, 10) }
+    });
+    if (petugas && petugas.name) {
+      const parts = petugas.name.trim().split(/\s+/);
+      pclInitials = parts.map(part => {
+        return part[0] ? part[0].toUpperCase() : '';
+      }).join('').replace(/[^A-Z0-9]/g, '');
+    }
+  }
+
+  // 4. Determine next prelist sequence number
+  const prefix = `${codeArea}-${kegiatanInitials}-${pclInitials}-`;
+  
+  // Find all documents in this kegiatan and petugas that match this prefix
+  const existingDocs = await tx.dokumen.findMany({
+    where: {
+      kegiatan_id: parseInt(kegiatan_id, 10),
+      petugas_id: parseInt(petugas_id, 10),
+      kode: {
+        startsWith: prefix
+      }
+    },
+    select: { kode: true }
+  });
+
+  let maxSeq = 0;
+  existingDocs.forEach(d => {
+    const parts = d.kode.split('-');
+    const lastPart = parts[parts.length - 1];
+    const seq = parseInt(lastPart, 10);
+    if (!isNaN(seq) && seq > maxSeq) {
+      maxSeq = seq;
+    }
+  });
+
+  const nextSeq = maxSeq + 1;
+  return `${prefix}${nextSeq}`;
+}
+
 /**
  * GET /api/dokumen/petugas/:petugasId
  * Mengambil semua dokumen yang dimiliki oleh petugas tertentu.
@@ -178,13 +267,21 @@ router.post('/', async (req, res) => {
 
   try {
     const docId = await prisma.$transaction(async (tx) => {
+      const finalKode = await getFormattedKode(tx, {
+        kode,
+        kegiatan_id,
+        petugas_id,
+        kecamatan,
+        desa
+      });
+
       let currentDocId = id;
       const isPrelistVal = !!is_prelist;
       const syncVal = !!sync;
       const lastSentDataJson = status === 'terkirim' ? (values || null) : undefined;
 
       const dataObj = {
-        kode,
+        kode: finalKode,
         kegiatan_id: parseInt(kegiatan_id, 10),
         petugas_id: parseInt(petugas_id, 10),
         krt: krt || null,
@@ -210,7 +307,7 @@ router.post('/', async (req, res) => {
         });
       } else {
         const existing = await tx.dokumen.findUnique({
-          where: { kode },
+          where: { kode: finalKode },
         });
 
         if (existing) {
@@ -317,6 +414,7 @@ router.post('/sync', async (req, res) => {
     await prisma.$transaction(async (tx) => {
       for (const doc of documents) {
         const {
+          id,
           kode,
           kegiatan_id,
           krt,
@@ -330,9 +428,25 @@ router.post('/sync', async (req, res) => {
           values,
         } = doc;
 
-        const existing = await tx.dokumen.findUnique({
-          where: { kode },
+        const finalKode = await getFormattedKode(tx, {
+          kode,
+          kegiatan_id,
+          petugas_id,
+          kecamatan,
+          desa
         });
+
+        let existing = null;
+        if (id) {
+          existing = await tx.dokumen.findUnique({
+            where: { id: parseInt(id, 10) }
+          });
+        }
+        if (!existing) {
+          existing = await tx.dokumen.findUnique({
+            where: { kode: finalKode }
+          });
+        }
 
         let docId;
         const isPrelistVal = !!is_prelist;
@@ -343,6 +457,7 @@ router.post('/sync', async (req, res) => {
           await tx.dokumen.update({
             where: { id: docId },
             data: {
+              kode: finalKode,
               krt: krt || null,
               alamat: alamat || null,
               kecamatan: kecamatan || null,
@@ -359,7 +474,7 @@ router.post('/sync', async (req, res) => {
         } else {
           const newDoc = await tx.dokumen.create({
             data: {
-              kode,
+              kode: finalKode,
               kegiatan_id: parseInt(kegiatan_id, 10),
               petugas_id: parseInt(petugas_id, 10),
               krt: krt || null,
@@ -507,6 +622,58 @@ router.post('/review/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: error.message });
     }
     return res.status(500).json({ success: false, message: 'Gagal memperbarui status review dokumen' });
+  }
+});
+
+/**
+ * DELETE /api/dokumen/:id
+ * Menghapus satu dokumen beserta jawaban dan logs (jika status !== 'terkirim' atau review_status === 'rejected').
+ */
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const docId = parseInt(id, 10);
+    const existing = await prisma.dokumen.findUnique({
+      where: { id: docId },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
+    }
+
+    if (existing.status === 'terkirim' && existing.review_status !== 'rejected') {
+      return res.status(400).json({ success: false, message: 'Dokumen yang sudah terkirim tidak dapat dihapus' });
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.dokumenJawaban.deleteMany({ where: { dokumen_id: docId } });
+      await tx.dokumenLog.deleteMany({ where: { dokumen_id: docId } });
+      await tx.dokumen.delete({ where: { id: docId } });
+
+      const total = await tx.dokumen.count({
+        where: { petugas_id: existing.petugas_id },
+      });
+      const selesaiCount = await tx.dokumen.count({
+        where: {
+          petugas_id: existing.petugas_id,
+          status: { in: ['tersimpan', 'terkirim'] },
+        },
+      });
+
+      await tx.petugas.update({
+        where: { id: existing.petugas_id },
+        data: {
+          target: total,
+          selesai: selesaiCount,
+        },
+      });
+    });
+
+    return res.json({ success: true, message: 'Dokumen berhasil dihapus' });
+  } catch (error) {
+    console.error('Error deleting document:', error);
+    return res.status(500).json({ success: false, message: 'Gagal menghapus dokumen' });
   }
 });
 

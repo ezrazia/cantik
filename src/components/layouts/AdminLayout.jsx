@@ -20,6 +20,14 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
   const [isProjDropdownOpen, setIsProjDropdownOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+
+  const [currentUser] = useState(() => {
+    const saved = localStorage.getItem("currentUser");
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
 
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const status = activeActivity ? activeActivity.status : "draft";
@@ -52,18 +60,26 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
   }, []);
 
   useEffect(() => {
-    if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas") {
-      onNavigate("admin-beranda");
+    if (isKegiatanAdmin) {
+      const allowedTabs = ["admin-dash", "admin-review", "admin-users"];
+      if (!allowedTabs.includes(tab)) {
+        onNavigate("admin-dash");
+      }
+    } else {
+      if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas") {
+        onNavigate("admin-beranda");
+      }
     }
-  }, [selectedProject, tab, onNavigate]);
+  }, [selectedProject, tab, onNavigate, isKegiatanAdmin]);
 
   const projects = activities ? activities.map(a => a.name) : ["Desa Cantik 2026", "Survei Ekonomi 2026", "Pendataan PLS 2026"];
+  
   const navItems = [
     { id:"admin-dash",    icon: BarChart2, label:"Dashboard" },
     { id:"admin-review",  icon: Eye,       label:"Review Data" },
-    { id:"admin-builder", icon: Layers,    label:"Form Builder" },
+    ...(!isKegiatanAdmin ? [{ id:"admin-builder", icon: Layers,    label:"Form Builder" }] : []),
     { id:"admin-users",   icon: Users,     label:"Petugas Kegiatan" },
-    { id:"admin-tabulasi",icon: Table,     label:"Tabulasi" },
+    ...(!isKegiatanAdmin ? [{ id:"admin-tabulasi",icon: Table,     label:"Tabulasi" }] : []),
   ];
 
   const sidebarWidth = isSidebarOpen ? "w-64" : "w-[72px]";
@@ -90,77 +106,91 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
       </div>
 
       {/* Beranda (Home) - Positioned above Master Petugas */}
-      <div className="px-3 mb-2">
-        <button key="admin-beranda"
-          onClick={() => { onNavigate("admin-beranda"); if (isMobile) setIsMobileMenuOpen(false); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
-            tab === "admin-beranda"
-              ? "bg-blue-600 text-white font-semibold shadow-sm"
-              : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
-          } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-          title="Beranda">
-          <Home size={18} strokeWidth={tab === "admin-beranda" ? 2 : 1.5}/>
-          {(isSidebarOpen || isMobile) && <span>Beranda</span>}
-        </button>
-      </div>
+      {!isKegiatanAdmin && (
+        <div className="px-3 mb-2">
+          <button key="admin-beranda"
+            onClick={() => { onNavigate("admin-beranda"); if (isMobile) setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+              tab === "admin-beranda"
+                ? "bg-blue-600 text-white font-semibold shadow-sm"
+                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+            title="Beranda">
+            <Home size={18} strokeWidth={tab === "admin-beranda" ? 2 : 1.5}/>
+            {(isSidebarOpen || isMobile) && <span>Beranda</span>}
+          </button>
+        </div>
+      )}
 
       {/* Kegiatan (Activities) - Positioned under Beranda and above Master Petugas */}
-      <div className="px-3 mb-2">
-        <button key="admin-kegiatan"
-          onClick={() => { onNavigate("admin-kegiatan"); if (isMobile) setIsMobileMenuOpen(false); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
-            tab === "admin-kegiatan"
-              ? "bg-blue-600 text-white font-semibold shadow-sm"
-              : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
-          } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-          title="Kegiatan">
-          <Briefcase size={18} strokeWidth={tab === "admin-kegiatan" ? 2 : 1.5}/>
-          {(isSidebarOpen || isMobile) && <span>Kegiatan</span>}
-        </button>
-      </div>
+      {!isKegiatanAdmin && (
+        <div className="px-3 mb-2">
+          <button key="admin-kegiatan"
+            onClick={() => { onNavigate("admin-kegiatan"); if (isMobile) setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+              tab === "admin-kegiatan"
+                ? "bg-blue-600 text-white font-semibold shadow-sm"
+                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+            title="Kegiatan">
+            <Briefcase size={18} strokeWidth={tab === "admin-kegiatan" ? 2 : 1.5}/>
+            {(isSidebarOpen || isMobile) && <span>Kegiatan</span>}
+          </button>
+        </div>
+      )}
 
       {/* Master Petugas (Overall List) - Positioned above Project Selector */}
-      <div className="px-3 mb-4">
-        <button key="admin-master-petugas"
-          onClick={() => { onNavigate("admin-master-petugas"); if (isMobile) setIsMobileMenuOpen(false); }}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
-            tab === "admin-master-petugas"
-              ? "bg-blue-600 text-white font-semibold shadow-sm"
-              : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
-          } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-          title="Master Petugas">
-          <Users size={18} strokeWidth={tab === "admin-master-petugas" ? 2 : 1.5}/>
-          {(isSidebarOpen || isMobile) && <span>Master Petugas</span>}
-        </button>
-      </div>
+      {!isKegiatanAdmin && (
+        <div className="px-3 mb-4">
+          <button key="admin-master-petugas"
+            onClick={() => { onNavigate("admin-master-petugas"); if (isMobile) setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+              tab === "admin-master-petugas"
+                ? "bg-blue-600 text-white font-semibold shadow-sm"
+                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+            title="Master Petugas">
+            <Users size={18} strokeWidth={tab === "admin-master-petugas" ? 2 : 1.5}/>
+            {(isSidebarOpen || isMobile) && <span>Master Petugas</span>}
+          </button>
+        </div>
+      )}
 
       {/* Project selector */}
       {(isSidebarOpen || isMobile) && (
         <div className="px-4 mb-4 relative">
-          <button onClick={() => setIsProjDropdownOpen(!isProjDropdownOpen)}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all border border-white/10 hover:bg-white/5 text-slate-300 bg-transparent cursor-pointer">
-            <span className="truncate">{selectedProject || "Pilih Kegiatan"}</span>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isProjDropdownOpen ? 'rotate-180' : ''} text-slate-500`}/>
-          </button>
-          {isProjDropdownOpen && (
+          {isKegiatanAdmin ? (
+            <div className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold border border-white/10 text-slate-400 bg-white/5 cursor-not-allowed select-none">
+              <span className="truncate">{selectedProject || "Pilih Kegiatan"}</span>
+            </div>
+          ) : (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setIsProjDropdownOpen(false)}/>
-              <div className="absolute left-4 right-4 top-full mt-1 bg-slate-800 rounded-xl shadow-lg z-20 py-1 border border-white/10">
-                <button onClick={() => { setSelectedProject(""); setIsProjDropdownOpen(false); }}
-                  className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
-                    selectedProject === "" ? 'bg-blue-600 text-white font-semibold' : 'bg-transparent text-slate-400 hover:bg-white/5 font-medium'
-                  }`}>
-                  Pilih Kegiatan
-                </button>
-                {projects.map(p => (
-                  <button key={p} onClick={() => { setSelectedProject(p); setIsProjDropdownOpen(false); }}
-                    className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
-                      selectedProject === p ? 'bg-blue-600 text-white font-semibold' : 'bg-transparent text-slate-400 hover:bg-white/5 font-medium'
-                    }`}>
-                    {p}
-                  </button>
-                ))}
-              </div>
+              <button onClick={() => setIsProjDropdownOpen(!isProjDropdownOpen)}
+                className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all border border-white/10 hover:bg-white/5 text-slate-300 bg-transparent cursor-pointer">
+                <span className="truncate">{selectedProject || "Pilih Kegiatan"}</span>
+                <ChevronDown size={14} className={`transition-transform duration-200 ${isProjDropdownOpen ? 'rotate-180' : ''} text-slate-500`}/>
+              </button>
+              {isProjDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setIsProjDropdownOpen(false)}/>
+                  <div className="absolute left-4 right-4 top-full mt-1 bg-slate-800 rounded-xl shadow-lg z-20 py-1 border border-white/10 overflow-hidden">
+                    <button onClick={() => { setSelectedProject(""); setIsProjDropdownOpen(false); }}
+                      className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
+                        selectedProject === "" ? 'bg-blue-600 text-white font-semibold' : 'bg-transparent text-slate-400 hover:bg-white/5 font-medium'
+                      }`}>
+                      Pilih Kegiatan
+                    </button>
+                    {projects.map(p => (
+                      <button key={p} onClick={() => { setSelectedProject(p); setIsProjDropdownOpen(false); }}
+                        className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
+                          selectedProject === p ? 'bg-blue-600 text-white font-semibold' : 'bg-transparent text-slate-400 hover:bg-white/5 font-medium'
+                        }`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
         </div>
@@ -195,19 +225,19 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         {(isSidebarOpen || isMobile) ? (
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-600/20 flex items-center justify-center text-xs font-bold text-blue-400">
-              AD
+              {currentUser?.nama ? currentUser.nama.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : 'AD'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">Administrator</p>
-              <p className="text-[11px] text-slate-500">Koordinator</p>
+              <p className="text-sm font-semibold text-white truncate">{currentUser?.nama || "Administrator"}</p>
+              <p className="text-[11px] text-slate-500">{isKegiatanAdmin ? "Admin Kegiatan" : "Koordinator"}</p>
             </div>
-            <button onClick={() => onNavigate("login")}
+            <button onClick={() => setShowLogoutConfirm(true)}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-white/5 transition-all border-0 bg-transparent cursor-pointer">
               <LogOut size={16}/>
             </button>
           </div>
         ) : (
-          <button onClick={() => onNavigate("login")}
+          <button onClick={() => setShowLogoutConfirm(true)}
             className="w-10 h-10 mx-auto flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-white/5 transition-all border-0 bg-transparent cursor-pointer"
             title="Logout">
             <LogOut size={18}/>
@@ -267,6 +297,48 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         )}
         {children}
       </main>
+
+      {showLogoutConfirm && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setShowLogoutConfirm(false)}
+        >
+          <div 
+            className="bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden"
+            style={{ animation: "scaleUp 0.15s ease-out both" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-6 text-center space-y-4">
+              <div className="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+                <LogOut size={24} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-800">Keluar dari Akun?</h4>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed font-medium">
+                  Apakah Anda yakin ingin keluar dari akun administrator/koordinator Anda?
+                </p>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex gap-2 justify-end">
+              <button 
+                onClick={() => setShowLogoutConfirm(false)}
+                className="px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
+              >
+                Batal
+              </button>
+              <button 
+                onClick={() => {
+                  setShowLogoutConfirm(false);
+                  onNavigate("login");
+                }}
+                className="px-5.5 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all"
+              >
+                Keluar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import bcrypt from 'bcryptjs';
 import prisma from '../config/database.js';
 
 const router = Router();
@@ -10,6 +11,14 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const rows = await prisma.kegiatan.findMany({
+      include: {
+        admin: {
+          select: {
+            username: true,
+            plain_password: true
+          }
+        }
+      },
       orderBy: {
         start_date: 'desc',
       },
@@ -27,6 +36,7 @@ router.get('/', async (req, res) => {
       return {
         ...k,
         lokus: lokusParsed || { kecamatan: [], desa: [], sls: [], subSls: [] },
+        activity_admin: k.admin?.[0] || null
       };
     });
 
@@ -42,7 +52,7 @@ router.get('/', async (req, res) => {
  * Membuat kegiatan baru.
  */
 router.post('/', async (req, res) => {
-  const { name, description, progress, color, text_color, bg_color, start_date, status, lokus } = req.body;
+  const { name, description, progress, color, text_color, bg_color, start_date, status, lokus, fokus } = req.body;
   if (!name) {
     return res.status(400).json({ success: false, message: 'Nama kegiatan wajib diisi' });
   }
@@ -59,6 +69,7 @@ router.post('/', async (req, res) => {
         start_date: start_date ? new Date(start_date) : null,
         status: status || 'draft',
         lokus: lokus || { kecamatan: [], desa: [], sls: [], subSls: [] },
+        fokus: fokus || null,
       },
     });
 
@@ -79,29 +90,68 @@ router.post('/', async (req, res) => {
  */
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, description, progress, color, text_color, bg_color, start_date, status, lokus } = req.body;
+  const { name, description, progress, color, text_color, bg_color, start_date, status, lokus, fokus } = req.body;
 
   if (!name) {
     return res.status(400).json({ success: false, message: 'Nama kegiatan wajib diisi' });
   }
 
   try {
-    await prisma.kegiatan.update({
+    const updateData = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (progress !== undefined) updateData.progress = progress;
+    if (color !== undefined) updateData.color = color;
+    if (text_color !== undefined) updateData.text_color = text_color;
+    if (bg_color !== undefined) updateData.bg_color = bg_color;
+    if (start_date !== undefined) updateData.start_date = start_date ? new Date(start_date) : null;
+    if (status !== undefined) updateData.status = status;
+    if (lokus !== undefined) updateData.lokus = lokus;
+    if (fokus !== undefined) updateData.fokus = fokus;
+
+    const updatedKegiatan = await prisma.kegiatan.update({
       where: {
         id: parseInt(id, 10),
       },
-      data: {
-        name,
-        description: description || null,
-        progress: progress || 0,
-        color: color || 'bg-blue-600',
-        text_color: text_color || 'text-blue-600',
-        bg_color: bg_color || 'bg-blue-50',
-        start_date: start_date ? new Date(start_date) : null,
-        status: status || 'draft',
-        lokus: lokus || { kecamatan: [], desa: [], sls: [], subSls: [] },
-      },
+      data: updateData,
     });
+
+    if (updatedKegiatan.status === 'published') {
+      const existingAdmin = await prisma.admin.findFirst({
+        where: { kegiatan_id: updatedKegiatan.id, role: 'admin_kegiatan' }
+      });
+      
+      if (!existingAdmin) {
+        const slugName = updatedKegiatan.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        let finalUsername = `admin_${slugName}`;
+        
+        const existingUser = await prisma.admin.findUnique({
+          where: { username: finalUsername }
+        });
+        if (existingUser) {
+          finalUsername = `admin_${slugName}_${updatedKegiatan.id}`;
+        }
+        
+        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+        let rawPassword = '';
+        for (let i = 0; i < 6; i++) {
+          rawPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        
+        const hashedPassword = await bcrypt.hash(rawPassword, 10);
+        
+        await prisma.admin.create({
+          data: {
+            username: finalUsername,
+            password: hashedPassword,
+            plain_password: rawPassword,
+            nama: `Admin ${updatedKegiatan.name}`,
+            role: 'admin_kegiatan',
+            kegiatan_id: updatedKegiatan.id
+          }
+        });
+      }
+    }
 
     return res.json({ success: true, message: 'Kegiatan berhasil diperbarui' });
   } catch (error) {

@@ -4,6 +4,7 @@ import { api } from "../../services/api";
 import Badge from "../../components/ui/Badge";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import useDropdown from "../../hooks/useDropdown";
+import SearchableSelect from "../../components/ui/SearchableSelect";
 import { 
   Search, Eye, Check, X, AlertTriangle, Filter, Upload, 
   Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus
@@ -12,7 +13,7 @@ import {
 /**
  * Custom QCard for viewing and editing questionnaires
  */
-function ReviewQCard({ r, label, required, hint, skipInfo, children }) {
+function ReviewQCard({ r, label, subLabel, required, hint, skipInfo, children }) {
   return (
     <div className="bg-white rounded-xl border border-slate-100 p-5 shadow-sm space-y-3 relative overflow-hidden transition-all duration-200 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
@@ -27,6 +28,9 @@ function ReviewQCard({ r, label, required, hint, skipInfo, children }) {
             )}
           </div>
           <h4 className="text-sm font-bold text-slate-800 mt-1.5 leading-snug">{label}</h4>
+          {subLabel && (
+            <p className="text-xs text-slate-500 mt-1 font-medium leading-relaxed">{subLabel}</p>
+          )}
           {hint && (
             <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{hint}</p>
           )}
@@ -46,7 +50,8 @@ function ReviewQCard({ r, label, required, hint, skipInfo, children }) {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading }) {
+function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading, currentUser }) {
+  const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
   const [filter, setFilter] = useState("all");
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState("");
@@ -80,7 +85,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   // Village Stats & Dropdown
   const [desaStats, setDesaStats] = useState([]);
-  const villages = ["Semua Desa", ...desaStats.map(d => `Desa ${d.name}`)];
+  const activeDesas = activeActivity
+    ? (typeof activeActivity.lokus === 'string'
+        ? (JSON.parse(activeActivity.lokus)?.desa || [])
+        : (activeActivity.lokus?.desa || []))
+    : [];
+  const villages = ["Semua Desa", ...(desaStats.length > 0 ? desaStats.map(d => `Desa ${d.name}`) : activeDesas.map(d => `Desa ${d}`))];
   const villageDropdown = useDropdown("Semua Desa");
 
   useEffect(() => {
@@ -113,7 +123,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const statusConfig = getStatusConfig();
 
   const isDraft = activeActivity ? activeActivity.status === "draft" : false;
-  const canUploadPrelist = selectedProject && isDraft;
+  const canUploadPrelist = selectedProject && isDraft && !isKegiatanAdmin;
 
   // Officers list
   const officersList = petugas || [];
@@ -156,7 +166,18 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         const res = await api.form.getStructure(activeActivity.id);
         if (res && res.success) {
           setBlocks(res.blocks);
-          setQuestions(res.questions);
+          const mappedQuestions = (res.questions || []).map(q => {
+            if (q.type === 'select') {
+              try {
+                const parsed = JSON.parse(q.validation || '{}');
+                if (parsed.is_search) {
+                  return { ...q, type: 'search' };
+                }
+              } catch (e) {}
+            }
+            return q;
+          });
+          setQuestions(mappedQuestions);
           if (res.blocks.length > 0) {
             setViewingBlock(res.blocks[0].id);
           }
@@ -276,8 +297,15 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const getQuestionCode = (q, allQuestions, allBlocks) => {
     if (!q) return "";
-    const blockIdx = allBlocks.findIndex(b => b.id === q.blok_id) + 1;
+    const standardBlocks = allBlocks.filter(b => {
+      const idStr = String(b.kode || b.id || "");
+      return idStr.startsWith("Blok ");
+    });
+    const blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
     if (blockIdx === 0) return "";
+
+
+
     
     if (q.parent_id) {
       const parent = allQuestions.find(p => p.id === q.parent_id);
@@ -487,6 +515,16 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
     const blockQuestions = questions.filter(q => q.blok_id === viewingBlock);
 
+    const activityPetugas = (petugas || []).filter(p => 
+      p.projects?.includes(selectedProject)
+    );
+    const pclList = activityPetugas.filter(p => 
+      p.projectRoles?.[selectedProject] === "PCL"
+    );
+    const pmlList = activityPetugas.filter(p => 
+      p.projectRoles?.[selectedProject] === "PML"
+    );
+
     return (
       <div className="p-6 lg:p-8 w-full slide-up">
         {/* Top Control Bar */}
@@ -565,57 +603,73 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
             {/* Bottom: Stuck to bottom controls */}
             <div className="p-5 border-t border-slate-100 bg-slate-50/30 space-y-2 mt-auto">
-              {viewingRecord.status !== "approved" ? (
-                isEditing ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button 
-                      onClick={handleCancelEdit}
-                      className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center"
-                    >
-                      Batal
-                    </button>
-                    <button 
-                      onClick={handleSaveEdit}
-                      className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center shadow-sm"
-                    >
-                      Simpan
-                    </button>
+              {isKegiatanAdmin ? (
+                viewingRecord.status === "approved" ? (
+                  <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                    Dokumen Telah Disetujui
                   </div>
                 ) : (
-                  <button 
-                    onClick={() => setIsEditing(true)}
-                    className="w-full py-2.5 bg-white hover:bg-slate-50 text-blue-600 border border-slate-200 hover:border-slate-300 font-bold rounded-xl text-xs cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                  >
-                    <Edit3 size={13}/> Edit Isian
-                  </button>
+                  <div className="text-[10px] text-slate-500 bg-slate-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-slate-100">
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"/>
+                    Dokumen Belum Disetujui (Read-Only)
+                  </div>
                 )
               ) : (
-                <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
-                  Dokumen Telah Disetujui
-                </div>
-              )}
+                <>
+                  {viewingRecord.status !== "approved" ? (
+                    isEditing ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button 
+                          onClick={handleCancelEdit}
+                          className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center"
+                        >
+                          Batal
+                        </button>
+                        <button 
+                          onClick={handleSaveEdit}
+                          className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center shadow-sm"
+                        >
+                          Simpan
+                        </button>
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => setIsEditing(true)}
+                        className="w-full py-2.5 bg-white hover:bg-slate-50 text-blue-600 border border-slate-200 hover:border-slate-300 font-bold rounded-xl text-xs cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                      >
+                        <Edit3 size={13}/> Edit Isian
+                      </button>
+                    )
+                  ) : (
+                    <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                      Dokumen Telah Disetujui
+                    </div>
+                  )}
 
-              {/* Approve / Unapprove Actions */}
-              {viewingRecord.status === "approved" ? (
-                <button 
-                  onClick={() => setConfirmModalType("unapprove")}
-                  className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs cursor-pointer border border-amber-100 transition-all flex items-center justify-center gap-1.5"
-                >
-                  <X size={13}/> Batalkan Persetujuan (Unapprove)
-                </button>
-              ) : (
-                <button 
-                  onClick={() => setConfirmModalType("approve")}
-                  disabled={isEditing}
-                  className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${
-                    isEditing 
-                      ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
-                      : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                  }`}
-                >
-                  <Check size={13}/> Setujui Dokumen (Approve)
-                </button>
+                  {/* Approve / Unapprove Actions */}
+                  {viewingRecord.status === "approved" ? (
+                    <button 
+                      onClick={() => setConfirmModalType("unapprove")}
+                      className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs cursor-pointer border border-amber-100 transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <X size={13}/> Batalkan Persetujuan (Unapprove)
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={() => setConfirmModalType("approve")}
+                      disabled={isEditing}
+                      className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${
+                        isEditing 
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                      }`}
+                    >
+                      <Check size={13}/> Setujui Dokumen (Approve)
+                    </button>
+                  )}
+                </>
               )}
             </div>
 
@@ -638,7 +692,42 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                           {instances.map((iIdx) => (
                             <div key={iIdx} className="space-y-1">
                               {instances.length > 1 && <label className="text-[10px] font-bold text-slate-455 block">Isian Ke-{iIdx + 1}</label>}
-                              {q.type === 'select' ? (
+                              {q.type === 'pcl' ? (
+                                <select 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 cursor-pointer"
+                                >
+                                  <option value="">-- Pilih PCL --</option>
+                                  {pclList.map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                  {pclList.length === 0 && (petugas || []).map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                </select>
+                              ) : q.type === 'pml' ? (
+                                <select 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 cursor-pointer"
+                                >
+                                  <option value="">-- Pilih PML --</option>
+                                  {pmlList.map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                  {pmlList.length === 0 && (petugas || []).map(p => (
+                                    <option key={p.id} value={p.name}>{p.name}</option>
+                                  ))}
+                                </select>
+                              ) : q.type === 'search' ? (
+                                <SearchableSelect 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  options={q.options || []}
+                                  placeholder="Cari dan pilih opsi..."
+                                  onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
+                                />
+                              ) : q.type === 'select' ? (
                                 <select 
                                   value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
                                   onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
@@ -744,12 +833,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   let isLoop = false;
                   let loopType = "question";
                   let loopByQuestionId = null;
+                  let subLabel = "";
                   if (q.validation && q.validation.trim().startsWith('{')) {
                     try {
                       const parsed = JSON.parse(q.validation);
                       isLoop = !!parsed.is_loop;
                       loopType = parsed.loop_type || "question";
                       loopByQuestionId = parsed.loop_by_question_id || null;
+                      subLabel = parsed.sub_label || "";
                     } catch (e) {}
                   }
 
@@ -775,6 +866,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         key={q.id} 
                         r={qCode} 
                         label={q.label} 
+                        subLabel={subLabel}
                         required={!!q.required}
                         skipInfo={q.skip_logic}
                       >
@@ -827,6 +919,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
                             </div>
                             <h4 className="text-xs font-bold text-slate-700 mt-1">{q.label}</h4>
+                            {subLabel && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
                           </div>
                         </div>
                         <div className="pl-4 mt-2">
@@ -996,7 +1089,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   {villageDropdown.isOpen && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={villageDropdown.close}/>
-                      <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56" style={{ animation: 'scaleIn 0.15s ease' }}>
+                      <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
                         {villages.map(v => (
                           <button key={v} onClick={() => villageDropdown.select(v)}
                             className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
@@ -1131,8 +1224,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                 <div className="flex items-center gap-2">
                                   <select 
                                     value={r.petugas || "Belum Ditugaskan"}
+                                    disabled={isKegiatanAdmin}
                                     onChange={(e) => handleAssignPCL(r.id, e.target.value)}
-                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px]"
+                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px] disabled:opacity-75 disabled:cursor-not-allowed"
                                   >
                                     <option value="Belum Ditugaskan">Pilih PCL</option>
                                     {pcls.map(o => (
@@ -1154,8 +1248,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                 <div className="flex items-center gap-2">
                                   <select 
                                     value={r.pengawas || "Belum Ditugaskan"}
+                                    disabled={isKegiatanAdmin}
                                     onChange={(e) => handleAssignPML(r.id, e.target.value)}
-                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px]"
+                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px] disabled:opacity-75 disabled:cursor-not-allowed"
                                   >
                                     <option value="Belum Ditugaskan">Pilih PML</option>
                                     {pmls.map(o => (
@@ -1216,7 +1311,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               >
                                 <Eye size={15}/>
                               </button>
-                              {status !== "draft" && r.status === "pml_approved" && (
+                              {status !== "draft" && r.status === "pml_approved" && !isKegiatanAdmin && (
                                 <>
                                   <button onClick={() => setModal({ ...r, type: "approve" })}
                                     className="w-8 h-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-emerald-600 transition-all bg-transparent"
@@ -1230,7 +1325,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   </button>
                                 </>
                               )}
-                              {status === "draft" && (
+                              {status === "draft" && !isKegiatanAdmin && (
                                 <button 
                                   onClick={() => setData(prev => prev.filter(item => item.id !== r.id))}
                                   className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-500 transition-all bg-transparent"

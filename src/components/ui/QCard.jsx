@@ -1,4 +1,5 @@
-import { ToggleLeft } from "lucide-react";
+import { useState } from "react";
+import { ToggleLeft, ChevronDown, ChevronUp } from "lucide-react";
 
 /**
  * Card pertanyaan kuesioner minimalis.
@@ -6,13 +7,15 @@ import { ToggleLeft } from "lucide-react";
  * @param {Object} props
  * @param {string} props.r - Nomor rincian.
  * @param {string} props.label - Label pertanyaan.
+ * @param {string} [props.subLabel] - Label/sub-deskripsi pertanyaan tambahan.
  * @param {boolean} [props.required] - Apakah wajib.
  * @param {string} [props.hint] - Teks petunjuk.
  * @param {string} [props.skipInfo] - Info skip logic.
  * @param {React.ReactNode} props.children - Input elements.
  * @returns {React.ReactElement}
  */
-function QCard({ r, label, required, hint, skipInfo, description, children }) {
+function QCard({ r, label, subLabel, required, hint, skipInfo, description, children }) {
+  const [isDescExpanded, setIsDescExpanded] = useState(false);
   const isSkipped = skipInfo && skipInfo.startsWith("Dilewati");
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm transition-all">
@@ -21,6 +24,7 @@ function QCard({ r, label, required, hint, skipInfo, description, children }) {
           <span className="mono text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-0.5">R.{r}</span>
           <div>
             <p className="text-sm font-semibold text-slate-800 leading-snug">{label}</p>
+            {subLabel && <p className="text-xs text-slate-500 mt-1 font-medium leading-relaxed">{subLabel}</p>}
             {hint && <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">{hint}</p>}
           </div>
         </div>
@@ -39,9 +43,21 @@ function QCard({ r, label, required, hint, skipInfo, description, children }) {
       {children}
 
       {description && (
-        <p className="text-xs text-slate-450 mt-3.5 bg-slate-50/50 p-2.5 rounded-xl border border-slate-100 font-medium leading-relaxed">
-          {description}
-        </p>
+        <div className="mt-3.5 border-t border-solid border-slate-50 pt-3">
+          <button
+            type="button"
+            onClick={() => setIsDescExpanded(!isDescExpanded)}
+            className="flex items-center gap-1.5 text-[11px] font-bold text-blue-600 hover:text-blue-750 transition-all cursor-pointer bg-transparent border-0 p-0 outline-none"
+          >
+            <span>Keterangan {isDescExpanded ? "(klik untuk menutup)" : "(klik untuk lihat lebih banyak)"}</span>
+            {isDescExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+          {isDescExpanded && (
+            <p className="text-xs text-slate-500 mt-2 bg-slate-50/70 p-3 rounded-xl border border-slate-100 font-medium leading-relaxed whitespace-pre-line animate-fade-in">
+              {description}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
