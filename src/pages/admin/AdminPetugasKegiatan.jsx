@@ -118,6 +118,14 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
           setSelectedSubSlsCode("");
           return;
         }
+
+        const matchedDesa = allWilayah.find(w => w.desa === assignedName);
+        if (matchedDesa) {
+          setSelectedDesaCode(matchedDesa.desa);
+          setSelectedSlsCode("");
+          setSelectedSubSlsCode("");
+          return;
+        }
       }
       setSelectedDesaCode("");
       setSelectedSlsCode("");
@@ -153,6 +161,15 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                 desa: matchedSls.desa,
                 sls: matchedSls.sls,
                 subSls: hasSubSls ? "" : "0"
+              };
+              return;
+            }
+            const matchedDesa = allWilayah.find(w => w.desa === assignedName);
+            if (matchedDesa) {
+              nextSelections[p.id] = {
+                desa: matchedDesa.desa,
+                sls: "",
+                subSls: ""
               };
               return;
             }
@@ -737,21 +754,16 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
       ...prev,
       [officerId]: { desa: desaVal, sls: "", subSls: "" }
     }));
-    handleInlineLocationSave(officerId, "");
+    handleInlineLocationSave(officerId, desaVal);
   };
 
   const handleRowSlsChange = (officerId, slsVal) => {
-    const hasSubSls = allWilayah.some(w => w.sls === slsVal && w.sub_sls);
     setRowSelections(prev => {
       const updated = {
         ...prev,
-        [officerId]: { ...prev[officerId], sls: slsVal, subSls: hasSubSls ? "" : "0" }
+        [officerId]: { ...prev[officerId], sls: slsVal, subSls: "" }
       };
-      if (!hasSubSls) {
-        handleInlineLocationSave(officerId, slsVal);
-      } else {
-        handleInlineLocationSave(officerId, "");
-      }
+      handleInlineLocationSave(officerId, slsVal || updated[officerId].desa);
       return updated;
     });
   };
@@ -762,7 +774,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
         ...prev,
         [officerId]: { ...prev[officerId], subSls: subSlsVal }
       };
-      const finalValue = (subSlsVal === "0") ? updated[officerId].sls : (subSlsVal || updated[officerId].sls);
+      const finalValue = (subSlsVal === "0") ? updated[officerId].sls : (subSlsVal || updated[officerId].sls || updated[officerId].desa);
       handleInlineLocationSave(officerId, finalValue);
       return updated;
     });
@@ -1514,47 +1526,51 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                             </select>
 
                                             {/* SLS Dropdown */}
-                                            <select
-                                              value={selections.sls || ""}
-                                              onChange={e => handleRowSlsChange(p.id, e.target.value)}
-                                              disabled={!selections.desa}
-                                              className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
-                                            >
-                                              <option value="">-- SLS --</option>
-                                              {(activeActivity?.lokus?.sls || [])
-                                                .filter(slsName => {
-                                                  const matched = dbSlsHierarchy.find(s => s.name === slsName);
-                                                  return matched && matched.desa === selections.desa;
-                                                })
-                                                .map(slsName => (
-                                                  <option key={slsName} value={slsName}>{slsName.replace(` ${selections.desa}`, "")}</option>
-                                                ))}
-                                            </select>
+                                            {(activeActivity?.lokus?.sls || []).length > 0 && (
+                                              <select
+                                                value={selections.sls || ""}
+                                                onChange={e => handleRowSlsChange(p.id, e.target.value)}
+                                                disabled={!selections.desa}
+                                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
+                                              >
+                                                <option value="">-- SLS --</option>
+                                                {(activeActivity?.lokus?.sls || [])
+                                                  .filter(slsName => {
+                                                    const matched = dbSlsHierarchy.find(s => s.name === slsName);
+                                                    return matched && matched.desa === selections.desa;
+                                                  })
+                                                  .map(slsName => (
+                                                    <option key={slsName} value={slsName}>{slsName.replace(` ${selections.desa}`, "")}</option>
+                                                  ))}
+                                              </select>
+                                            )}
 
                                             {/* Sub SLS Dropdown */}
-                                            <select
-                                              value={selections.subSls || ""}
-                                              onChange={e => handleRowSubSlsChange(p.id, e.target.value)}
-                                              disabled={!selections.sls}
-                                              className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
-                                            >
-                                              <option value="">-- Sub SLS --</option>
-                                              {(() => {
-                                                const filteredList = (activeActivity?.lokus?.subSls || [])
-                                                  .filter(subName => {
-                                                    const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
-                                                    return matched && matched.sls === selections.sls;
-                                                  });
-                                                if (filteredList.length > 0) {
-                                                  return filteredList.map(subName => (
-                                                    <option key={subName} value={subName}>{subName}</option>
-                                                  ));
-                                                } else if (selections.sls) {
-                                                  return <option value="0">0</option>;
-                                                }
-                                                return null;
-                                              })()}
-                                            </select>
+                                            {(activeActivity?.lokus?.subSls || []).length > 0 && (activeActivity?.lokus?.sls || []).length > 0 && (
+                                              <select
+                                                value={selections.subSls || ""}
+                                                onChange={e => handleRowSubSlsChange(p.id, e.target.value)}
+                                                disabled={!selections.sls}
+                                                className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed max-w-[120px]"
+                                              >
+                                                <option value="">-- Sub SLS --</option>
+                                                {(() => {
+                                                  const filteredList = (activeActivity?.lokus?.subSls || [])
+                                                    .filter(subName => {
+                                                      const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
+                                                      return matched && matched.sls === selections.sls;
+                                                    });
+                                                  if (filteredList.length > 0) {
+                                                    return filteredList.map(subName => (
+                                                      <option key={subName} value={subName}>{subName}</option>
+                                                    ));
+                                                  } else if (selections.sls) {
+                                                    return <option value="0">0</option>;
+                                                  }
+                                                  return null;
+                                                })()}
+                                              </select>
+                                            )}
                                           </div>
                                         );
                                       } else {
@@ -1889,46 +1905,50 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                 </div>
 
                                 {/* SLS Dropdown */}
-                                <div>
-                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">SLS Tugas</label>
-                                  <select
-                                    value={selectedSlsCode}
-                                    onChange={e => handleLocationDropdownChange(selectedDesaCode, e.target.value, "")}
-                                    disabled={!selectedDesaCode}
-                                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    <option value="">-- Pilih SLS --</option>
-                                    {(activeActivity?.lokus?.sls || [])
-                                      .filter(slsName => {
-                                        const matched = dbSlsHierarchy.find(s => s.name === slsName);
-                                        return matched && matched.desa === selectedDesaCode;
-                                      })
-                                      .map(slsName => (
-                                        <option key={slsName} value={slsName}>{slsName.replace(` ${selectedDesaCode}`, "")}</option>
-                                      ))}
-                                  </select>
-                                </div>
+                                {(activeActivity?.lokus?.sls || []).length > 0 && (
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">SLS Tugas</label>
+                                    <select
+                                      value={selectedSlsCode}
+                                      onChange={e => handleLocationDropdownChange(selectedDesaCode, e.target.value, "")}
+                                      disabled={!selectedDesaCode}
+                                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      <option value="">-- Pilih SLS --</option>
+                                      {(activeActivity?.lokus?.sls || [])
+                                        .filter(slsName => {
+                                          const matched = dbSlsHierarchy.find(s => s.name === slsName);
+                                          return matched && matched.desa === selectedDesaCode;
+                                        })
+                                        .map(slsName => (
+                                          <option key={slsName} value={slsName}>{slsName.replace(` ${selectedDesaCode}`, "")}</option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                )}
 
                                 {/* Sub-SLS Dropdown */}
-                                <div>
-                                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Sub SLS Tugas</label>
-                                  <select
-                                    value={selectedSubSlsCode}
-                                    onChange={e => handleLocationDropdownChange(selectedDesaCode, selectedSlsCode, e.target.value)}
-                                    disabled={!selectedSlsCode}
-                                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    <option value="">-- Pilih Sub SLS (Opsional) --</option>
-                                    {(activeActivity?.lokus?.subSls || [])
-                                      .filter(subName => {
-                                        const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
-                                        return matched && matched.sls === selectedSlsCode;
-                                      })
-                                      .map(subName => (
-                                        <option key={subName} value={subName}>{subName}</option>
-                                      ))}
-                                  </select>
-                                </div>
+                                {(activeActivity?.lokus?.subSls || []).length > 0 && (activeActivity?.lokus?.sls || []).length > 0 && (
+                                  <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Sub SLS Tugas</label>
+                                    <select
+                                      value={selectedSubSlsCode}
+                                      onChange={e => handleLocationDropdownChange(selectedDesaCode, selectedSlsCode, e.target.value)}
+                                      disabled={!selectedSlsCode}
+                                      className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      <option value="">-- Pilih Sub SLS (Opsional) --</option>
+                                      {(activeActivity?.lokus?.subSls || [])
+                                        .filter(subName => {
+                                          const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
+                                          return matched && matched.sls === selectedSlsCode;
+                                        })
+                                        .map(subName => (
+                                          <option key={subName} value={subName}>{subName}</option>
+                                        ))}
+                                    </select>
+                                  </div>
+                                )}
                               </>
                             )}
 

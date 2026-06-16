@@ -94,7 +94,7 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
               <Database size={16} className="text-white"/>
             </div>
             <div>
-              <h1 className="text-sm font-bold tracking-tight">CAPI</h1>
+              <h1 className="text-sm font-bold tracking-tight">CANTIK</h1>
               <p className="text-[10px] text-slate-400 font-medium">Badan Pusat Statistik</p>
             </div>
           </div>

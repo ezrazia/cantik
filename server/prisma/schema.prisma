@@ -98,6 +98,7 @@ model Kegiatan {
   status           KegiatanStatus    @default(draft)
   lokus            Json?
   fokus            String?           @db.VarChar(50)
+  prelist_mapping  Json?             // Mapping kolom Excel ke pertanyaan form
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
   petugas_kegiatan PetugasKegiatan[]
@@ -164,6 +165,7 @@ model FormBlok {
   kode          String         @db.VarChar(20)
   title         String         @db.VarChar(150)
   sort_order    Int            @default(0)
+  hide_logic    String?        @db.Text
   created_at    DateTime       @default(now())
   form_question FormQuestion[]
 
@@ -216,6 +218,11 @@ model Dokumen {
   is_prelist      Boolean        @default(false)
   sync            Boolean        @default(false)
   last_sent_data  Json?
+  // Data keluarga untuk grouping dan auto-fill
+  no_kk           String?        @db.VarChar(50)   // Nomor Kartu Keluarga
+  nik              String?        @db.VarChar(50)   // NIK / No. KTP
+  hub_keluarga    String?        @db.VarChar(50)   // Hubungan dengan kepala keluarga
+  backup_at       DateTime?      // Timestamp backup otomatis - invisible ke petugas
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
   dokumen_jawaban DokumenJawaban[]

@@ -17,6 +17,7 @@ import { api, API_BASE } from "./services/api";
 import PWAPrompt from "./components/ui/PWAPrompt";
 import { initAutoSync } from "./services/syncQueue";
 import { offlineDB } from "./services/offlineStorage";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 /**
  * Komponen root aplikasi CAPI BPS (Desa Cantik).
@@ -26,31 +27,49 @@ import { offlineDB } from "./services/offlineStorage";
  * @returns {React.ReactElement}
  */
 export default function App() {
+  // Safe initialization with try-catch for localStorage
   const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem("currentUser");
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem("currentUser");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      try {
+        localStorage.removeItem("currentUser");
+      } catch {}
+      return null;
+    }
   });
 
   const [screen, setScreen] = useState(() => {
-    const savedUser = localStorage.getItem("currentUser");
-    if (savedUser) {
-      const savedScreen = localStorage.getItem("currentScreen");
-      if (savedScreen && savedScreen !== "login") {
-        return savedScreen;
+    try {
+      const savedUser = localStorage.getItem("currentUser");
+      if (savedUser) {
+        try {
+          const parsedUser = JSON.parse(savedUser);
+          const savedScreen = localStorage.getItem("currentScreen");
+          if (savedScreen && savedScreen !== "login") {
+            return savedScreen;
+          }
+          if (parsedUser.role === "superadmin" || parsedUser.role === "admin") {
+            return "admin-beranda";
+          } else if (parsedUser.role === "admin_kegiatan") {
+            return "admin-dash";
+          }
+          return "petugas-home";
+        } catch {
+          try {
+            localStorage.removeItem("currentUser");
+            localStorage.removeItem("currentScreen");
+          } catch {}
+          return "login";
+        }
       }
-      const user = JSON.parse(savedUser);
-      if (user.role === "superadmin" || user.role === "admin") {
-        return "admin-beranda";
-      } else if (user.role === "admin_kegiatan") {
-        return "admin-dash";
-      }
-      return "petugas-home";
-    }
+    } catch {}
     return "login";
   });
 
   const [isOffline, setIsOffline] = useState(false);
-  const [selectedProject, setSelectedProject] = useState(""); // empty string represents "Pilih Kegiatan"
+  const [selectedProject, setSelectedProject] = useState("");
   const [activities, setActivities] = useState([]);
   const [petugas, setPetugas] = useState([]);
   const [newDataTrigger, setNewDataTrigger] = useState(0);
@@ -70,40 +89,48 @@ export default function App() {
         api.kegiatan.getAll(),
         api.petugas.getAll()
       ]);
-      setActivities(acts);
-      setPetugas(pets);
-      
-      // Sync currentUser state and localStorage with latest database values (e.g. assigned projects)
-      const storedUser = localStorage.getItem("currentUser");
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        if (parsedUser.role === 'petugas') {
-          const latestInfo = pets.find(p => p.id === parsedUser.id);
-          if (latestInfo) {
-            const updatedUser = { ...parsedUser, ...latestInfo };
-            setCurrentUser(updatedUser);
-            localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+
+      // Safe array check before setting state
+      const safeActs = Array.isArray(acts) ? acts : [];
+      const safePets = Array.isArray(pets) ? pets : [];
+
+      setActivities(safeActs);
+      setPetugas(safePets);
+
+      // Sync currentUser state and localStorage with latest database values
+      try {
+        const storedUser = localStorage.getItem("currentUser");
+        if (storedUser && currentUser) {
+          const parsedUser = JSON.parse(storedUser);
+          if (parsedUser.role === 'petugas') {
+            const latestInfo = safePets.find(p => p.id === parsedUser.id);
+            if (latestInfo) {
+              const updatedUser = { ...parsedUser, ...latestInfo };
+              setCurrentUser(updatedUser);
+              localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+            }
           }
         }
+      } catch (e) {
+        console.warn('Failed to sync user data:', e);
       }
-      
+
       // PWA: Cache data ke IndexedDB untuk offline access
       try {
-        await offlineDB.saveAllKegiatan(acts);
-        await offlineDB.saveAllPetugas(pets);
+        if (safeActs.length > 0) await offlineDB.saveAllKegiatan(safeActs);
+        if (safePets.length > 0) await offlineDB.saveAllPetugas(safePets);
       } catch (e) {
         console.warn('Gagal cache ke IndexedDB:', e);
       }
-      
+
       // Auto-select first activity if none is selected
-      if (acts.length > 0 && !selectedProject) {
-        // Find first published/active activity if possible
-        const published = acts.find(a => a.status === 'published' || a.status === 'uji_coba');
-        setSelectedProject(published ? published.name : acts[0].name);
+      if (safeActs.length > 0 && !selectedProject) {
+        const published = safeActs.find(a => a.status === 'published' || a.status === 'uji_coba');
+        setSelectedProject(published ? published.name : safeActs[0].name);
       }
     } catch (err) {
       console.error("Gagal mengambil data dari API:", err);
-      
+
       // PWA: Fallback ke IndexedDB jika offline
       if (!navigator.onLine) {
         try {
@@ -123,16 +150,24 @@ export default function App() {
 
   useEffect(() => {
     refreshData();
-  }, [currentUser?.id]); // Refresh data when login/logout occurs
+  }, [currentUser?.id]);
 
   /**
    * Handler login.
    * @param {Object} user
    */
   const handleLogin = (user) => {
+    if (!user || !user.id) {
+      console.error('Invalid user data for login');
+      return;
+    }
     setCurrentUser(user);
-    localStorage.setItem("currentUser", JSON.stringify(user));
-    
+    try {
+      localStorage.setItem("currentUser", JSON.stringify(user));
+    } catch (e) {
+      console.warn('Failed to save user to localStorage:', e);
+    }
+
     let targetScreen = "login";
     if (user.role === "superadmin" || user.role === "admin") {
       targetScreen = "admin-beranda";
@@ -141,28 +176,26 @@ export default function App() {
     } else {
       targetScreen = "petugas-home";
     }
-    
-    setScreen(targetScreen);
-    localStorage.setItem("currentScreen", targetScreen);
-  };
 
-  // Lock selectedProject for admin_kegiatan to their managed activity
-  useEffect(() => {
-    if (currentUser?.role === "admin_kegiatan" && currentUser.kegiatan_id && activities.length > 0) {
-      const managedActivity = activities.find(a => a.id === currentUser.kegiatan_id);
-      if (managedActivity && selectedProject !== managedActivity.name) {
-        setSelectedProject(managedActivity.name);
-      }
+    setScreen(targetScreen);
+    try {
+      localStorage.setItem("currentScreen", targetScreen);
+    } catch (e) {
+      console.warn('Failed to save screen to localStorage:', e);
     }
-  }, [currentUser, activities, selectedProject]);
+  };
 
   /**
    * Handler logout.
    */
   const handleLogout = () => {
     setCurrentUser(null);
-    localStorage.removeItem("currentUser");
-    localStorage.removeItem("currentScreen");
+    try {
+      localStorage.removeItem("currentUser");
+      localStorage.removeItem("currentScreen");
+    } catch (e) {
+      console.warn('Failed to clear localStorage:', e);
+    }
     setScreen("login");
   };
 
@@ -175,29 +208,33 @@ export default function App() {
       handleLogout();
     } else {
       setScreen(s);
-      localStorage.setItem("currentScreen", s);
+      try {
+        localStorage.setItem("currentScreen", s);
+      } catch (e) {
+        console.warn('Failed to save screen to localStorage:', e);
+      }
     }
   };
 
   /** Pemetaan screen name ke komponen yang dirender. */
   const SCREENS = {
-    "login":          <LoginScreen onLogin={handleLogin} />,
-    
+    "login": <LoginScreen onLogin={handleLogin} />,
+
     // ─── PETUGAS SCREENS ────────────────────────────────
-    "petugas-home":   <PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} />,
-    "questionnaire":  <PetugasQuestionnaire onNavigate={go} petugas={petugas} activities={activities} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} />,
-    "petugas-sync":   <PetugasSync onNavigate={go} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} />,
-    "petugas-settings":<PetugasSettings onNavigate={go} currentUser={currentUser} />,
-    
+    "petugas-home": <ErrorBoundary><PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} /></ErrorBoundary>,
+    "questionnaire": <ErrorBoundary><PetugasQuestionnaire onNavigate={go} petugas={petugas} activities={activities} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} /></ErrorBoundary>,
+    "petugas-sync": <ErrorBoundary><PetugasSync onNavigate={go} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} /></ErrorBoundary>,
+    "petugas-settings": <ErrorBoundary><PetugasSettings onNavigate={go} currentUser={currentUser} /></ErrorBoundary>,
+
     // ─── ADMIN SCREENS ──────────────────────────────────
-    "admin-beranda":  <AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} />,
-    "admin-dash":     <AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} loading={globalLoading} refreshData={refreshData} currentUser={currentUser} />,
-    "admin-review":   <AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} loading={globalLoading} currentUser={currentUser} />,
-    "admin-builder":  <AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} loading={globalLoading} />,
-    "admin-users":    <AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} currentUser={currentUser} />,
-    "admin-master-petugas": <AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} />,
-    "admin-kegiatan": <AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} loading={globalLoading} />,
-    "admin-tabulasi": <AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} loading={globalLoading} />,
+    "admin-beranda": <ErrorBoundary><AdminBeranda onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} /></ErrorBoundary>,
+    "admin-dash": <ErrorBoundary><AdminDashboard onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} petugas={petugas} loading={globalLoading} refreshData={refreshData} currentUser={currentUser} /></ErrorBoundary>,
+    "admin-review": <ErrorBoundary><AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} loading={globalLoading} currentUser={currentUser} /></ErrorBoundary>,
+    "admin-builder": <ErrorBoundary><AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} loading={globalLoading} /></ErrorBoundary>,
+    "admin-users": <ErrorBoundary><AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} currentUser={currentUser} /></ErrorBoundary>,
+    "admin-master-petugas": <ErrorBoundary><AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} /></ErrorBoundary>,
+    "admin-kegiatan": <ErrorBoundary><AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} loading={globalLoading} /></ErrorBoundary>,
+    "admin-tabulasi": <ErrorBoundary><AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} loading={globalLoading} /></ErrorBoundary>,
   };
 
   return (

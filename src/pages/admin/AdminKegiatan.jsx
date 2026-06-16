@@ -495,7 +495,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
       // Cari petugas yang terdaftar di kegiatan saat ini
       const assigned = petugas.filter(p => p.projects && p.projects.includes(selectedActivity.name));
 
-      // 2. Cek "semua sls hingga subnya sudah dapat PCL"
+      // 2. Cek wilayah penugasan PCL berdasarkan tingkat detail lokus terdalam yang dipilih
       const lokus = selectedActivity.lokus || { kecamatan: [], desa: [], sls: [], subSls: [] };
       const pcls = assigned.filter(p => p.projectRoles?.[selectedActivity.name] === "PCL");
       
@@ -505,27 +505,33 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
         slsList.forEach(s => assignedLocations.add(s));
       });
 
-      const slsListInLokus = lokus.sls || [];
-      const subSlsListInLokus = lokus.subSls || [];
-
-      slsListInLokus.forEach(s => {
-        const selectedSubs = subSlsListInLokus.filter(subName => {
-          const matched = dbSubSlsHierarchy.find(sub => sub.name === subName);
-          return matched && matched.sls === s;
+      if (lokus.subSls && lokus.subSls.length > 0) {
+        lokus.subSls.forEach(sub => {
+          if (!assignedLocations.has(sub)) {
+            errors.push(`Sub-SLS "${sub}" belum ditugaskan ke PCL manapun.`);
+          }
         });
-
-        if (selectedSubs.length > 0) {
-          selectedSubs.forEach(sub => {
-            if (!assignedLocations.has(sub)) {
-              errors.push(`Sub-SLS "${sub}" belum ditugaskan ke PCL manapun.`);
-            }
-          });
-        } else {
+      } else if (lokus.sls && lokus.sls.length > 0) {
+        lokus.sls.forEach(s => {
           if (!assignedLocations.has(s)) {
             errors.push(`SLS "${s}" belum ditugaskan ke PCL manapun.`);
           }
-        }
-      });
+        });
+      } else if (lokus.desa && lokus.desa.length > 0) {
+        lokus.desa.forEach(d => {
+          if (!assignedLocations.has(d)) {
+            errors.push(`Desa "${d}" belum ditugaskan ke PCL manapun.`);
+          }
+        });
+      } else if (lokus.kecamatan && lokus.kecamatan.length > 0) {
+        lokus.kecamatan.forEach(k => {
+          if (!assignedLocations.has(k)) {
+            errors.push(`Kecamatan "${k}" belum ditugaskan ke PCL manapun.`);
+          }
+        });
+      } else {
+        errors.push("Lokus Kegiatan belum dipilih. Silakan pilih dan simpan Lokus Kegiatan terlebih dahulu.");
+      }
 
       // 3. Cek "tiap PCL sudah mendapat PML"
       pcls.forEach(p => {
@@ -980,7 +986,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                         type="text" 
                         value="Kalimantan Utara" 
                         disabled 
-                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-500 font-semibold cursor-not-allowed"
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-500 font-semibold cursor-not-allowed"
                       />
                     </div>
                     <div>
@@ -989,7 +995,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                         type="text" 
                         value="Tana Tidung" 
                         disabled 
-                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-500 font-semibold cursor-not-allowed"
+                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-500 font-semibold cursor-not-allowed"
                       />
                     </div>
                   </div>
@@ -1243,13 +1249,13 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Username</label>
-                        <div className="px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-700 font-mono font-bold select-all">
+                        <div className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-mono font-bold select-all">
                           {selectedActivity.activity_admin.username}
                         </div>
                       </div>
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Password</label>
-                        <div className="px-3 py-2 text-xs bg-slate-50 border border-slate-150 rounded-xl text-slate-700 font-mono font-bold select-all">
+                        <div className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-mono font-bold select-all">
                           {selectedActivity.activity_admin.plain_password}
                         </div>
                       </div>

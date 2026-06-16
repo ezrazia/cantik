@@ -401,6 +401,150 @@ router.post('/', async (req, res) => {
 });
 
 /**
+ * POST /api/dokumen/backup
+ * Backup otomatis data dari petugas ke server (invisible ke petugas).
+ * Tidak mengubah status dokumen, hanya menyimpan data terkini.
+ * Jika dokumen sudah ada, update jawaban saja.
+ */
+router.post('/backup', async (req, res) => {
+  const { petugas_id, documents } = req.body;
+
+  if (!petugas_id || !documents || !Array.isArray(documents)) {
+    return res.status(400).json({ success: false, message: 'Data backup tidak lengkap' });
+  }
+
+  try {
+    let backedUp = 0;
+    let failed = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const doc of documents) {
+        try {
+          const {
+            kode,
+            kegiatan_id,
+            krt,
+            alamat,
+            kecamatan,
+            desa,
+            sls,
+            sub_sls,
+            status,
+            is_prelist,
+            values,
+          } = doc;
+
+          // Cek apakah dokumen sudah ada
+          let existing = await tx.dokumen.findUnique({
+            where: { kode: kode }
+          });
+
+          if (existing) {
+            // Dokumen sudah ada, update backup_at saja
+            // JANGAN ubah status atau review_status karena ini hanya backup
+            await tx.dokumen.update({
+              where: { id: existing.id },
+              data: {
+                backup_at: new Date(),
+                krt: krt || existing.krt,
+                alamat: alamat || existing.alamat,
+                kecamatan: kecamatan || existing.kecamatan,
+                desa: desa || existing.desa,
+                sls: sls || existing.sls,
+                sub_sls: sub_sls || existing.sub_sls,
+              },
+            });
+
+            // Update jawaban juga
+            if (values && Object.keys(values).length > 0) {
+              for (const [qId, val] of Object.entries(values)) {
+                const qIdInt = parseInt(qId, 10);
+                const formattedVal = val !== undefined && val !== null ? String(val) : '';
+
+                await tx.dokumenJawaban.upsert({
+                  where: {
+                    uk_dok_jawaban: {
+                      dokumen_id: existing.id,
+                      question_id: qIdInt,
+                    },
+                  },
+                  update: { value: formattedVal },
+                  create: {
+                    dokumen_id: existing.id,
+                    question_id: qIdInt,
+                    value: formattedVal,
+                  },
+                });
+              }
+            }
+          } else {
+            // Dokumen belum ada, buat baru dengan status 'draft'
+            // Dokumen ini adalah backup dari dokumen yang dibuat offline tapi belum dikirim
+            const newDoc = await tx.dokumen.create({
+              data: {
+                kode: kode,
+                kegiatan_id: parseInt(kegiatan_id, 10),
+                petugas_id: parseInt(petugas_id, 10),
+                krt: krt || null,
+                alamat: alamat || null,
+                kecamatan: kecamatan || null,
+                desa: desa || null,
+                sls: sls || null,
+                sub_sls: sub_sls || null,
+                status: 'draft', // Status awal adalah draft
+                review_status: 'draft',
+                is_prelist: !!is_prelist,
+                sync: false,
+                backup_at: new Date(),
+              },
+            });
+
+            // Simpan jawaban
+            if (values && Object.keys(values).length > 0) {
+              for (const [qId, val] of Object.entries(values)) {
+                const qIdInt = parseInt(qId, 10);
+                const formattedVal = val !== undefined && val !== null ? String(val) : '';
+
+                await tx.dokumenJawaban.create({
+                  data: {
+                    dokumen_id: newDoc.id,
+                    question_id: qIdInt,
+                    value: formattedVal,
+                  },
+                });
+              }
+            }
+
+            // Tambah log
+            await tx.dokumenLog.create({
+              data: {
+                dokumen_id: newDoc.id,
+                message: 'Backup otomatis dari perangkat petugas',
+              },
+            });
+          }
+
+          backedUp++;
+        } catch (docError) {
+          console.error('Error backing up document:', docError);
+          failed++;
+        }
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `Backup berhasil: ${backedUp} dokumen${failed > 0 ? `, ${failed} gagal` : ''}`,
+      backedUp,
+      failed,
+    });
+  } catch (error) {
+    console.error('Error in backup transaction:', error);
+    return res.status(500).json({ success: false, message: 'Gagal melakukan backup' });
+  }
+});
+
+/**
  * POST /api/dokumen/sync
  * Sinkronisasi data offline dari petugas (batch upload dokumen)
  */
@@ -674,6 +818,282 @@ router.delete('/:id', async (req, res) => {
   } catch (error) {
     console.error('Error deleting document:', error);
     return res.status(500).json({ success: false, message: 'Gagal menghapus dokumen' });
+  }
+});
+
+/**
+ * POST /api/dokumen/prelist/import
+ * Import prelist dari Excel dengan column mapping.
+ *
+ * Request body:
+ * {
+ *   kegiatan_id: number,
+ *   mapping: {
+ *     excelColumn: "question_id"  // e.g., { "NO_KK": "101", "NIK": "102", "NAMA": "201", ... }
+ *   },
+ *   rows: [
+ *     { "NO_KK": "1234", "NIK": "5678", "NAMA": "John Doe", "HUB": "Kepala", ... },
+ *     ...
+ *   ]
+ * }
+ */
+router.post('/prelist/import', async (req, res) => {
+  const { kegiatan_id, mapping, rows } = req.body;
+
+  if (!kegiatan_id || !Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({
+      success: false,
+      message: 'Kegiatan ID dan data rows wajib diisi'
+    });
+  }
+
+  try {
+    // 1. Simpan mapping ke kegiatan
+    await prisma.kegiatan.update({
+      where: { id: parseInt(kegiatan_id, 10) },
+      data: {
+        prelist_mapping: mapping || {}
+      }
+    });
+
+    // 2. Generate kode wilayah
+    let kodeprov = '65';
+    let kab = '03';
+    let kec = '000';
+
+    // Ambil sample row untuk dapat kecamatan/desa
+    const sampleRow = rows[0];
+    const sampleDesa = mapping?.desa ? sampleRow[mapping.desa] : (mapping?.Dusun ? sampleRow[mapping.Dusun] : null);
+
+    if (sampleDesa) {
+      const wilayah = await prisma.wilayah.findFirst({
+        where: {
+          OR: [
+            { desa: sampleDesa },
+            { desa: String(sampleDesa).trim() }
+          ]
+        }
+      });
+      if (wilayah) {
+        kodeprov = wilayah.kdprov || '65';
+        kab = wilayah.kdkab || '03';
+        kec = wilayah.kdkec || '000';
+      }
+    }
+
+    const codeArea = `${kodeprov}${kab}${kec}`;
+
+    // 3. Ambil kegiatan untuk initials
+    const kegiatan = await prisma.kegiatan.findUnique({
+      where: { id: parseInt(kegiatan_id, 10) }
+    });
+    let kegiatanInitials = 'KG';
+    if (kegiatan && kegiatan.name) {
+      const parts = kegiatan.name.trim().split(/\s+/);
+      kegiatanInitials = parts.map(part => {
+        if (/^\d+$/.test(part)) return part;
+        return part[0] ? part[0].toUpperCase() : '';
+      }).join('').replace(/[^A-Z0-9]/g, '');
+    }
+
+    // 4. Get existing prelist untuk generate sequence
+    const existingDocs = await prisma.dokumen.findMany({
+      where: { kegiatan_id: parseInt(kegiatan_id, 10) },
+      select: { kode: true }
+    });
+
+    let maxSeq = 0;
+    existingDocs.forEach(d => {
+      const parts = d.kode.split('-');
+      const lastPart = parts[parts.length - 1];
+      const seq = parseInt(lastPart, 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    });
+
+    // 5. Group rows by No. KK untuk buat 1 dokumen per keluarga
+    const familyGroups = {};
+    rows.forEach(row => {
+      const noKk = mapping?.no_kk ? String(row[mapping.no_kk] || '').trim() : '';
+      if (!noKk) return; // Skip if no KK
+
+      if (!familyGroups[noKk]) {
+        familyGroups[noKk] = [];
+      }
+      familyGroups[noKk].push(row);
+    });
+
+    // 6. Create documents per family
+    let imported = 0;
+    let skipped = 0;
+
+    await prisma.$transaction(async (tx) => {
+      for (const [noKk, familyMembers] of Object.entries(familyGroups)) {
+        maxSeq++;
+        const kode = `${codeArea}-${kegiatanInitials}-PL-${maxSeq}`;
+
+        // Tentukan kepala keluarga (yang HUB nya "Kepala" atau urutan pertama)
+        let kepalaKeluarga = null;
+        let anggotaKeluarga = familyMembers;
+
+        familyMembers.forEach((member, idx) => {
+          const hub = mapping?.hub_keluarga ? String(member[mapping.hub_keluarga] || '').toLowerCase() : '';
+          if (hub.includes('kepala') || hub === '1') {
+            kepalaKeluarga = member;
+          }
+        });
+
+        // Jika tidak ada yang ditandai sebagai kepala, gunakan yang pertama
+        if (!kepalaKeluarga) {
+          kepalaKeluarga = familyMembers[0];
+          anggotaKeluarga = familyMembers.slice(1);
+        }
+
+        // Build values untuk auto-fill
+        const values = {};
+
+        // Map setiap kolom Excel ke pertanyaan form
+        for (const [excelCol, questionId] of Object.entries(mapping || {})) {
+          if (!questionId || questionId === '') continue;
+
+          const qId = String(questionId).replace(/^R?\.?/, ''); // Hapus prefix R atau .
+
+          // Untuk kepala keluarga
+          if (kepalaKeluarga && excelCol !== mapping?.no_kk) {
+            const val = kepalaKeluarga[excelCol];
+            if (val !== undefined && val !== null && val !== '') {
+              values[qId] = String(val);
+            }
+          }
+        }
+
+        // Tambah counter anggota keluarga untuk loop
+        const anggotaCountKey = mapping?.nama ? String(mapping.nama).replace(/^R?\.?/, '') : null;
+        if (anggotaCountKey) {
+          values[`${anggotaCountKey}_loop_count`] = String(anggotaKeluarga.length);
+        }
+
+        // Map data anggota keluarga ke dalam array untuk loop
+        if (anggotaCountKey && anggotaKeluarga.length > 0) {
+          anggotaKeluarga.forEach((anggota, idx) => {
+            for (const [excelCol, questionId] of Object.entries(mapping || {})) {
+              if (!questionId || questionId === '') continue;
+              const qId = String(questionId).replace(/^R?\.?/, '');
+
+              // Skip fields yang sudah diassign ke kepala
+              if (mapping?.nama && excelCol === mapping.nama) continue;
+              if (mapping?.no_kk && excelCol === mapping.no_kk) continue;
+
+              const val = anggota[excelCol];
+              if (val !== undefined && val !== null && val !== '') {
+                const existingVal = values[qId];
+                if (existingVal) {
+                  // Convert to array if needed
+                  let arr = [];
+                  if (typeof existingVal === 'string' && existingVal.startsWith('[')) {
+                    try { arr = JSON.parse(existingVal); } catch { arr = [existingVal]; }
+                  } else {
+                    arr = [existingVal];
+                  }
+                  arr[idx] = String(val);
+                  values[qId] = JSON.stringify(arr);
+                } else {
+                  values[qId] = JSON.stringify([String(val)]);
+                }
+              }
+            }
+          });
+        }
+
+        // Create dokumen
+        const doc = await tx.dokumen.create({
+          data: {
+            kode,
+            kegiatan_id: parseInt(kegiatan_id, 10),
+            petugas_id: 0, // Belum ditugaskan
+            krt: kepalaKeluarga ? (mapping?.nama ? String(kepalaKeluarga[mapping.nama] || '') : '') : 'Tanpa Nama',
+            alamat: kepalaKeluarga ? (mapping?.alamat ? String(kepalaKeluarga[mapping.alamat] || '') : '') : null,
+            kecamatan: kepalaKeluarga ? (mapping?.kecamatan ? String(kepalaKeluarga[mapping.kecamatan] || '') : '') : null,
+            desa: kepalaKeluarga ? (mapping?.desa ? String(kepalaKeluarga[mapping.desa] || '') : '') : null,
+            sls: kepalaKeluarga ? (mapping?.sls ? String(kepalaKeluarga[mapping.sls] || '') : '') : null,
+            sub_sls: kepalaKeluarga ? (mapping?.sub_sls ? String(kepalaKeluarga[mapping.sub_sls] || '') : '') : null,
+            status: 'draft',
+            review_status: 'draft',
+            is_prelist: true,
+            sync: false,
+            no_kk: noKk,
+            nik: kepalaKeluarga && mapping?.nik ? String(kepalaKeluarga[mapping.nik] || '') : null,
+            hub_keluarga: 'Kepala',
+          }
+        });
+
+        // Simpan jawaban
+        for (const [qId, val] of Object.entries(values)) {
+          const qIdInt = parseInt(qId, 10);
+          if (isNaN(qIdInt)) continue;
+
+          const formattedVal = val !== undefined && val !== null ? String(val) : '';
+          if (formattedVal === '') continue;
+
+          await tx.dokumenJawaban.create({
+            data: {
+              dokumen_id: doc.id,
+              question_id: qIdInt,
+              value: formattedVal,
+            }
+          });
+        }
+
+        // Tambah log
+        await tx.dokumenLog.create({
+          data: {
+            dokumen_id: doc.id,
+            message: `Import prelist dari Excel (${familyMembers.length} anggota keluarga)`,
+          }
+        });
+
+        imported++;
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `Import berhasil: ${imported} keluarga diimpor`,
+      imported,
+      skipped
+    });
+
+  } catch (error) {
+    console.error('Error importing prelist:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal import prelist: ' + error.message
+    });
+  }
+});
+
+/**
+ * GET /api/dokumen/prelist/mapping/:kegiatanId
+ * Ambil column mapping untuk kegiatan tertentu.
+ */
+router.get('/prelist/mapping/:kegiatanId', async (req, res) => {
+  const { kegiatanId } = req.params;
+
+  try {
+    const kegiatan = await prisma.kegiatan.findUnique({
+      where: { id: parseInt(kegiatanId, 10) },
+      select: { prelist_mapping: true }
+    });
+
+    return res.json({
+      success: true,
+      mapping: kegiatan?.prelist_mapping || null
+    });
+  } catch (error) {
+    console.error('Error fetching prelist mapping:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal mengambil mapping prelist'
+    });
   }
 });
 

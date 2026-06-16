@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 /**
  * Custom hook untuk simulasi auto-save dengan timer.
@@ -15,6 +15,19 @@ import { useState, useCallback, useRef } from 'react';
 export default function useAutoSave(delay = 1100) {
   const [saved, setSaved] = useState(true);
   const timerRef = useRef(null);
+  const isMountedRef = useRef(true);
+
+  // Cleanup timer saat component unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, []);
 
   /**
    * Menandai data sebagai "belum tersimpan", lalu otomatis
@@ -23,7 +36,12 @@ export default function useAutoSave(delay = 1100) {
   const markUnsaved = useCallback(() => {
     setSaved(false);
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setSaved(true), delay);
+    timerRef.current = setTimeout(() => {
+      // Hanya update state jika component masih mounted
+      if (isMountedRef.current) {
+        setSaved(true);
+      }
+    }, delay);
   }, [delay]);
 
   return { saved, markUnsaved };

@@ -2,6 +2,46 @@ import { useState, useEffect } from 'react';
 import { Upload, Download, CheckCircle, Clock, AlertCircle, RefreshCcw, AlertTriangle } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
+import { offlineDB } from "../../services/offlineStorage";
+
+const checkOptionTrigger = (val, triggerOptions) => {
+  if (val === undefined || val === null || val === '') return false;
+  if (typeof val === 'string' && val.trim().startsWith('{')) {
+    try {
+      const parsedVal = JSON.parse(val);
+      if (parsedVal && typeof parsedVal === 'object') {
+        if ('value' in parsedVal) {
+          return triggerOptions.includes(String(parsedVal.value));
+        }
+        return triggerOptions.some(opt => {
+          const optVal = parsedVal[opt];
+          return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
+        });
+      }
+    } catch (e) {}
+  }
+  return triggerOptions.includes(String(val));
+};
+
+const evaluateCondition = (c, values) => {
+  const val = values[c.question_id];
+  if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
+    if (val === undefined || val === null || val === '') return false;
+    const numericVal = parseFloat(val);
+    const targetVal = parseFloat(c.value);
+    if (isNaN(numericVal) || isNaN(targetVal)) return false;
+    switch (c.operator) {
+      case '=': return numericVal === targetVal;
+      case '>': return numericVal > targetVal;
+      case '>=': return numericVal >= targetVal;
+      case '<': return numericVal < targetVal;
+      case '<=': return numericVal <= targetVal;
+      default: return false;
+    }
+  }
+  const triggerOptions = String(c.value).split(",").map(x => x.trim()).filter(Boolean);
+  return checkOptionTrigger(val, triggerOptions);
+};
 
 /**
  * Halaman sinkronisasi Petugas — minimalis & interactive.
@@ -30,8 +70,42 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         setLocalRtList(JSON.parse(cached));
       } catch (e) {
         console.error("Gagal parse cached offline docs:", e);
+        // Fallback ke IndexedDB jika localStorage gagal
+        recoverFromIDB();
       }
     } else {
+      // Jika localStorage kosong, coba recover dari IndexedDB
+      recoverFromIDB();
+    }
+  };
+
+  /**
+   * Recover dokumen dari IndexedDB jika localStorage kosong
+   */
+  const recoverFromIDB = async () => {
+    if (!offlineDB.isAvailable()) {
+      setLocalRtList([]);
+      return;
+    }
+
+    try {
+      const allDocs = await offlineDB.getAllDokumen();
+      const userDocs = allDocs.filter(d => d.petugas_id === currentUser.id);
+
+      if (userDocs.length > 0) {
+        // Sync ke localStorage untuk konsistensi
+        try {
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(userDocs));
+        } catch (e) {
+          console.warn('Gagal sync recovery ke localStorage:', e);
+        }
+        setLocalRtList(userDocs);
+        console.log(`Recovered ${userDocs.length} dokumen dari IndexedDB`);
+      } else {
+        setLocalRtList([]);
+      }
+    } catch (e) {
+      console.warn('Gagal recover dari IndexedDB:', e);
       setLocalRtList([]);
     }
   };
@@ -44,10 +118,27 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     setFetchingData(true);
     try {
       const docs = await api.dokumen.getByPetugas(currentUser.id);
-      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+
+      // Hybrid storage: simpan ke localStorage + IndexedDB
+      try {
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+      } catch (e) {
+        console.warn('localStorage penuh saat refresh:', e.message);
+      }
+      // Simpan juga ke IndexedDB
+      docs.forEach(doc => {
+        try {
+          offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+        } catch (idbErr) {
+          console.warn('Gagal simpan ke IndexedDB:', idbErr);
+        }
+      });
+
       setLocalRtList(docs);
     } catch (e) {
       console.error("Gagal refresh data dari server:", e);
+      // Fallback ke localStorage atau IndexedDB
+      refreshList();
     } finally {
       setFetchingData(false);
     }
@@ -108,65 +199,197 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     
     const errors = [];
     const values = item.values || {};
-    
-    const isQuestionVisible = (q) => {
-      const showIfParentId = q.show_if_parent_id || q.showIfParentId;
-      const showIfValue = q.show_if_value || q.showIfValue;
-      if (showIfParentId) {
-        const parentVal = values[showIfParentId];
-        if (parentVal === undefined || parentVal === null || parentVal === '') {
-          return false;
-        }
-        
-        const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
-        let matchesTrigger = false;
-        if (typeof parentVal === 'string' && parentVal.trim().startsWith('{')) {
+
+    const parseValidation = (str) => {
+      if (!str) return { isLoop: false, loopByQuestionId: null };
+      const trimmed = str.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return {
+            isLoop: !!parsed.is_loop,
+            loopType: parsed.loop_type || "question",
+            loopByQuestionId: parsed.loop_by_question_id || null,
+          };
+        } catch (e) {}
+      }
+      return { isLoop: false, loopByQuestionId: null };
+    };
+
+    const getManualLoopCount = (q) => {
+      if (!q) return null;
+      
+      // Check if the question belongs to a loop group
+      let loopGroupName = "";
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          if (parsed && parsed.loop_group) {
+            loopGroupName = parsed.loop_group;
+          }
+        } catch (e) {}
+      }
+      
+      if (loopGroupName) {
+        const groupQs = questions.filter(x => {
+          if (!x.validation) return false;
           try {
-            const parsed = JSON.parse(parentVal);
-            matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
-          } catch (e) {}
-        } else {
-          matchesTrigger = triggerOptions.includes(String(parentVal));
+            const parsed = JSON.parse(x.validation);
+            return parsed && parsed.loop_group === loopGroupName;
+          } catch (e) {
+            return false;
+          }
+        });
+        const masterQ = groupQs.find(x => {
+          if (!x.validation) return false;
+          try {
+            const parsed = JSON.parse(x.validation);
+            return parsed && parsed.is_loop && parsed.loop_type === "manual";
+          } catch (e) {
+            return false;
+          }
+        });
+        if (masterQ && masterQ.id !== q.id) {
+          return getManualLoopCount(masterQ);
         }
-        
-        if (!matchesTrigger) return false;
       }
 
+      const { isLoop, loopType } = parseValidation(q.validation);
+      if (isLoop && loopType === "manual") {
+        const savedCount = values[`${q.id}_loop_count`];
+        if (savedCount !== undefined && savedCount !== null && savedCount !== '') {
+          return parseInt(savedCount, 10);
+        }
+        return 1;
+      }
       if (q.parent_id) {
-        const parent = questions.find(p => p.id === q.parent_id);
-        if (parent && parent.label && parent.label.trim() !== "") {
-          const parentVal = values[q.parent_id];
-          if (parentVal === undefined || parentVal === null || parentVal === '') return false;
+        const parent = questions.find(x => x.id === q.parent_id);
+        if (parent) {
+          return getManualLoopCount(parent);
         }
       }
+      return null;
+    };
+
+    const getLoopValue = (qId, idx) => {
+      const raw = values[qId];
+      if (!raw) return "";
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed[idx] || "";
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          return parsed[idx] || "";
+        }
+      } catch (e) {}
+      return idx === 0 ? raw : "";
+    };
+
+    const getResolvedValuesForIndex = (values, idx) => {
+      if (idx === null) return values;
+      const resolved = {};
+      for (const qId in values) {
+        const raw = values[qId];
+        if (raw && typeof raw === 'string' && (raw.startsWith('[') || raw.startsWith('{'))) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+            } else if (typeof parsed === 'object' && parsed !== null) {
+              resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+            } else {
+              resolved[qId] = raw;
+            }
+          } catch (e) {
+            resolved[qId] = raw;
+          }
+        } else {
+          resolved[qId] = raw;
+        }
+      }
+      return resolved;
+    };
+
+    const isQuestionVisible = (q, activeInstanceIdx = null) => {
+      const resolvedValues = getResolvedValuesForIndex(values, activeInstanceIdx);
+      const showIfValue = q.show_if_value || q.showIfValue;
+      if (showIfValue) {
+        let matchesShowIf = true;
+        let isJson = false;
+        try {
+          const parsed = JSON.parse(showIfValue);
+          if (parsed && parsed.conditions) {
+            isJson = true;
+            const operator = parsed.operator || "AND";
+            const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
+            matchesShowIf = operator === "OR" ? results.some(r => r) : results.every(r => r);
+          }
+        } catch (e) {}
+
+        if (isJson) {
+          if (!matchesShowIf) return false;
+        } else {
+          const showIfParentId = q.show_if_parent_id || q.showIfParentId;
+          if (showIfParentId) {
+            const parentVal = resolvedValues[showIfParentId];
+            const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
+            if (!checkOptionTrigger(parentVal, triggerOptions)) {
+              return false;
+            }
+          }
+        }
+      }
+
+      // Parent value check is bypassed because parents with sub-questions do not render inputs of their own.
+      // Conditional visibility is handled properly by show_if rules.
       
       const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
       for (const skipper of skippers) {
-        const skipperVal = values[skipper.id];
-        const hasValue = skipperVal !== undefined && skipperVal !== null && skipperVal !== '';
-        
         let matchesTrigger = false;
-        if (hasValue) {
-          const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
-          if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
-            try {
-              const parsed = JSON.parse(skipperVal);
-              matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
-            } catch (e) {}
-          } else {
-            matchesTrigger = triggerOptions.includes(String(skipperVal));
+        let isJson = false;
+
+        try {
+          const parsed = JSON.parse(skipper.skip_logic);
+          if (parsed && parsed.conditions) {
+            isJson = true;
+            const operator = parsed.operator || "AND";
+            const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
+            matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
+          }
+        } catch (e) {}
+
+        if (!isJson) {
+          const skipperVal = resolvedValues[skipper.id];
+          const hasValue = skipperVal !== undefined && skipperVal !== null && skipperVal !== '';
+          if (hasValue) {
+            const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+            if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(skipperVal);
+                matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
+              } catch (e) {}
+            } else {
+              matchesTrigger = triggerOptions.includes(String(skipperVal));
+            }
           }
         }
         
-        if (hasValue && matchesTrigger) {
+        if (matchesTrigger) {
           const allOrdered = [];
           blocks.forEach(b => {
             const blockQs = questions.filter(x => x.blok_id === b.id);
             const mainQs = blockQs.filter(x => !x.parent_id);
+            const addChildrenRecursive = (parentId) => {
+              const children = blockQs.filter(x => x.parent_id === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+              children.forEach(child => {
+                allOrdered.push(child);
+                addChildrenRecursive(child.id);
+              });
+            };
+            mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
             mainQs.forEach(parent => {
               allOrdered.push(parent);
-              const children = blockQs.filter(x => x.parent_id === parent.id);
-              allOrdered.push(...children);
+              addChildrenRecursive(parent.id);
             });
           });
 
@@ -192,42 +415,79 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     }
     
     questions.forEach(q => {
-      if (!isQuestionVisible(q)) return;
+      // If this question has sub-questions, it doesn't render inputs of its own (unless in original input mode), so it cannot be validated/required
+      const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+      let parentMode = "label";
+      if (q.validation && q.validation.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          parentMode = parsed.parent_mode || "label";
+        } catch(e) {}
+      }
+      if (childQs.length > 0 && parentMode !== "original") return;
       
-      const val = values[q.id];
-      const block = blocks.find(b => b.id === q.blok_id);
-      const blockName = block ? block.kode : "Form";
-      
-      if (val !== undefined && val !== null && val !== '') {
-        if (q.type === 'number' && q.validation) {
-          const numVal = Number(val);
-          if (isNaN(numVal)) {
-            errors.push(`[${blockName}] Isian ${q.label} harus berupa angka.`);
-          } else {
-            let ruleValid = true;
-            const rule = q.validation.trim();
-            if (rule.startsWith('{')) {
-              try {
-                const parsed = JSON.parse(rule);
-                if (parsed.type === 'range') ruleValid = numVal >= Number(parsed.min) && numVal <= Number(parsed.max);
-                else if (parsed.type === 'min') ruleValid = numVal >= Number(parsed.min);
-                else if (parsed.type === 'gt') ruleValid = numVal > Number(parsed.min);
-              } catch (e) {}
-            } else if (rule.startsWith('range:')) {
-              const parts = rule.replace('range:', '').trim().split('-');
-              ruleValid = numVal >= Number(parts[0]) && numVal <= Number(parts[1]);
-            } else if (rule.startsWith('min:')) {
-              ruleValid = numVal >= Number(rule.replace('min:', '').trim());
-            } else if (rule.startsWith('gt:')) {
-              ruleValid = numVal > Number(rule.replace('gt:', '').trim());
-            }
-            if (!ruleValid) {
-              errors.push(`[${blockName}] Nilai ${q.label} diluar rentang yang diizinkan.`);
+      const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+      let loopCount = 1;
+      const manualCount = getManualLoopCount(q);
+      if (manualCount !== null) {
+        loopCount = manualCount;
+      } else if (isLoop && loopByQuestionId) {
+        const triggerValue = values[loopByQuestionId];
+        const parsedTrigger = parseInt(triggerValue, 10);
+        loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+      }
+
+      for (let idx = 0; idx < loopCount; idx++) {
+        // Evaluate visibility relative to the loop index/instance!
+        if (!isQuestionVisible(q, (loopCount > 1 || manualCount !== null) ? idx : null)) continue;
+        const val = loopCount > 1 ? getLoopValue(q.id, idx) : values[q.id];
+        const block = blocks.find(b => b.id === q.blok_id);
+        const blockName = block ? block.kode : "Form";
+        const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
+
+        if (val !== undefined && val !== null && val !== '') {
+          if (q.type === 'number' && q.validation) {
+            const numVal = Number(val);
+            if (isNaN(numVal) || val === '') {
+              errors.push(`[${blockName}] Isian ${q.label}${suffix} harus berupa angka.`);
+            } else {
+              let ruleValid = true;
+              let isIntegerError = false;
+              const rule = q.validation.trim();
+              if (rule.startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(rule);
+                  if (parsed.number_type === 'integer' && !Number.isInteger(numVal)) {
+                    ruleValid = false;
+                    isIntegerError = true;
+                  } else if (parsed.type === 'range') {
+                    ruleValid = numVal >= Number(parsed.min) && numVal <= Number(parsed.max);
+                  } else if (parsed.type === 'min') {
+                    ruleValid = numVal >= Number(parsed.min);
+                  } else if (parsed.type === 'gt') {
+                    ruleValid = numVal > Number(parsed.min);
+                  }
+                } catch (e) {}
+              } else if (rule.startsWith('range:')) {
+                const parts = rule.replace('range:', '').trim().split('-');
+                ruleValid = numVal >= Number(parts[0]) && numVal <= Number(parts[1]);
+              } else if (rule.startsWith('min:')) {
+                ruleValid = numVal >= Number(rule.replace('min:', '').trim());
+              } else if (rule.startsWith('gt:')) {
+                ruleValid = numVal > Number(rule.replace('gt:', '').trim());
+              }
+              if (!ruleValid) {
+                if (isIntegerError) {
+                  errors.push(`[${blockName}] Nilai ${q.label}${suffix} harus berupa bilangan bulat (tidak boleh desimal).`);
+                } else {
+                  errors.push(`[${blockName}] Nilai ${q.label}${suffix} diluar rentang yang diizinkan.`);
+                }
+              }
             }
           }
+        } else if (q.required) {
+          errors.push(`[${blockName}] Isian wajib ${q.label}${suffix} masih kosong.`);
         }
-      } else if (q.required) {
-        errors.push(`[${blockName}] Isian wajib ${q.label} masih kosong.`);
       }
     });
     
@@ -259,6 +519,30 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     );
   };
 
+  const filterTemporaryValues = (kegiatanId, valuesObj) => {
+    if (!valuesObj) return {};
+    const filtered = { ...valuesObj };
+    const cached = localStorage.getItem(`form_structure_${kegiatanId}`);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        const questions = parsed.questions || [];
+        questions.forEach(q => {
+          if (q.validation) {
+            try {
+              const parsedVal = JSON.parse(q.validation);
+              if (parsedVal && parsedVal.is_temporary) {
+                delete filtered[q.id];
+                delete filtered[`${q.id}_loop_count`];
+              }
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    }
+    return filtered;
+  };
+
   const executeSyncItem = async (item) => {
     setSyncingAll(true);
     try {
@@ -275,14 +559,29 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         sub_sls: item.sub_sls,
         status: "terkirim",
         is_prelist: item.is_prelist,
-        values: item.values || {}
+        values: filterTemporaryValues(item.kegiatan_id, item.values || {})
       };
 
       const res = await api.dokumen.sync(currentUser.id, [payloadDoc]);
       if (res.success) {
         // Fetch fresh state from server
         const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+
+        // Hybrid storage: simpan ke localStorage + IndexedDB
+        try {
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+        } catch (e) {
+          console.warn('localStorage penuh saat sync:', e.message);
+        }
+        // Simpan juga ke IndexedDB
+        freshDocs.forEach(doc => {
+          try {
+            offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+          } catch (idbErr) {
+            console.warn('Gagal simpan ke IndexedDB:', idbErr);
+          }
+        });
+
         setLocalRtList(freshDocs);
       } else {
         alert("Gagal sinkronisasi: " + res.message);
@@ -339,14 +638,29 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         sub_sls: item.sub_sls,
         status: "terkirim",
         is_prelist: item.is_prelist,
-        values: item.values || {}
+        values: filterTemporaryValues(item.kegiatan_id, item.values || {})
       }));
 
       const res = await api.dokumen.sync(currentUser.id, payloadDocs);
       if (res.success) {
         // Fetch fresh state from server
         const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+
+        // Hybrid storage: simpan ke localStorage + IndexedDB
+        try {
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+        } catch (e) {
+          console.warn('localStorage penuh saat sync all:', e.message);
+        }
+        // Simpan juga ke IndexedDB
+        freshDocs.forEach(doc => {
+          try {
+            offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+          } catch (idbErr) {
+            console.warn('Gagal simpan ke IndexedDB:', idbErr);
+          }
+        });
+
         setLocalRtList(freshDocs);
       } else {
         alert("Gagal sinkronisasi massal: " + res.message);
@@ -367,7 +681,22 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     setSyncingAll(true);
     try {
       const docs = await api.dokumen.getByPetugas(currentUser.id);
-      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+
+      // Hybrid storage: simpan ke localStorage + IndexedDB
+      try {
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+      } catch (e) {
+        console.warn('localStorage penuh saat download:', e.message);
+      }
+      // Simpan juga ke IndexedDB
+      docs.forEach(doc => {
+        try {
+          offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+        } catch (idbErr) {
+          console.warn('Gagal simpan ke IndexedDB:', idbErr);
+        }
+      });
+
       setLocalRtList(docs);
       alert("Data berhasil diunduh dari server!");
     } catch (e) {

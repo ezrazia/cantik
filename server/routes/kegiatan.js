@@ -92,7 +92,7 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { name, description, progress, color, text_color, bg_color, start_date, status, lokus, fokus } = req.body;
 
-  if (!name) {
+  if (name !== undefined && (!name || name.trim() === '')) {
     return res.status(400).json({ success: false, message: 'Nama kegiatan wajib diisi' });
   }
 
@@ -120,31 +120,31 @@ router.put('/:id', async (req, res) => {
       const existingAdmin = await prisma.admin.findFirst({
         where: { kegiatan_id: updatedKegiatan.id, role: 'admin_kegiatan' }
       });
-      
+
       if (!existingAdmin) {
         const slugName = updatedKegiatan.name.toLowerCase().replace(/[^a-z0-9]/g, '');
         let finalUsername = `admin_${slugName}`;
-        
+
         const existingUser = await prisma.admin.findUnique({
           where: { username: finalUsername }
         });
         if (existingUser) {
           finalUsername = `admin_${slugName}_${updatedKegiatan.id}`;
         }
-        
-        const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-        let rawPassword = '';
-        for (let i = 0; i < 6; i++) {
-          rawPassword += chars.charAt(Math.floor(Math.random() * chars.length));
-        }
-        
+
+        // Generate secure random password
+        const crypto = await import('crypto');
+        const rawPassword = crypto.randomBytes(8).toString('hex');
+
         const hashedPassword = await bcrypt.hash(rawPassword, 10);
-        
+
         await prisma.admin.create({
           data: {
             username: finalUsername,
             password: hashedPassword,
-            plain_password: rawPassword,
+            // NOTE: plain_password should be stored encrypted in production
+            // For now, store with prefix to indicate it's a generated temp password
+            plain_password: `TEMP_${rawPassword}`,
             nama: `Admin ${updatedKegiatan.name}`,
             role: 'admin_kegiatan',
             kegiatan_id: updatedKegiatan.id

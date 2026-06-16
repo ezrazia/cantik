@@ -65,7 +65,7 @@ function LoginScreen({ onLogin }) {
           <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
             <Database size={22} className="text-white"/>
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">CAPI</h1>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">CANTIK</h1>
           <p className="text-sm text-slate-400 mt-1 font-medium">Badan Pusat Statistik</p>
         </div>
 

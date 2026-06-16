@@ -149,10 +149,17 @@ export default defineConfig({
   ],
   // ─── TAMBAHKAN KONFIGURASI SERVER DI SINI ───
   server: {
-    host: true, // Otomatis membuka akses network (bisa diakses oleh tunnel)
+    host: true,
     port: 5173,
     strictPort: true,
-    allowedHosts: ['.bpsktt.com'] // Mengizinkan semua subdomain di bawah domain utama Anda
+    allowedHosts: ['.bpsktt.com'],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3001', // Ganti dengan port backend Anda
+        changeOrigin: true,
+        secure: false
+      }
+    }
   },
   preview: {
     host: true,

@@ -24,7 +24,9 @@ function ReviewQCard({ r, label, subLabel, required, hint, skipInfo, children })
               <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>
             )}
             {skipInfo && (
-              <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded uppercase">{skipInfo}</span>
+              <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded uppercase">
+                {typeof skipInfo === 'string' && skipInfo.trim().startsWith('{') ? "Lompatan" : skipInfo}
+              </span>
             )}
           </div>
           <h4 className="text-sm font-bold text-slate-800 mt-1.5 leading-snug">{label}</h4>
@@ -158,14 +160,50 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   useEffect(() => {
     fetchReviewDocuments();
   }, [selectedProject, activeActivity]);
-
   useEffect(() => {
     if (!activeActivity) return;
+    const sortBlocksNaturally = (blks) => {
+      const romanToDecimal = (roman) => {
+        const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+        let dec = 0;
+        const str = roman.toLowerCase();
+        for (let i = 0; i < str.length; i++) {
+          const current = map[str[i]];
+          const next = map[str[i + 1]];
+          if (next && current < next) {
+            dec += next - current;
+            i++;
+          } else {
+            dec += current;
+          }
+        }
+        return dec || 0;
+      };
+      const getBlockSortKey = (block) => {
+        const kodeStr = String(block.kode || block.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          return romanToDecimal(match[1]);
+        }
+        if (kodeStr.toLowerCase() === "pengantar") {
+          return 0;
+        }
+        return 999;
+      };
+      return [...(blks || [])].sort((a, b) => {
+        const keyA = getBlockSortKey(a);
+        const keyB = getBlockSortKey(b);
+        if (keyA !== keyB) return keyA - keyB;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+    };
+
     const fetchForm = async () => {
       try {
         const res = await api.form.getStructure(activeActivity.id);
         if (res && res.success) {
-          setBlocks(res.blocks);
+          const sorted = sortBlocksNaturally(res.blocks);
+          setBlocks(sorted);
           const mappedQuestions = (res.questions || []).map(q => {
             if (q.type === 'select') {
               try {
@@ -178,8 +216,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             return q;
           });
           setQuestions(mappedQuestions);
-          if (res.blocks.length > 0) {
-            setViewingBlock(res.blocks[0].id);
+          if (sorted.length > 0) {
+            setViewingBlock(sorted[0].id);
           }
         }
       } catch (err) {
@@ -188,7 +226,6 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     };
     fetchForm();
   }, [selectedProject, activeActivity]);
-
   const handleAssignPCL = async (recordId, pclName) => {
     setData(prev => prev.map(r => r.id === recordId ? { ...r, petugas: pclName } : r));
   };
@@ -297,15 +334,24 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const getQuestionCode = (q, allQuestions, allBlocks) => {
     if (!q) return "";
+    
+    // Support custom code set in validation JSON
+    const valStr = q.validation || q.val;
+    if (valStr && valStr.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(valStr);
+        if (parsed.custom_code || parsed.customCode) {
+          return parsed.custom_code || parsed.customCode;
+        }
+      } catch (e) {}
+    }
+
     const standardBlocks = allBlocks.filter(b => {
       const idStr = String(b.kode || b.id || "");
       return idStr.startsWith("Blok ");
     });
     const blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
     if (blockIdx === 0) return "";
-
-
-
     
     if (q.parent_id) {
       const parent = allQuestions.find(p => p.id === q.parent_id);
@@ -328,7 +374,23 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     } else {
       // Index among main questions of the block
       const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      const qIdx = mainQs.findIndex(s => s.id === q.id) + 1;
+      
+      let startIndex = 1;
+      const firstQ = mainQs[0];
+      if (firstQ) {
+        const firstValStr = firstQ.validation || firstQ.val;
+        if (firstValStr && firstValStr.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(firstValStr);
+            const custom = parsed.custom_code || parsed.customCode || "";
+            if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
+              startIndex = 0;
+            }
+          } catch (e) {}
+        }
+      }
+
+      const qIdx = mainQs.findIndex(s => s.id === q.id) + startIndex;
       const padded = qIdx.toString().padStart(2, '0');
       return `${blockIdx}${padded}`;
     }
@@ -336,6 +398,42 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const getManualLoopCount = (q) => {
     if (!q) return null;
+    
+    // Check if the question belongs to a loop group
+    let loopGroupName = "";
+    if (q.validation) {
+      try {
+        const parsed = JSON.parse(q.validation);
+        if (parsed && parsed.loop_group) {
+          loopGroupName = parsed.loop_group;
+        }
+      } catch (e) {}
+    }
+    
+    if (loopGroupName) {
+      const groupQs = questions.filter(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.loop_group === loopGroupName;
+        } catch (e) {
+          return false;
+        }
+      });
+      const masterQ = groupQs.find(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
+        }
+      });
+      if (masterQ && masterQ.id !== q.id) {
+        return getManualLoopCount(masterQ);
+      }
+    }
+
     let isLoop = false;
     let loopType = "question";
     if (q.validation && q.validation.trim().startsWith('{')) {
@@ -435,6 +533,19 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   // Save changes from Edit Mode
   const handleSaveEdit = async () => {
     try {
+      const filteredAns = { ...ans };
+      questions.forEach(q => {
+        if (q.validation) {
+          try {
+            const parsed = JSON.parse(q.validation);
+            if (parsed && parsed.is_temporary) {
+              delete filteredAns[q.id];
+              delete filteredAns[`${q.id}_loop_count`];
+            }
+          } catch(e) {}
+        }
+      });
+
       await api.dokumen.save({
         id: viewingRecord.dbId,
         kode: viewingRecord.id,
@@ -448,7 +559,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         sub_sls: viewingRecord.sub_sls,
         status: viewingRecord.status === 'approved' ? 'terkirim' : viewingRecord.status,
         is_prelist: viewingRecord.is_prelist,
-        values: ans,
+        values: filteredAns,
         log_message: "Dokumen diperbarui oleh PML"
       });
       setIsEditing(false);
@@ -684,7 +795,52 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
             <div className="space-y-4 max-w-xl pb-10">
               {(() => {
-                const renderInputForQuestion = (q, instances, value, hasOptions) => {
+                const resolveLabelText = (labelText, activeInstanceIdx) => {
+                  if (!labelText) return "";
+                  const placeholderRegex = /\{([a-zA-Z0-9.]+)\}|\$([a-zA-Z0-9.]+)/g;
+                  return labelText.replace(placeholderRegex, (match, p1, p2) => {
+                    const code = p1 || p2;
+                    if (!code) return match;
+                    const cleanCode = code.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+                    const targetQ = questions.find(x => {
+                      const qCode = getQuestionCode(x, questions, blocks);
+                      return qCode && qCode.toLowerCase().replace(/\s/g, "") === cleanCode;
+                    });
+                    if (!targetQ) return match;
+                    const resolvedValues = {};
+                    for (const key in ans) {
+                      const raw = ans[key];
+                      if (typeof raw === 'string' && (raw.startsWith('[') || raw.startsWith('{'))) {
+                        try {
+                          const parsed = JSON.parse(raw);
+                          if (Array.isArray(parsed)) {
+                            resolvedValues[key] = parsed[activeInstanceIdx] !== undefined && parsed[activeInstanceIdx] !== null ? parsed[activeInstanceIdx] : "";
+                          } else if (typeof parsed === 'object' && parsed !== null) {
+                            resolvedValues[key] = parsed[activeInstanceIdx] !== undefined && parsed[activeInstanceIdx] !== null ? parsed[activeInstanceIdx] : "";
+                          } else {
+                            resolvedValues[key] = raw;
+                          }
+                        } catch (e) {
+                          resolvedValues[key] = raw;
+                        }
+                      } else {
+                        resolvedValues[key] = raw;
+                      }
+                    }
+                    const val = resolvedValues[targetQ.id];
+                    return val !== undefined && val !== null && val !== "" ? val : match;
+                  });
+                };
+
+                const renderInputForQuestion = (q, rawInstances, value, hasOptions, activeInstanceIdx = null) => {
+                  const instances = new Proxy(activeInstanceIdx !== null ? [activeInstanceIdx] : rawInstances, {
+                    get(target, prop, receiver) {
+                      if (prop === 'length') {
+                        return rawInstances.length;
+                      }
+                      return Reflect.get(target, prop, receiver);
+                    }
+                  });
                   return (
                     <>
                       {isEditing ? (
@@ -826,7 +982,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   );
                 };
 
-                const renderQuestionRow = (q, depth = 0, forceCard = false) => {
+                const renderQuestionRow = (q, depth = 0, forceCard = false, activeInstanceIdx = null) => {
                   const value = ans[q.id] ?? '';
                   const hasOptions = q.options && Array.isArray(q.options);
                   
@@ -865,17 +1021,17 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       <ReviewQCard 
                         key={q.id} 
                         r={qCode} 
-                        label={q.label} 
+                        label={resolveLabelText(q.label, activeInstanceIdx)} 
                         subLabel={subLabel}
                         required={!!q.required}
                         skipInfo={q.skip_logic}
                       >
                         {hasChildren ? (
                           <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
-                            {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1))}
+                            {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                           </div>
                         ) : (
-                          renderInputForQuestion(q, instances, value, hasOptions)
+                          renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
                         )}
 
                         {isLoop && loopType === "manual" && (
@@ -918,17 +1074,17 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Q.{qCode}</span>
                               {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
                             </div>
-                            <h4 className="text-xs font-bold text-slate-700 mt-1">{q.label}</h4>
+                            <h4 className="text-xs font-bold text-slate-700 mt-1">{resolveLabelText(q.label, activeInstanceIdx)}</h4>
                             {subLabel && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
                           </div>
                         </div>
                         <div className="pl-4 mt-2">
                           {hasChildren ? (
                             <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
-                              {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1))}
+                              {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                             </div>
                           ) : (
-                            renderInputForQuestion(q, instances, value, hasOptions)
+                            renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
                           )}
 
                           {isLoop && loopType === "manual" && (
@@ -967,7 +1123,98 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 };
 
                 const topLevelQs = blockQuestions.filter(q => !q.parent_id && !q.parentId);
+                const renderedGroups = new Set();
+                
                 return topLevelQs.flatMap(q => {
+                  let loopGroupName = "";
+                  if (q.validation) {
+                    try {
+                      const parsed = JSON.parse(q.validation);
+                      if (parsed && parsed.loop_group) {
+                        loopGroupName = parsed.loop_group;
+                      }
+                    } catch (e) {}
+                  }
+
+                  if (loopGroupName) {
+                    if (renderedGroups.has(loopGroupName)) {
+                      return [];
+                    }
+                    renderedGroups.add(loopGroupName);
+
+                    const groupQs = topLevelQs.filter(x => {
+                      if (!x.validation) return false;
+                      try {
+                        const parsed = JSON.parse(x.validation);
+                        return parsed && parsed.loop_group === loopGroupName;
+                      } catch (e) {
+                        return false;
+                      }
+                    }).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+
+                    const masterQ = groupQs.find(x => {
+                      if (!x.validation) return false;
+                      try {
+                        const parsed = JSON.parse(x.validation);
+                        return parsed && parsed.is_loop && parsed.loop_type === "manual";
+                      } catch (e) {
+                        return false;
+                      }
+                    }) || groupQs[0];
+
+                    const loopCount = getManualLoopCount(masterQ) || 1;
+                    const instances = Array.from({ length: loopCount }, (_, idx) => idx);
+
+                    return [
+                      <ReviewQCard
+                        key={`loop_group_${loopGroupName}`}
+                        r={getQuestionCode(masterQ, questions, blocks)}
+                        label={masterQ.label}
+                        required={false}
+                        skipInfo={`Kelompok Looping: ${loopGroupName.toUpperCase()}`}
+                      >
+                        <div className="space-y-6 mt-4">
+                          {instances.map((idx) => (
+                            <div key={idx} className="p-5 bg-slate-50/50 rounded-xl border border-solid border-slate-200/50 space-y-4">
+                              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block border-b border-solid border-slate-200 pb-1.5">
+                                Isian Ke-{idx + 1}
+                              </span>
+                              <div className="space-y-4">
+                                {groupQs.map(gq => renderQuestionRow(gq, 0, false, idx))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {isEditing && (
+                          <div className="flex items-center gap-3 mt-4 pt-3 border-t border-dashed border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => handleAddManualLoop(masterQ.id)}
+                              className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                            >
+                              <Plus size={14} />
+                              Tambah Isian
+                            </button>
+                            {loopCount > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveManualLoop(masterQ.id, loopCount)}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                              >
+                                <X size={14} />
+                                Hapus Terakhir
+                              </button>
+                            )}
+                            <span className="text-xs text-slate-500 font-semibold ml-auto">
+                              Total: {loopCount} isian
+                            </span>
+                          </div>
+                        )}
+                      </ReviewQCard>
+                    ];
+                  }
+
                   const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
                   const hasChildren = childQs.length > 0;
                   

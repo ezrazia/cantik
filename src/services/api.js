@@ -103,6 +103,7 @@ export const api = {
     createQuestion: (data) => request('/form/question', { method: 'POST', body: data }),
     updateQuestion: (id, data) => request(`/form/question/${id}`, { method: 'PUT', body: data }),
     deleteQuestion: (id) => request(`/form/question/${id}`, { method: 'DELETE' }),
+    copy: (source_kegiatan_id, target_kegiatan_id) => request('/form/copy', { method: 'POST', body: { source_kegiatan_id, target_kegiatan_id } }),
   },
 
   // ─── DOKUMEN (HEADER & ANSWERS) ───────────────────────
@@ -112,8 +113,12 @@ export const api = {
     getDetail: (id) => request(`/dokumen/${id}`),
     save: (data) => request('/dokumen', { method: 'POST', body: data }),
     sync: (petugasId, documents) => request('/dokumen/sync', { method: 'POST', body: { petugas_id: petugasId, documents } }),
+    backup: (petugasId, documents) => request('/dokumen/backup', { method: 'POST', body: { petugas_id: petugasId, documents } }),
     review: (id, review_status, notes = '') => request(`/dokumen/review/${id}`, { method: 'POST', body: { review_status, notes } }),
     delete: (id) => request(`/dokumen/${id}`, { method: 'DELETE' }),
+    // Prelist import
+    importPrelist: (kegiatanId, mapping, rows) => request('/dokumen/prelist/import', { method: 'POST', body: { kegiatan_id: kegiatanId, mapping, rows } }),
+    getPrelistMapping: (kegiatanId) => request(`/dokumen/prelist/mapping/${kegiatanId}`),
   },
 
   // ─── DESA KEGIATAN STATS ──────────────────────────────

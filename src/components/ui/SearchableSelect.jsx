@@ -60,7 +60,7 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute z-30 w-full mt-2 bg-white border border-solid border-slate-150 rounded-2xl shadow-xl overflow-hidden animate-fade-in max-h-72 flex flex-col">
+        <div className="absolute z-30 w-full mt-2 bg-white border border-solid border-slate-200 rounded-2xl shadow-xl overflow-hidden animate-fade-in max-h-72 flex flex-col">
           {/* Search Input Area */}
           <div className="p-3 border-b border-solid border-slate-100 flex items-center gap-2 bg-slate-50/50">
             <Search size={14} className="text-slate-400 flex-shrink-0" />

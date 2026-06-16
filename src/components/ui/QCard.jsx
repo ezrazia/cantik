@@ -28,9 +28,9 @@ function QCard({ r, label, subLabel, required, hint, skipInfo, description, chil
             {hint && <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">{hint}</p>}
           </div>
         </div>
-        {required
-          ? <span className="text-[10px] text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-md">Wajib</span>
-          : <span className="text-[10px] text-slate-400 font-medium bg-slate-50 px-2 py-0.5 rounded-md">Opsional</span>}
+        {required && (
+          <span className="text-[10px] text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-md">Wajib</span>
+        )}
       </div>
       {skipInfo && (
         <div className={`flex items-center gap-2 text-[11px] mb-3 px-3 py-2 rounded-lg ${
