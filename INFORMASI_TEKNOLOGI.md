@@ -185,7 +185,7 @@ sequenceDiagram
    ```bash
    npm run dev
    ```
-   *Server backend akan aktif di `http://localhost:3001`.*
+   *Server backend akan aktif di `http://localhost:5174`.*
 
 ### B. Menjalankan Frontend (Vite Client)
 1. Buka terminal baru yang berbeda dan pastikan berada di root folder (`cantik/`).

@@ -76,7 +76,7 @@ export async function getQueueItems() {
  * Proses antrian sync — jalankan semua pending requests secara berurutan.
  * Dipanggil saat kembali online.
  * 
- * @param {string} apiBase - Base URL API (e.g. 'http://localhost:3001/api')
+ * @param {string} apiBase - Base URL API (e.g. 'http://localhost:5174/api')
  * @returns {Promise<{ success: number, failed: number, total: number }>}
  */
 export async function processQueue(apiBase) {

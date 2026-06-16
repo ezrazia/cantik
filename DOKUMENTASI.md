@@ -409,7 +409,7 @@ Ketika petugas menekan tombol kirim saat offline:
 ### A. Environment Variables Backend (`server/.env`)
 Buat file bernama `.env` di dalam folder `server/` dengan konfigurasi berikut:
 ```env
-PORT=3001
+PORT=5174
 CORS_ORIGIN=http://localhost:5173
 
 # Database configuration (Sesuaikan dengan XAMPP MySQL Anda)
@@ -483,7 +483,7 @@ Ikuti instruksi berikut untuk menjalankan aplikasi CANTIK dari awal di komputer 
     ```bash
     npm run dev
     ```
-    *Server backend sekarang berjalan aktif di `http://localhost:3001`.*
+    *Server backend sekarang berjalan aktif di `http://localhost:5174`.*
 
 ---
 
