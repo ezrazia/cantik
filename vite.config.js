@@ -152,12 +152,11 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
-    allowedHosts: ['.bpsktt.com'],
+    allowedHosts: ['.bpsktt.com'], // Mengizinkan semua subdomain di bawah domain utama Anda
     proxy: {
       '/api': {
-        target: 'http://localhost:3001', // Ganti dengan port backend Anda
+        target: 'http://localhost:3001',
         changeOrigin: true,
-        secure: false
       }
     }
   },
@@ -165,6 +164,12 @@ export default defineConfig({
     host: true,
     port: 5173,
     strictPort: true,
-    allowedHosts: ['.bpsktt.com']
+    allowedHosts: ['.bpsktt.com'],
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5174',
+        changeOrigin: true,
+      }
+    }
   }
 })

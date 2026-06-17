@@ -26,7 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5174;
 
 /* ─── Middleware ────────────────────────────────────── */
 
@@ -67,7 +67,11 @@ async function start() {
     console.warn('⚠️  Server berjalan tanpa koneksi database.');
   }
 
-  app.listen(PORT, () => {
+  app.listen(PORT, (err) => {
+    if (err) {
+      console.error(`❌ Gagal menjalankan server pada port ${PORT}:`, err.message);
+      process.exit(1);
+    }
     console.log(`🚀 Server running at http://localhost:${PORT}`);
     console.log(`📡 API available at http://localhost:${PORT}/api`);
   });
