@@ -167,3 +167,38 @@ select option {
   .fade-in, .slide-up { animation: none; }
   .card-hover:hover { transform: none; }
 }
+
+/* ============================================
+   PWA STANDALONE MODE - Disable Zoom
+   ============================================
+   Zoom hanya dinonaktifkan saat aplikasi
+   berjalan sebagai PWA (di-install).
+   Admin di browser masih bisa zoom.
+*/
+
+@media all and (display-mode: standalone) {
+  * {
+    /* Prevent text selection zoom on double tap */
+    -webkit-user-select: none !important;
+    user-select: none !important;
+  }
+
+  /* Allow input fields to still be selectable */
+  input, textarea, select,
+  [contenteditable="true"],
+  .allow-select {
+    -webkit-user-select: auto !important;
+    user-select: auto !important;
+  }
+
+  /* Prevent any zoom-related transforms */
+  #root {
+    touch-action: manipulation;
+  }
+
+  /* Remove tap highlight on mobile */
+  * {
+    -webkit-tap-highlight-color: transparent !important;
+    tap-highlight-color: transparent !important;
+  }
+}
