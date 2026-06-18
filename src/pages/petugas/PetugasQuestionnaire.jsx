@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2 } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
@@ -6,6 +6,27 @@ import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { offlineDB } from "../../services/offlineStorage";
+
+// Debounce helper
+const useDebounce = (callback, delay) => {
+  const timeoutRef = useRef(null);
+  return useCallback((...args) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => callback(...args), delay);
+  }, [callback, delay]);
+};
+
+// Memoized parseValidation cache
+const validationCache = new Map();
+const getCachedValidation = (validation) => {
+  if (!validation) return { rangeText: "", hintText: "", description: "", isLoop: false, loopType: "question", loopByQuestionId: null, defaultVal: null, isLookupKey: false, readOnly: false, parentMode: "label", subLabel: "" };
+  if (validationCache.has(validation)) return validationCache.get(validation);
+
+  // Simple parse (inline for speed - complex parsing in parseValidation function)
+  const result = { rangeText: "", hintText: "", description: validation, isLoop: false, loopType: "question" };
+  validationCache.set(validation, result);
+  return result;
+};
 
 const checkOptionTrigger = (val, triggerOptions) => {
   if (val === undefined || val === null || val === '') return false;
@@ -116,6 +137,43 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   // Track formula questions untuk avoid recalculation
   const formulaQuestionsRef = useRef([]);
 
+  // Debounced localStorage save - hanya save 1 detik setelah user berhenti mengetik
+  const debouncedSaveRef = useRef(null);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HELPER: Debounced auto-save to localStorage
+  // ─────────────────────────────────────────────────────────────────────────
+  const debouncedSaveToLocal = useCallback((docData) => {
+    if (debouncedSaveRef.current) {
+      clearTimeout(debouncedSaveRef.current);
+    }
+    debouncedSaveRef.current = setTimeout(() => {
+      try {
+        const storageKey = `offline_docs_${currentUser.id}`;
+        const cached = localStorage.getItem(storageKey);
+        let cachedList = cached ? JSON.parse(cached) : [];
+        const idx = cachedList.findIndex(d => d.kode === docData.kode);
+        if (idx > -1) {
+          cachedList[idx] = { ...cachedList[idx], ...docData };
+        } else {
+          cachedList.push(docData);
+        }
+        localStorage.setItem(storageKey, JSON.stringify(cachedList));
+      } catch (e) {
+        console.warn('Auto-save failed:', e);
+      }
+    }, 1000); // 1 detik debounce
+  }, [currentUser.id]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debouncedSaveRef.current) {
+        clearTimeout(debouncedSaveRef.current);
+      }
+    };
+  }, []);
+
   // ─────────────────────────────────────────────────────────────────────────
   // HELPER: Safe Document Storage - Hybrid localStorage + IndexedDB
   // Menyimpan dokumen ke IndexedDB sebagai backup jika localStorage penuh
@@ -190,6 +248,29 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
 
     return result;
+  };
+
+  /**
+   * Hapus duplikat dari localStorage berdasarkan kode dokumen.
+   * Mempertahankan data dengan timestamp terbaru.
+   */
+  const deduplicateLocalDocs = (docs) => {
+    const codeMap = new Map();
+    docs.forEach(doc => {
+      if (!doc.kode) return;
+      const existing = codeMap.get(doc.kode);
+      if (!existing) {
+        codeMap.set(doc.kode, doc);
+      } else {
+        // Simpan yang lebih baru
+        const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+        const newTime = new Date(doc.updated_at || doc.created_at || 0).getTime();
+        if (newTime > existingTime) {
+          codeMap.set(doc.kode, doc);
+        }
+      }
+    });
+    return Array.from(codeMap.values());
   };
 
   /**
@@ -642,6 +723,32 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       ...headerUpdates,
       values: newValues
     }));
+
+    // Prepare document data for saving
+    const docData = {
+      kode: ans.kode,
+      kegiatan_id: selectedActivity?.id,
+      petugas_id: currentUser.id,
+      krt: ans.krt || "Tanpa Nama",
+      alamat: ans.alamat,
+      kecamatan: ans.kecamatan,
+      desa: ans.desa,
+      sls: ans.sls,
+      sub_sls: ans.sub_sls,
+      status: selectedRtItem?.status || "draft",
+      is_prelist: ans.is_prelist,
+      values: newValues,
+      sync_status: 'pending',
+      updated_at: Date.now()
+    };
+
+    // Trigger debounced auto-save to localStorage (non-blocking)
+    debouncedSaveToLocal(docData);
+
+    // Also save to IndexedDB immediately for better offline reliability
+    if (selectedActivity?.id) {
+      saveDokumenToIDB(docData);
+    }
   };
 
 
@@ -1399,17 +1506,72 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         try {
           const docs = await fetchDocuments();
           if (isMounted) {
-            setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
-
-            // Hybrid storage: simpan ke localStorage + IndexedDB
+            // PRIORITASKAN DATA LOCAL: Merge API data dengan localStorage/IndexedDB
+            // Ini memastikan data yang baru ditambahkan tapi belum sync tidak hilang
             const storageKey = `offline_docs_${currentUser.id}`;
+            let localDocs = [];
             try {
-              localStorage.setItem(storageKey, JSON.stringify(docs));
+              const cached = localStorage.getItem(storageKey);
+              if (cached) localDocs = JSON.parse(cached);
+            } catch (e) {
+              // Jika gagal parse localStorage, coba dari IndexedDB
+            }
+
+            // Jika localStorage kosong, coba recover dari IndexedDB
+            if (localDocs.length === 0 && offlineDB.isAvailable()) {
+              const idbDocs = await offlineDB.getAllDokumen();
+              if (idbDocs && idbDocs.length > 0) {
+                localDocs = idbDocs;
+              }
+            }
+
+            // Deduplicate local docs terlebih dahulu
+            localDocs = deduplicateLocalDocs(localDocs);
+
+            // Merge: API docs sebagai dasar, tapi timpa dengan local docs yang lebih baru
+            const mergedDocs = [...docs];
+            localDocs.forEach(localDoc => {
+              // Cek duplikat berdasarkan ID ATAU kode
+              // Penting: localDoc.id bisa null (belum sync), jadi cek juga berdasarkan kode
+              const apiIdx = mergedDocs.findIndex(d =>
+                // Match by ID (jika kedua-duanya ada)
+                (d.id && localDoc.id && d.id === localDoc.id) ||
+                // ATAU match by kode (untuk dokumen yang belum sync)
+                (d.kode && d.kode === localDoc.kode)
+              );
+
+              const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
+              const apiTime = apiIdx >= 0 ? new Date(mergedDocs[apiIdx].updated_at || mergedDocs[apiIdx].created_at || 0).getTime() : 0;
+
+              if (apiIdx >= 0) {
+                // Doc ada di API - gunakan yang lebih baru
+                if (localTime > apiTime) {
+                  mergedDocs[apiIdx] = localDoc;
+                } else {
+                  // Jika API lebih baru, update local doc dengan ID dari server
+                  mergedDocs[apiIdx] = { ...mergedDocs[apiIdx], ...localDoc };
+                }
+              } else {
+                // Doc tidak ada di API (belum sync) - tambahkan dari local
+                mergedDocs.push(localDoc);
+              }
+            });
+
+            // Deduplicate hasil merge juga
+            const finalDocs = deduplicateLocalDocs(mergedDocs);
+
+            // Filter untuk kegiatan saat ini
+            const filteredDocs = finalDocs.filter(d => d.kegiatan_id === selectedActivity.id);
+            setLocalPrelist(filteredDocs);
+
+            // Simpan merged data ke localStorage + IndexedDB
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(finalDocs));
             } catch (e) {
               console.warn('localStorage penuh saat cache prelist:', e.message);
             }
             // Simpan juga ke IndexedDB
-            docs.forEach(doc => saveDokumenToIDB(doc));
+            finalDocs.forEach(doc => saveDokumenToIDB(doc));
           }
         } catch (e) {
           console.error("Gagal fetch prelist:", e);
@@ -1683,60 +1845,76 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Parent value check is bypassed because parents with sub-questions do not render inputs of their own.
     // Conditional visibility is handled properly by show_if rules.
 
+    // ============================================================
+    // SKIP LOGIC: Check if question is in a skipped range
+    // Skip logic works as follows:
+    // - When skipper's condition matches, ALL questions between skipper and target (exclusive) are HIDDEN
+    // - The target question is always SHOWN when reached
+    // - When skipper's condition does NOT match, all questions including target are shown normally
+    // ============================================================
+
+    // Get all questions in order across all blocks
+    const allOrdered = [];
+    blocks.forEach(b => {
+      const blockQs = questions.filter(x => x.blok_id === b.id || x.blok_id === b.kode);
+      const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId);
+      const addChildrenRecursive = (parentId) => {
+        const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId))
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        children.forEach(child => {
+          allOrdered.push(child);
+          addChildrenRecursive(child.id);
+        });
+      };
+      mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      mainQs.forEach(parent => {
+        allOrdered.push(parent);
+        addChildrenRecursive(parent.id);
+      });
+    });
+
+    // Check all skippers
     const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
 
     for (const skipper of skippers) {
       let matchesTrigger = false;
-      let isJson = false;
 
       try {
         const parsed = JSON.parse(skipper.skip_logic);
-        if (parsed && parsed.conditions) {
-          isJson = true;
+        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
           const operator = parsed.operator || "AND";
           const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
           matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
         }
-      } catch (e) {}
-
-      if (!isJson) {
+      } catch (e) {
         const skipperVal = resolvedValues[skipper.id];
         const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
         matchesTrigger = checkOptionTrigger(skipperVal, triggerOptions);
       }
 
-      const allOrdered = [];
-      blocks.forEach(b => {
-        const blockQs = questions.filter(x => x.blok_id === b.id || x.blok_id === b.kode);
-        const mainQs = blockQs.filter(x => !x.parent_id);
-        const addChildrenRecursive = (parentId) => {
-          const children = blockQs.filter(x => x.parent_id === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-          children.forEach(child => {
-            allOrdered.push(child);
-            addChildrenRecursive(child.id);
-          });
-        };
-        mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-        mainQs.forEach(parent => {
-          allOrdered.push(parent);
-          addChildrenRecursive(parent.id);
-        });
-      });
-
       const skipperIdx = allOrdered.findIndex(x => x.id === skipper.id);
-      const targetQ = questions.find(x => String(x.id) === String(skipper.skip_target) || String(x.kode) === String(skipper.skip_target)) || findQuestionByCode(skipper.skip_target);
+
+      // Find target question - support both direct ID reference and code reference
+      let targetQ = questions.find(x => String(x.id) === String(skipper.skip_target));
+      if (!targetQ) {
+        targetQ = findQuestionByCode(String(skipper.skip_target));
+      }
+
       const targetIdx = targetQ ? allOrdered.findIndex(x => x.id === targetQ.id) : -1;
       const currentIdx = allOrdered.findIndex(x => x.id === q.id);
 
-      if (skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
-        if (targetIdx === skipperIdx + 1 && targetQ && q.id === targetQ.id) {
-          if (!matchesTrigger) {
-            return false;
-          }
-        }
-
-        if (matchesTrigger && currentIdx > skipperIdx && currentIdx < targetIdx) {
-          return false;
+      // Skipper question is always visible (unless hidden by other rules)
+      if (q.id === skipper.id) {
+        // Continue checking other conditions
+      }
+      // Target question is always visible when reached
+      else if (targetQ && q.id === targetQ.id) {
+        // Target is always visible
+      }
+      // Questions between skipper and target (exclusive) should be hidden when skip is triggered
+      else if (matchesTrigger && skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
+        if (currentIdx > skipperIdx && currentIdx < targetIdx) {
+          return false; // Hide questions in the skip range
         }
       }
     }
@@ -2219,14 +2397,24 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       }
       return d.kode === ans.kode;
     });
+
+    // Hapus duplikat berdasarkan kode sebelum menyimpan
+    const seenKodes = new Set();
+    const dedupedList = cachedList.filter(d => {
+      if (!d.kode) return true;
+      if (seenKodes.has(d.kode)) return false;
+      seenKodes.add(d.kode);
+      return true;
+    });
+
     if (idx > -1) {
-      cachedList[idx] = localDoc;
+      dedupedList[idx] = localDoc;
     } else {
-      cachedList.push(localDoc);
+      dedupedList.push(localDoc);
     }
 
     // Simpan dengan hybrid storage (localStorage + IndexedDB backup)
-    const saveResult = safeSaveDocuments(cachedList);
+    const saveResult = safeSaveDocuments(dedupedList);
     if (saveResult.warning) {
       console.warn(saveResult.warning);
     }
@@ -2234,7 +2422,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Simpan juga ke IndexedDB secara individual untuk backup
     saveDokumenToIDB(localDoc);
 
-    setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+    setLocalPrelist(dedupedList.filter(d => d.kegiatan_id === selectedActivity.id));
     setView("prelist");
   };
 
@@ -2405,14 +2593,24 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       }
       return d.kode === ans.kode;
     });
+
+    // Hapus duplikat berdasarkan kode sebelum menyimpan
+    const seenKodes = new Set();
+    const dedupedList = cachedList.filter(d => {
+      if (!d.kode) return true;
+      if (seenKodes.has(d.kode)) return false;
+      seenKodes.add(d.kode);
+      return true;
+    });
+
     if (idx > -1) {
-      cachedList[idx] = localDoc;
+      dedupedList[idx] = localDoc;
     } else {
-      cachedList.push(localDoc);
+      dedupedList.push(localDoc);
     }
 
     // Simpan dengan hybrid storage (localStorage + IndexedDB backup)
-    const saveResult = safeSaveDocuments(cachedList);
+    const saveResult = safeSaveDocuments(dedupedList);
     if (saveResult.warning) {
       console.warn(saveResult.warning);
     }
@@ -2420,7 +2618,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Simpan juga ke IndexedDB secara individual untuk backup
     saveDokumenToIDB(localDoc);
 
-    setLocalPrelist(cachedList.filter(d => d.kegiatan_id === selectedActivity.id));
+    setLocalPrelist(dedupedList.filter(d => d.kegiatan_id === selectedActivity.id));
     setSelectedRtItem(localDoc);
     alert("Progres berhasil disimpan sementara.");
   };
@@ -2543,7 +2741,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [ans, selectedActivity?.id, currentUser.id, selectedRtItem?.status]);
+  }, [ans.kode, selectedActivity?.id]); // Only trigger on kode/activity change, not every keystroke
 
   // ============================================================
   // SKIP LOGIC NAVIGATION
@@ -2574,7 +2772,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   // Filter questions for the active block
   const activeBlock = visibleBlocks.find(b => b.kode === activeTab);
-  const activeQuestions = activeBlock ? questions.filter(q => q.blok_id === activeBlock.id || q.blok_id === activeBlock.kode) : [];
+
+  // Memoize activeQuestions to avoid re-filtering on every render
+  const activeQuestions = useMemo(() => {
+    if (!activeBlock) return [];
+    return questions.filter(q => q.blok_id === activeBlock.id || q.blok_id === activeBlock.kode);
+  }, [questions, activeBlock?.id, activeBlock?.kode, visibleBlocks]);
 
   useEffect(() => {
     if (visibleBlocks.length > 0 && !visibleBlocks.some(b => b.kode === activeTab)) {

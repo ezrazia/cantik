@@ -63,11 +63,36 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     onConfirm: null
   });
 
+  /**
+   * Hapus duplikat dari dokumen berdasarkan kode dokumen.
+   * Mempertahankan data dengan timestamp terbaru.
+   */
+  const deduplicateDocs = (docs) => {
+    const codeMap = new Map();
+    docs.forEach(doc => {
+      if (!doc.kode) return;
+      const existing = codeMap.get(doc.kode);
+      if (!existing) {
+        codeMap.set(doc.kode, doc);
+      } else {
+        // Simpan yang lebih baru
+        const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+        const newTime = new Date(doc.updated_at || doc.created_at || 0).getTime();
+        if (newTime > existingTime) {
+          codeMap.set(doc.kode, doc);
+        }
+      }
+    });
+    return Array.from(codeMap.values());
+  };
+
   const refreshList = () => {
     const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
     if (cached) {
       try {
-        setLocalRtList(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        // Deduplicate sebelum set state
+        setLocalRtList(deduplicateDocs(parsed));
       } catch (e) {
         console.error("Gagal parse cached offline docs:", e);
         // Fallback ke IndexedDB jika localStorage gagal
@@ -93,14 +118,17 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       const userDocs = allDocs.filter(d => d.petugas_id === currentUser.id);
 
       if (userDocs.length > 0) {
+        // Deduplicate sebelum menyimpan
+        const dedupedDocs = deduplicateDocs(userDocs);
+
         // Sync ke localStorage untuk konsistensi
         try {
-          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(userDocs));
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
         } catch (e) {
           console.warn('Gagal sync recovery ke localStorage:', e);
         }
-        setLocalRtList(userDocs);
-        console.log(`Recovered ${userDocs.length} dokumen dari IndexedDB`);
+        setLocalRtList(dedupedDocs);
+        console.log(`Recovered ${dedupedDocs.length} dokumen dari IndexedDB`);
       } else {
         setLocalRtList([]);
       }
@@ -119,14 +147,17 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     try {
       const docs = await api.dokumen.getByPetugas(currentUser.id);
 
+      // Deduplicate sebelum menyimpan
+      const dedupedDocs = deduplicateDocs(docs);
+
       // Hybrid storage: simpan ke localStorage + IndexedDB
       try {
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
       } catch (e) {
         console.warn('localStorage penuh saat refresh:', e.message);
       }
       // Simpan juga ke IndexedDB
-      docs.forEach(doc => {
+      dedupedDocs.forEach(doc => {
         try {
           offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
         } catch (idbErr) {
@@ -134,7 +165,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         }
       });
 
-      setLocalRtList(docs);
+      setLocalRtList(dedupedDocs);
     } catch (e) {
       console.error("Gagal refresh data dari server:", e);
       // Fallback ke localStorage atau IndexedDB
@@ -567,14 +598,17 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         // Fetch fresh state from server
         const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
 
+        // Deduplicate sebelum menyimpan
+        const dedupedFresh = deduplicateDocs(freshDocs);
+
         // Hybrid storage: simpan ke localStorage + IndexedDB
         try {
-          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedFresh));
         } catch (e) {
           console.warn('localStorage penuh saat sync:', e.message);
         }
         // Simpan juga ke IndexedDB
-        freshDocs.forEach(doc => {
+        dedupedFresh.forEach(doc => {
           try {
             offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
           } catch (idbErr) {
@@ -582,7 +616,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
           }
         });
 
-        setLocalRtList(freshDocs);
+        setLocalRtList(dedupedFresh);
       } else {
         alert("Gagal sinkronisasi: " + res.message);
       }
@@ -646,14 +680,17 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         // Fetch fresh state from server
         const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
 
+        // Deduplicate sebelum menyimpan
+        const dedupedFresh = deduplicateDocs(freshDocs);
+
         // Hybrid storage: simpan ke localStorage + IndexedDB
         try {
-          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(freshDocs));
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedFresh));
         } catch (e) {
           console.warn('localStorage penuh saat sync all:', e.message);
         }
         // Simpan juga ke IndexedDB
-        freshDocs.forEach(doc => {
+        dedupedFresh.forEach(doc => {
           try {
             offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
           } catch (idbErr) {
@@ -661,7 +698,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
           }
         });
 
-        setLocalRtList(freshDocs);
+        setLocalRtList(dedupedFresh);
       } else {
         alert("Gagal sinkronisasi massal: " + res.message);
       }

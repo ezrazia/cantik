@@ -4,6 +4,29 @@ import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
 
 /**
+ * Hapus duplikat dari dokumen berdasarkan kode dokumen.
+ * Mempertahankan data dengan timestamp terbaru.
+ */
+const deduplicateDocs = (docs) => {
+  const codeMap = new Map();
+  docs.forEach(doc => {
+    if (!doc.kode) return;
+    const existing = codeMap.get(doc.kode);
+    if (!existing) {
+      codeMap.set(doc.kode, doc);
+    } else {
+      // Simpan yang lebih baru
+      const existingTime = new Date(existing.updated_at || existing.created_at || 0).getTime();
+      const newTime = new Date(doc.updated_at || doc.created_at || 0).getTime();
+      if (newTime > existingTime) {
+        codeMap.set(doc.kode, doc);
+      }
+    }
+  });
+  return Array.from(codeMap.values());
+};
+
+/**
  * Halaman beranda Petugas — minimalis dan clean.
  *
  * @param {Object} props
@@ -32,10 +55,11 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
     }
     setIsDownloading(true);
     try {
-      // 1. Download documents (prelist)
+      // 1. Download documents (prelist) with deduplication
       const docs = await api.dokumen.getByPetugas(currentUser.id);
-      setDocuments(docs);
-      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+      const dedupedDocs = deduplicateDocs(docs);
+      setDocuments(dedupedDocs);
+      localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
 
       // 2. Download form structures for all assigned activities
       if (officerActivities && officerActivities.length > 0) {
@@ -71,7 +95,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
       if (cached) {
         try {
-          setDocuments(JSON.parse(cached));
+          setDocuments(deduplicateDocs(JSON.parse(cached)));
         } catch (e) {
           console.error("Gagal parse cached offline docs:", e);
         }
@@ -80,16 +104,17 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       setLocalLoading(true);
       try {
         const docs = await api.dokumen.getByPetugas(currentUser.id);
-        setDocuments(docs);
+        const dedupedDocs = deduplicateDocs(docs);
+        setDocuments(dedupedDocs);
         // Sync cache
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
       } catch (err) {
         console.error("Gagal load dokumen dari server:", err);
         // Fallback to cache if request fails
         const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
         if (cached) {
           try {
-            setDocuments(JSON.parse(cached));
+            setDocuments(deduplicateDocs(JSON.parse(cached)));
           } catch (e) {
             console.error("Gagal parse cached offline docs:", e);
           }

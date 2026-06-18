@@ -532,6 +532,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const statusConfig = getStatusConfig();
   const isDraft = activeActivity ? activeActivity.status === "draft" : false;
   const canEdit = selectedProject && isDraft;
+  // Allow drag-drop reordering for all activities (only affects sort_order, no data loss)
+  const canDrag = selectedProject;
 
   // Fetch structure from backend API
   const fetchFormStructure = async () => {
@@ -1041,19 +1043,24 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const handleDrop = async (e, targetIdx) => {
     const sourceIdx = parseInt(e.dataTransfer.getData("text/plain"), 10);
     if (sourceIdx === targetIdx) return;
-    
-    const blockQs = questions.filter(q => q.blokId === activeBlok);
-    const mainQs = blockQs.filter(q => !q.parentId);
-    
+
+    // Gunakan getOrderedQuestionsInBlock agar konsisten dengan rendering
+    const orderedBlockQs = getOrderedQuestionsInBlock(activeBlok, questions);
+    const mainQs = orderedBlockQs.filter(q => !q.parentId);
+
+    // Clone dan swap
     const updatedMainQs = [...mainQs];
     const [dragged] = updatedMainQs.splice(sourceIdx, 1);
     updatedMainQs.splice(targetIdx, 0, dragged);
-    
-    const reconstructedBlockQs = [];
+
+    // Rekonstruksi block dengan children
+    const reconstructedBlockQs = [...updatedMainQs];
     updatedMainQs.forEach(parent => {
-      reconstructedBlockQs.push(parent);
-      const children = questions.filter(q => q.blokId === activeBlok && q.parentId === parent.id);
-      reconstructedBlockQs.push(...children);
+      const children = orderedBlockQs.filter(q => q.parentId === parent.id);
+      children.forEach(child => {
+        const idx = reconstructedBlockQs.findIndex(q => q.id === child.id);
+        if (idx === -1) reconstructedBlockQs.push(child);
+      });
     });
 
     // Iterate over reconstructedBlockQs and update sort_order in database
@@ -1061,8 +1068,16 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     if (!activeBlockObj) return;
 
     try {
+      console.log('[handleDrop] Starting update for', reconstructedBlockQs.length, 'questions');
       for (let i = 0; i < reconstructedBlockQs.length; i++) {
         const q = reconstructedBlockQs[i];
+        console.log('[handleDrop] Updating question', i, ':', { id: q.id, label: q.label?.substring(0, 30), sort_order: i });
+
+        if (!q.id) {
+          console.error('[handleDrop] Question ID is missing!', q);
+          continue;
+        }
+
         await api.form.updateQuestion(q.id, {
           blok_id: activeBlockObj.dbId,
           parent_id: q.parentId,
@@ -1078,7 +1093,9 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           sort_order: i
         });
       }
+      console.log('[handleDrop] All updates complete, fetching fresh data...');
       await fetchFormStructure();
+      console.log('[handleDrop] Done!');
     } catch (err) {
       console.error("Gagal menyimpan urutan drag & drop:", err);
     }
@@ -2019,7 +2036,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   // depth 0 → main question drag (reorders within block)
                   // depth 1/2 → sub-question drag (reorders within sibling group)
                   let dragProps = {};
-                  if (canEdit) {
+                  if (canDrag) {
                     if (depth === 0) {
                       dragProps = {
                         draggable: true,
@@ -2029,7 +2046,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       };
                     } else if (q.parentId) {
                       // Find index of this question among its siblings
-                      const siblings = questions
+                      const siblings = orderedBlockQs
                         .filter(x => x.parentId === q.parentId)
                         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
                       const siblingIdx = siblings.findIndex(x => x.id === q.id);
@@ -2065,7 +2082,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 : 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:bg-amber-50/70'
                             }`}
                           >
-                            {canEdit && (
+                            {canDrag && (
                               <div className={`cursor-grab flex-shrink-0 p-0.5 mt-0.5 ${
                                 depth === 0
                                   ? 'text-amber-300 group-hover/card:text-amber-400'
@@ -2109,8 +2126,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                   : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
                             }`}
                           >
-                            {/* Drag Handle — shown for all depths when canEdit */}
-                            {canEdit && (
+                            {canDrag && (
                               <div className={`cursor-grab flex-shrink-0 p-0.5 ${
                                 depth === 0
                                   ? 'text-slate-300 group-hover/card:text-slate-400'

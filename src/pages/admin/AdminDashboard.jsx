@@ -68,30 +68,53 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
 
   const villageDropdown = useDropdown("Semua Desa");
 
-  const activeDesas = activeActivity?.lokus?.desa || [];
-  const villages = activeDesas.length > 0 
-    ? ["Semua Desa", ...activeDesas.map(d => `Desa ${d}`)]
-    : ["Semua Desa", "Desa Tideng Pale", "Desa Sesayap Hilir", "Desa Limbu Sedulun"];
+  // Get actual village data from activity lokus - handle both string JSON and object
+  const parseLokus = (lokus) => {
+    if (!lokus) return { kecamatan: [], desa: [], sls: [], subSls: [] };
+    if (typeof lokus === 'string') {
+      try {
+        return JSON.parse(lokus);
+      } catch {
+        return { kecamatan: [], desa: [], sls: [], subSls: [] };
+      }
+    }
+    return lokus;
+  };
+
+  const parsedLokus = parseLokus(activeActivity?.lokus);
+  const activeDesas = parsedLokus.desa || [];
+
+  // If lokus.desa is not set, use the actual village codes from API
+  const villages = activeDesas.length > 0
+    ? ["Semua Desa", ...activeDesas]
+    : ["Semua Desa"]; // Will be populated from API
 
   const officersList = petugas || [];
   const activeProjectOfficers = officersList.filter(p => p.projects?.includes(selectedProject));
 
-  const filteredPetugas = villageDropdown.selected === "Semua Desa" 
+  // Match by village name (without "Desa " prefix)
+  const filteredPetugas = villageDropdown.selected === "Semua Desa"
     ? activeProjectOfficers
-    : activeProjectOfficers.filter(p => p.desa === villageDropdown.selected.replace("Desa ", ""));
+    : activeProjectOfficers.filter(p => {
+        const villageName = villageDropdown.selected.replace("Desa ", "");
+        return p.desa === villageName;
+      });
 
-  const finalDesaData = desaStats.length > 0 
+  // Use API data for desa stats if available, otherwise use lokus data
+  const finalDesaData = desaStats.length > 0
     ? desaStats.map(d => ({
-        name: `Desa ${d.name}`,
-        target: d.target,
-        selesai: d.selesai,
+        name: d.name || d.desa, // Use d.desa directly without "Desa " prefix
+        target: d.target || 0,
+        selesai: d.selesai || 0,
         color: d.color || "#2563eb"
       }))
     : activeDesas.map((desaName, idx) => {
         const colors = ["#2563eb", "#0891b2", "#7c3aed", "#10b981"];
+        // If only one village, show it directly without "Desa " prefix
+        const displayName = activeDesas.length === 1 ? desaName : desaName;
         return {
-          name: `Desa ${desaName}`,
-          target: 15,
+          name: displayName,
+          target: 0, // No target set yet
           selesai: 0,
           color: colors[idx % colors.length]
         };
@@ -99,33 +122,38 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
 
   const filteredDesa = villageDropdown.selected === "Semua Desa"
     ? finalDesaData
-    : finalDesaData.filter(d => d.name === villageDropdown.selected);
+    : finalDesaData.filter(d => {
+        const villageName = villageDropdown.selected.replace("Desa ", "");
+        return d.name === villageName;
+      });
 
-  const total   = filteredDesa.reduce((a,b)=>a+b.target,0);
-  const selesai = filteredDesa.reduce((a,b)=>a+b.selesai,0);
-  
+  // Safe division to avoid Infinity/NaN
+  const total = filteredDesa.reduce((a, b) => a + b.target, 0);
+  const selesaiTotal = filteredDesa.reduce((a, b) => a + b.selesai, 0);
+  const completionPercent = total > 0 ? Math.round((selesaiTotal / total) * 100) : 0;
+
   const draft = (villageDropdown.selected === "Semua Desa" && dashboardStats)
     ? dashboardStats.summary.draft
     : filteredPetugas.reduce((a, b) => a + (b.assignments?.[selectedProject]?.draft || 0), 0);
 
-  // Use backend stats for overall view or fallback to estimated proportions if a specific village is filtered
+  // Use backend stats for overall view or fallback to filtered data
   const review = villageDropdown.selected === "Semua Desa" && dashboardStats
     ? dashboardStats.summary.pending
-    : Math.round(selesai * 0.3);
-    
+    : Math.round(selesaiTotal * 0.3);
+
   const ditolak = villageDropdown.selected === "Semua Desa" && dashboardStats
     ? dashboardStats.summary.rejected
-    : Math.round(selesai * 0.1);
+    : Math.round(selesaiTotal * 0.1);
 
   const stats = [
     { icon: FileText, l: "Draft", v: draft, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
-    { icon: CheckCircle, l: "Selesai", v: selesai, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
+    { icon: CheckCircle, l: "Selesai", v: selesaiTotal, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
     { icon: Clock, l: "Review", v: review, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500" },
     { icon: XCircle, l: "Ditolak", v: ditolak, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500" },
   ];
 
   const PIE_DATA = [
-    { name: "Disetujui", value: selesai, color: "#16a34a" },
+    { name: "Disetujui", value: selesaiTotal, color: "#16a34a" },
     { name: "Pending",   value: review, color: "#f59e0b" },
     { name: "Ditolak",   value: ditolak, color: "#dc2626" },
     { name: "Draft",     value: draft,  color: "#94a3b8" },
@@ -134,12 +162,12 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   const CHART_DATA = dashboardStats?.chartData?.length > 0
     ? dashboardStats.chartData
     : [
-        { h: "Sen", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.15) },
-        { h: "Sel", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.2) },
-        { h: "Rab", k: Math.round(selesai * 0.25), t: Math.round(ditolak * 0.15) },
-        { h: "Kam", k: Math.round(selesai * 0.15), t: Math.round(ditolak * 0.2) },
-        { h: "Jum", k: Math.round(selesai * 0.2),  t: Math.round(ditolak * 0.1) },
-        { h: "Sab", k: Math.round(selesai * 0.05), t: Math.round(ditolak * 0.2) },
+        { h: "Sen", k: Math.round(selesaiTotal * 0.15), t: Math.round(ditolak * 0.15) },
+        { h: "Sel", k: Math.round(selesaiTotal * 0.2),  t: Math.round(ditolak * 0.2) },
+        { h: "Rab", k: Math.round(selesaiTotal * 0.25), t: Math.round(ditolak * 0.15) },
+        { h: "Kam", k: Math.round(selesaiTotal * 0.15), t: Math.round(ditolak * 0.2) },
+        { h: "Jum", k: Math.round(selesaiTotal * 0.2),  t: Math.round(ditolak * 0.1) },
+        { h: "Sab", k: Math.round(selesaiTotal * 0.05), t: Math.round(ditolak * 0.2) },
       ];
 
   if (isLoading) {
@@ -325,7 +353,8 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
               </h3>
               <div className="space-y-4">
                 {filteredDesa.map(d => {
-                  const pct = Math.round((d.selesai / d.target) * 100);
+                  // Safe division to avoid Infinity/NaN
+                  const pct = d.target > 0 ? Math.round((d.selesai / d.target) * 100) : 0;
                   return (
                     <div key={d.name}>
                       <div className="flex items-center justify-between mb-1.5">
@@ -353,13 +382,13 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                   <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
                     <circle cx="60" cy="60" r="50" fill="none" stroke="#f1f5f9" strokeWidth="12"/>
                     <circle cx="60" cy="60" r="50" fill="none" stroke="#2563eb" strokeWidth="12"
-                      strokeDasharray={`${(selesai/total)*314} 314`} strokeLinecap="round"/>
+                      strokeDasharray={`${completionPercent * 3.14} 314`} strokeLinecap="round"/>
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="mono text-2xl font-bold text-slate-900">{Math.round((selesai/total)*100)}%</span>
+                    <span className="mono text-2xl font-bold text-slate-900">{completionPercent}%</span>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 font-medium">{selesai} dari {total} selesai</p>
+                <p className="text-xs text-slate-400 font-medium">{selesaiTotal} dari {total} selesai</p>
               </div>
             </div>
           )}
@@ -436,15 +465,17 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                 </thead>
                 <tbody>
                   {filteredPetugas.map(p => {
-                    const assignment = p.assignments?.[selectedProject];
-                    const selesai = assignment?.selesai || 0;
-                    const draft = assignment?.draft || 0;
+                    // Try different assignment key formats
+                    const assignment = p.assignments?.[selectedProject]
+                      || p.assignments?.[p.projects?.[0]];
+                    const petugasSelesai = assignment?.selesai || p.selesai || 0;
+                    const petugasDraft = assignment?.draft || p.draft || 0;
                     return (
                       <tr key={p.name} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-3.5 border-t border-slate-50">
                           <div className="flex items-center gap-2.5">
                             <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-[10px] font-semibold text-blue-600">
-                              {p.name.split(' ').map(n=>n[0]).join('')}
+                              {p.name?.split(' ').map(n=>n[0]).join('') || p.name?.[0]}
                             </div>
                             <span className="text-sm font-medium text-slate-700">{p.name}</span>
                           </div>
@@ -452,9 +483,9 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                         <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500">{p.desa}</td>
                         <td className="px-6 py-3.5 border-t border-slate-50">
                           <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-semibold text-slate-700">{selesai} Selesai</span>
-                            {draft > 0 && (
-                              <span className="text-[10px] text-slate-400 font-medium">{draft} Draft</span>
+                            <span className="text-xs font-semibold text-slate-700">{petugasSelesai} Selesai</span>
+                            {petugasDraft > 0 && (
+                              <span className="text-[10px] text-slate-400 font-medium">{petugasDraft} Draft</span>
                             )}
                           </div>
                         </td>
