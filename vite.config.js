@@ -167,7 +167,7 @@ export default defineConfig({
     allowedHosts: ['.bpsktt.com'],
     proxy: {
       '/api': {
-        target: 'http://localhost:5174',
+        target: 'http://localhost:5173',
         changeOrigin: true,
       }
     }

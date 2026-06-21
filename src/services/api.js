@@ -2,15 +2,15 @@
  * @module services/api
  * Klien API terpusat untuk berkomunikasi dengan backend Express (MySQL).
  * Menyediakan fungsi-fungsi untuk memanggil route REST API.
- * 
+ *
  * PWA-aware: API_BASE otomatis menyesuaikan environment.
- * - Development: http://localhost:5174/api
+ * - Development: http://localhost:3001/api
  * - Production: /api (relative, same-origin via reverse proxy)
  */
 
 const API_BASE = import.meta.env.PROD
   ? '/api'
-  : 'http://localhost:5174/api';
+  : 'http://localhost:3001/api';
 
 // Expose API_BASE for syncQueue module
 export { API_BASE };
