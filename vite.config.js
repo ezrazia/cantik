@@ -155,7 +155,7 @@ export default defineConfig({
     allowedHosts: ['.bpsktt.com'], // Mengizinkan semua subdomain di bawah domain utama Anda
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:5174',
         changeOrigin: true,
       }
     }
@@ -167,7 +167,7 @@ export default defineConfig({
     allowedHosts: ['.bpsktt.com'],
     proxy: {
       '/api': {
-        target: 'http://localhost:5173',
+        target: 'http://localhost:5174',
         changeOrigin: true,
       }
     }

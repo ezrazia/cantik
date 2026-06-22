@@ -1,7 +1,6 @@
 import { WifiOff, Database, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../services/api";
-import tutorialVideo from "../../assets/tutorial.mp4";
 
 /**
  * Halaman login minimalis untuk autentikasi pengguna.
@@ -138,27 +137,31 @@ function LoginScreen({ onLogin }) {
       {showModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300">
           <div 
-            className="bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100 max-w-3xl w-full relative flex flex-col animate-scale-in"
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100 max-w-3xl w-full max-h-[90dvh] relative flex flex-col animate-scale-in"
             style={{ animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both' }}
           >
+            {/* Floating Close Button */}
+            <button 
+              type="button"
+              onClick={() => setShowModal(false)}
+              className="absolute top-3 right-3 z-50 p-2 bg-slate-900/60 hover:bg-slate-900/85 text-white rounded-full backdrop-blur-sm transition-all border-0 cursor-pointer flex items-center justify-center shadow-md active:scale-95"
+              aria-label="Tutup"
+            >
+              <X size={18} />
+            </button>
+
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50 pr-12">
               <h3 className="font-bold text-slate-800 text-sm">Panduan Penggunaan Aplikasi</h3>
-              <button 
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors border-0 cursor-pointer bg-transparent flex items-center justify-center"
-              >
-                <X size={18} />
-              </button>
             </div>
+            
             {/* Video Player */}
-            <div className="relative aspect-video w-full bg-black">
+            <div className="relative flex-1 min-h-0 w-full bg-black flex items-center justify-center">
               <video 
-                src={tutorialVideo} 
+                src="/api/video-panduan" 
                 controls 
                 autoPlay
-                className="w-full h-full object-contain"
+                className="max-w-full max-h-full aspect-video object-contain"
               />
             </div>
           </div>
