@@ -1,6 +1,7 @@
-import { WifiOff, Database } from "lucide-react";
+import { WifiOff, Database, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../../services/api";
+import tutorialVideo from "../../assets/tutorial.mp4";
 
 /**
  * Halaman login minimalis untuk autentikasi pengguna.
@@ -15,6 +16,7 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
   const handleRoleChange = (selectedRole) => {
     setRole(selectedRole);
@@ -56,6 +58,15 @@ function LoginScreen({ onLogin }) {
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-6 slide-up overflow-x-hidden relative">
+      {/* Panduan Button */}
+      <button 
+        type="button"
+        onClick={() => setShowModal(true)}
+        className="absolute top-6 right-6 text-slate-400 hover:text-slate-500 underline text-sm font-semibold cursor-pointer transition-colors border-0 bg-transparent z-20"
+      >
+        Video Panduan
+      </button>
+
       {/* Subtle background accent */}
       <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-blue-50 rounded-full blur-[120px] opacity-60 -translate-y-1/2 translate-x-1/2 pointer-events-none"/>
       
@@ -122,6 +133,37 @@ function LoginScreen({ onLogin }) {
           Desa Cantik v2.1.0
         </p>
       </div>
+
+      {/* Modal Video Panduan */}
+      {showModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 transition-all duration-300">
+          <div 
+            className="bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-100 max-w-3xl w-full relative flex flex-col animate-scale-in"
+            style={{ animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both' }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+              <h3 className="font-bold text-slate-800 text-sm">Panduan Penggunaan Aplikasi</h3>
+              <button 
+                type="button"
+                onClick={() => setShowModal(false)}
+                className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors border-0 cursor-pointer bg-transparent flex items-center justify-center"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {/* Video Player */}
+            <div className="relative aspect-video w-full bg-black">
+              <video 
+                src={tutorialVideo} 
+                controls 
+                autoPlay
+                className="w-full h-full object-contain"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
