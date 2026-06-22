@@ -18,10 +18,19 @@ async function getFormattedKode(tx, docData) {
   let kec = '000';
   
   if (kecamatan || desa) {
+    const cleanStr = (str) => {
+      if (!str) return undefined;
+      // Remove prefixes like "a. ", "A. ", "1. ", "01. "
+      return String(str).replace(/^[a-zA-Z0-9]+\.\s*/, '').trim();
+    };
+
+    const cleanKec = cleanStr(kecamatan);
+    const cleanDesa = cleanStr(desa);
+
     const wilayah = await tx.wilayah.findFirst({
       where: {
-        kecamatan: kecamatan ? String(kecamatan).trim() : undefined,
-        desa: desa ? String(desa).trim() : undefined,
+        ...(cleanKec ? { kecamatan: { contains: cleanKec } } : {}),
+        ...(cleanDesa ? { desa: { contains: cleanDesa } } : {}),
       }
     });
     if (wilayah) {
@@ -34,9 +43,10 @@ async function getFormattedKode(tx, docData) {
 
   // 2. Get Kegiatan initials
   let kegiatanInitials = 'KG';
-  if (kegiatan_id) {
+  const kegiatanIdInt = parseInt(kegiatan_id, 10);
+  if (kegiatan_id && !isNaN(kegiatanIdInt)) {
     const kegiatan = await tx.kegiatan.findUnique({
-      where: { id: parseInt(kegiatan_id, 10) }
+      where: { id: kegiatanIdInt }
     });
     if (kegiatan && kegiatan.name) {
       const parts = kegiatan.name.trim().split(/\s+/);
@@ -51,32 +61,36 @@ async function getFormattedKode(tx, docData) {
 
   // 3. Get PCL initials
   let pclInitials = 'PCL';
-  if (petugas_id) {
+  const petugasIdInt = parseInt(petugas_id, 10);
+  if (petugas_id && !isNaN(petugasIdInt)) {
     const petugas = await tx.petugas.findUnique({
-      where: { id: parseInt(petugas_id, 10) }
+      where: { id: petugasIdInt }
     });
     if (petugas && petugas.name) {
       const parts = petugas.name.trim().split(/\s+/);
-      pclInitials = parts.map(part => {
+      const initials = parts.map(part => {
         return part[0] ? part[0].toUpperCase() : '';
       }).join('').replace(/[^A-Z0-9]/g, '');
+      // Append ID to guarantee uniqueness among officers with same initials
+      pclInitials = `${initials}${petugasIdInt}`;
     }
   }
 
   // 4. Determine next prelist sequence number
   const prefix = `${codeArea}-${kegiatanInitials}-${pclInitials}-`;
   
-  // Find all documents in this kegiatan and petugas that match this prefix
-  const existingDocs = await tx.dokumen.findMany({
-    where: {
-      kegiatan_id: parseInt(kegiatan_id, 10),
-      petugas_id: parseInt(petugas_id, 10),
-      kode: {
-        startsWith: prefix
-      }
-    },
-    select: { kode: true }
-  });
+  // Find all documents in this kegiatan that match this prefix
+  const existingDocs = (kegiatan_id && !isNaN(kegiatanIdInt))
+    ? await tx.dokumen.findMany({
+        where: {
+          kegiatan_id: kegiatanIdInt,
+          kode: {
+            startsWith: prefix
+          }
+        },
+        select: { kode: true }
+      })
+    : [];
 
   let maxSeq = 0;
   existingDocs.forEach(d => {
@@ -185,10 +199,14 @@ router.get('/review/:kegiatanId', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   const { id } = req.params;
+  const docId = parseInt(id, 10);
+  if (isNaN(docId)) {
+    return res.status(400).json({ success: false, message: 'ID dokumen tidak valid' });
+  }
   try {
     const doc = await prisma.dokumen.findUnique({
       where: {
-        id: parseInt(id, 10),
+        id: docId,
       },
       include: {
         kegiatan: {
@@ -261,8 +279,10 @@ router.post('/', async (req, res) => {
     log_message,
   } = req.body;
 
-  if (!kode || !kegiatan_id || !petugas_id) {
-    return res.status(400).json({ success: false, message: 'Kode, Kegiatan ID, dan Petugas ID wajib diisi' });
+  const kegiatanIdInt = parseInt(kegiatan_id, 10);
+  const petugasIdInt = parseInt(petugas_id, 10);
+  if (!kode || !kegiatan_id || isNaN(kegiatanIdInt) || !petugas_id || isNaN(petugasIdInt)) {
+    return res.status(400).json({ success: false, message: 'Kode, Kegiatan ID, dan Petugas ID wajib diisi dengan benar' });
   }
 
   try {
@@ -282,8 +302,8 @@ router.post('/', async (req, res) => {
 
       const dataObj = {
         kode: finalKode,
-        kegiatan_id: parseInt(kegiatan_id, 10),
-        petugas_id: parseInt(petugas_id, 10),
+        kegiatan_id: kegiatanIdInt,
+        petugas_id: petugasIdInt,
         krt: krt || null,
         alamat: alamat || null,
         kecamatan: kecamatan || null,
@@ -297,9 +317,10 @@ router.post('/', async (req, res) => {
         review_status: 'draft',
       };
 
-      if (currentDocId) {
+      const docIdInt = parseInt(currentDocId, 10);
+      if (currentDocId && !isNaN(docIdInt)) {
         await tx.dokumen.update({
-          where: { id: parseInt(currentDocId, 10) },
+          where: { id: docIdInt },
           data: {
             ...dataObj,
             last_sent_data: status === 'terkirim' ? (values || null) : undefined, // If update, only set when 'terkirim'
@@ -339,26 +360,31 @@ router.post('/', async (req, res) => {
         }
       }
 
-      // Simpan jawaban (EAV)
+      // Simpan jawaban (EAV) - Concurrent execution
       if (values && Object.keys(values).length > 0) {
+        const upsertPromises = [];
         for (const [qId, val] of Object.entries(values)) {
+          if (!/^\d+$/.test(qId)) continue; // Skip non-numeric keys like _loop_count
           const qIdInt = parseInt(qId, 10);
           const formattedVal = val !== undefined && val !== null ? String(val) : '';
-          await tx.dokumenJawaban.upsert({
-            where: {
-              uk_dok_jawaban: {
+          upsertPromises.push(
+            tx.dokumenJawaban.upsert({
+              where: {
+                uk_dok_jawaban: {
+                  dokumen_id: currentDocId,
+                  question_id: qIdInt,
+                },
+              },
+              update: { value: formattedVal },
+              create: {
                 dokumen_id: currentDocId,
                 question_id: qIdInt,
+                value: formattedVal,
               },
-            },
-            update: { value: formattedVal },
-            create: {
-              dokumen_id: currentDocId,
-              question_id: qIdInt,
-              value: formattedVal,
-            },
-          });
+            })
+          );
         }
+        await Promise.all(upsertPromises);
       }
 
       // Tambah log aktivitas
@@ -391,6 +417,9 @@ router.post('/', async (req, res) => {
       }
 
       return currentDocId;
+    }, {
+      maxWait: 15000,
+      timeout: 15000,
     });
 
     return res.json({ success: true, message: 'Dokumen berhasil disimpan', id: docId });
@@ -455,27 +484,32 @@ router.post('/backup', async (req, res) => {
               },
             });
 
-            // Update jawaban juga
+            // Update jawaban juga - Concurrent execution
             if (values && Object.keys(values).length > 0) {
+              const upsertPromises = [];
               for (const [qId, val] of Object.entries(values)) {
+                if (!/^\d+$/.test(qId)) continue; // Skip non-numeric keys like _loop_count
                 const qIdInt = parseInt(qId, 10);
                 const formattedVal = val !== undefined && val !== null ? String(val) : '';
 
-                await tx.dokumenJawaban.upsert({
-                  where: {
-                    uk_dok_jawaban: {
+                upsertPromises.push(
+                  tx.dokumenJawaban.upsert({
+                    where: {
+                      uk_dok_jawaban: {
+                        dokumen_id: existing.id,
+                        question_id: qIdInt,
+                      },
+                    },
+                    update: { value: formattedVal },
+                    create: {
                       dokumen_id: existing.id,
                       question_id: qIdInt,
+                      value: formattedVal,
                     },
-                  },
-                  update: { value: formattedVal },
-                  create: {
-                    dokumen_id: existing.id,
-                    question_id: qIdInt,
-                    value: formattedVal,
-                  },
-                });
+                  })
+                );
               }
+              await Promise.all(upsertPromises);
             }
           } else {
             // Dokumen belum ada, buat baru dengan status 'draft'
@@ -499,20 +533,25 @@ router.post('/backup', async (req, res) => {
               },
             });
 
-            // Simpan jawaban
+            // Simpan jawaban - Concurrent execution
             if (values && Object.keys(values).length > 0) {
+              const createPromises = [];
               for (const [qId, val] of Object.entries(values)) {
+                if (!/^\d+$/.test(qId)) continue; // Skip non-numeric keys like _loop_count
                 const qIdInt = parseInt(qId, 10);
                 const formattedVal = val !== undefined && val !== null ? String(val) : '';
 
-                await tx.dokumenJawaban.create({
-                  data: {
-                    dokumen_id: newDoc.id,
-                    question_id: qIdInt,
-                    value: formattedVal,
-                  },
-                });
+                createPromises.push(
+                  tx.dokumenJawaban.create({
+                    data: {
+                      dokumen_id: newDoc.id,
+                      question_id: qIdInt,
+                      value: formattedVal,
+                    },
+                  })
+                );
               }
+              await Promise.all(createPromises);
             }
 
             // Tambah log
@@ -530,6 +569,9 @@ router.post('/backup', async (req, res) => {
           failed++;
         }
       }
+    }, {
+      maxWait: 15000,
+      timeout: 15000,
     });
 
     return res.json({
@@ -550,8 +592,9 @@ router.post('/backup', async (req, res) => {
  */
 router.post('/sync', async (req, res) => {
   const { petugas_id, documents } = req.body;
-  if (!petugas_id || !documents || !Array.isArray(documents)) {
-    return res.status(400).json({ success: false, message: 'Data sync tidak lengkap' });
+  const petugasIdInt = parseInt(petugas_id, 10);
+  if (!petugas_id || isNaN(petugasIdInt) || !documents || !Array.isArray(documents)) {
+    return res.status(400).json({ success: false, message: 'Data sync tidak lengkap atau Petugas ID tidak valid' });
   }
 
   try {
@@ -581,9 +624,10 @@ router.post('/sync', async (req, res) => {
         });
 
         let existing = null;
-        if (id) {
+        const idInt = parseInt(id, 10);
+        if (id && !isNaN(idInt)) {
           existing = await tx.dokumen.findUnique({
-            where: { id: parseInt(id, 10) }
+            where: { id: idInt }
           });
         }
         if (!existing) {
@@ -595,6 +639,11 @@ router.post('/sync', async (req, res) => {
         let docId;
         const isPrelistVal = !!is_prelist;
         const lastSentDataJson = status === 'terkirim' ? (values || null) : undefined;
+
+        const kegiatanIdInt = parseInt(kegiatan_id, 10);
+        if (isNaN(kegiatanIdInt)) {
+          throw new Error(`Kegiatan ID tidak valid untuk dokumen ${kode}`);
+        }
 
         if (existing) {
           docId = existing.id;
@@ -619,8 +668,8 @@ router.post('/sync', async (req, res) => {
           const newDoc = await tx.dokumen.create({
             data: {
               kode: finalKode,
-              kegiatan_id: parseInt(kegiatan_id, 10),
-              petugas_id: parseInt(petugas_id, 10),
+              kegiatan_id: kegiatanIdInt,
+              petugas_id: petugasIdInt,
               krt: krt || null,
               alamat: alamat || null,
               kecamatan: kecamatan || null,
@@ -636,26 +685,31 @@ router.post('/sync', async (req, res) => {
           docId = newDoc.id;
         }
 
-        // Simpan jawaban
+        // Simpan jawaban (concurrently)
         if (values && Object.keys(values).length > 0) {
+          const upsertPromises = [];
           for (const [qId, val] of Object.entries(values)) {
+            if (!/^\d+$/.test(qId)) continue; // Skip non-numeric keys like _loop_count
             const qIdInt = parseInt(qId, 10);
             const formattedVal = val !== undefined && val !== null ? String(val) : '';
-            await tx.dokumenJawaban.upsert({
-              where: {
-                uk_dok_jawaban: {
+            upsertPromises.push(
+              tx.dokumenJawaban.upsert({
+                where: {
+                  uk_dok_jawaban: {
+                    dokumen_id: docId,
+                    question_id: qIdInt,
+                  },
+                },
+                update: { value: formattedVal },
+                create: {
                   dokumen_id: docId,
                   question_id: qIdInt,
+                  value: formattedVal,
                 },
-              },
-              update: { value: formattedVal },
-              create: {
-                dokumen_id: docId,
-                question_id: qIdInt,
-                value: formattedVal,
-              },
-            });
+              })
+            );
           }
+          await Promise.all(upsertPromises);
         }
 
         // Catat log sync
@@ -668,30 +722,41 @@ router.post('/sync', async (req, res) => {
       }
 
       // Update stats petugas
-      const total = await tx.dokumen.count({
-        where: { petugas_id: parseInt(petugas_id, 10) },
-      });
-      const selesaiCount = await tx.dokumen.count({
-        where: {
-          petugas_id: parseInt(petugas_id, 10),
-          status: { in: ['tersimpan', 'terkirim'] },
-        },
-      });
+      if (!isNaN(petugasIdInt)) {
+        const total = await tx.dokumen.count({
+          where: { petugas_id: petugasIdInt },
+        });
+        const selesaiCount = await tx.dokumen.count({
+          where: {
+            petugas_id: petugasIdInt,
+            status: { in: ['tersimpan', 'terkirim'] },
+          },
+        });
 
-      await tx.petugas.update({
-        where: { id: parseInt(petugas_id, 10) },
-        data: {
-          target: total,
-          selesai: selesaiCount,
-          last_sync: new Date(),
-        },
-      });
+        await tx.petugas.update({
+          where: { id: petugasIdInt },
+          data: {
+            target: total,
+            selesai: selesaiCount,
+            last_sync: new Date(),
+          },
+        });
+      }
+    }, {
+      maxWait: 15000,
+      timeout: 15000,
     });
 
     return res.json({ success: true, message: `Sinkronisasi berhasil untuk ${documents.length} dokumen` });
   } catch (error) {
     console.error('Error syncing documents:', error);
-    return res.status(500).json({ success: false, message: 'Gagal melakukan sinkronisasi dokumen' });
+    try {
+      const fs = await import('fs');
+      fs.writeFileSync('c:/xampp/htdocs/Node-Project/cantik/server/sync_error.log', error.stack || String(error));
+    } catch (e) {
+      console.error('Failed to write log:', e);
+    }
+    return res.status(500).json({ success: false, message: 'Gagal melakukan sinkronisasi dokumen: ' + error.message });
   }
 });
 
@@ -1093,6 +1158,73 @@ router.get('/prelist/mapping/:kegiatanId', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Gagal mengambil mapping prelist'
+    });
+  }
+});
+
+router.post('/batch-prelist', async (req, res) => {
+  try {
+    const { kegiatan_id, documents } = req.body;
+    
+    if (!kegiatan_id || !Array.isArray(documents)) {
+      return res.status(400).json({ success: false, message: 'Invalid payload' });
+    }
+
+    const insertedDocs = [];
+
+    await prisma.$transaction(async (tx) => {
+      for (const doc of documents) {
+        // Prepare doc info for ID generation
+        const tempDocInfo = {
+          kode: 'NEW-PRELIST',
+          kegiatan_id: parseInt(kegiatan_id, 10),
+          petugas_id: null,
+          kecamatan: doc.kecamatan || doc.answers?.find(a => a.question_label?.toLowerCase().includes('kecamatan'))?.value || '',
+          desa: doc.desa || doc.answers?.find(a => a.question_label?.toLowerCase().includes('desa') || a.question_label?.toLowerCase().includes('kelurahan'))?.value || '',
+        };
+
+        const finalKode = await getFormattedKode(tx, tempDocInfo);
+
+        const newDoc = await tx.dokumen.create({
+          data: {
+            kode: finalKode,
+            kegiatan_id: parseInt(kegiatan_id, 10),
+            petugas_id: null,
+            status: 'draft',
+            created_by: 'admin',
+            is_prelist: true,
+            latitude: null,
+            longitude: null,
+            start_time: new Date(),
+            end_time: new Date(),
+            krt: doc.krt || null,
+            desa: doc.desa || null,
+            sls: doc.sls || null,
+            sub_sls: doc.sub_sls || null,
+            flag: 0,
+            answers: {
+              create: doc.answers.map(ans => ({
+                question_id: ans.question_id,
+                value: ans.value,
+                is_valid: true
+              }))
+            }
+          }
+        });
+        insertedDocs.push(newDoc);
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `${insertedDocs.length} dokumen prelist berhasil ditambahkan`,
+      count: insertedDocs.length
+    });
+  } catch (error) {
+    console.error('Error batch prelist:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal memproses batch prelist: ' + error.message
     });
   }
 });

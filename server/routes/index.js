@@ -8,6 +8,7 @@ import dokumenRoutes from './dokumen.js';
 import desaRoutes from './desa.js';
 import dashboardRoutes from './dashboard.js';
 import tabulasiRoutes from './tabulasi.js';
+import uploadRoutes from './upload.js';
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.use('/dokumen', dokumenRoutes);
 router.use('/desa', desaRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/tabulasi', tabulasiRoutes);
+router.use('/upload', uploadRoutes);
 
 export default router;

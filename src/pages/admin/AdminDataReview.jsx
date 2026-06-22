@@ -1,4 +1,5 @@
-import { useState, Fragment, useEffect } from "react";
+import { useState, Fragment, useEffect, useRef } from "react";
+import * as XLSX from 'xlsx';
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { api } from "../../services/api";
 import Badge from "../../components/ui/Badge";
@@ -80,6 +81,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [isSuccess, setIsSuccess] = useState(false);
   const [detectedColumns, setDetectedColumns] = useState([]);
   const [previewRows, setPreviewRows] = useState([]);
+  
+  // New mapping states
+  const [parsedExcelData, setParsedExcelData] = useState([]);
+  const [groupingColumn, setGroupingColumn] = useState("");
+  const [columnMapping, setColumnMapping] = useState({});
+  const [mappingStep, setMappingStep] = useState(1); // 1: upload, 2: map, 3: preview
+  
+  const fileInputRef = useRef(null);
 
   // Check activity status to decide if prelist is editable
   const activeActivity = activities?.find(a => a.name === selectedProject);
@@ -1604,7 +1613,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6"
           style={{ animation: 'fadeIn 0.2s ease' }}
           onClick={() => { if (!isUploading && !isSuccess) setIsUploadModalOpen(false); }}>
-          <div className="bg-white rounded-2xl p-8 w-full shadow-lg"
+          <div className="bg-white rounded-2xl p-8 w-full shadow-lg max-h-[90vh] overflow-y-auto"
             style={{ maxWidth: 580, animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
             
@@ -1626,6 +1635,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               </button>
             </div>
 
+            
             {isSuccess ? (
               <div className="py-8 text-center" style={{ animation: 'scaleIn 0.2s ease' }}>
                 <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
@@ -1634,7 +1644,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 <h4 className="text-md font-bold text-slate-800 mb-1">Data Berhasil Diimpor!</h4>
                 <p className="text-xs text-slate-400">Target Prelist keluarga telah ditambahkan ke sistem.</p>
               </div>
-            ) : (
+            ) : mappingStep === 1 ? (
               <>
                 <div className="space-y-5">
                   <div className="flex items-center justify-between border border-slate-100 bg-slate-50/50 rounded-xl p-3.5">
@@ -1653,9 +1663,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 mb-2">File Prelist (Excel / CSV)</label>
+                    <input type="file" ref={fileInputRef} onChange={(e) => { if (e.target.files?.length) handleSimulateSelectFile(); }} accept=".xlsx,.xls,.csv" className="hidden" />
+                    
                     {!uploadedFile ? (
                       <div 
-                        onClick={handleSimulateSelectFile}
+                        onClick={() => fileInputRef.current?.click()}
                         className={`border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-50/50 hover:bg-blue-50/10 flex flex-col items-center justify-center ${isUploading ? 'opacity-70 pointer-events-none' : ''}`}
                       >
                         {isUploading ? (
@@ -1769,14 +1781,85 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   </button>
                   <button 
                     disabled={!uploadedFile || isUploading}
-                    onClick={handleImportPrelist}
+                    onClick={() => setMappingStep(2)}
                     className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98]"
                   >
-                    Impor Data
+                    Selanjutnya
                   </button>
                 </div>
               </>
-            )}
+            ) : mappingStep === 2 ? (
+              <div className="space-y-4">
+                <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/50 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                      <FileText size={18}/>
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-slate-800 line-clamp-1">{uploadedFile?.name}</p>
+                      <p className="text-[10px] text-slate-400 font-medium">Terdeteksi {uploadedFile?.rowCount} baris data</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4">
+                  <label className="block text-xs font-bold text-blue-900 mb-1">Pilih Kolom Master Pengelompokan (Grouping Key)</label>
+                  <p className="text-[10px] text-blue-600 mb-3">Kolom ini digunakan untuk menggabungkan baris yang memiliki nilai yang sama menjadi 1 Dokumen Keluarga (Misal: No KK). Jika Anda hanya mendaftar 1 baris per dokumen, pilih ID unik.</p>
+                  <SearchableSelect 
+                    value={groupingColumn} 
+                    onChange={val => setGroupingColumn(val)}
+                    placeholder="Pilih Kolom Excel..."
+                    showValueInLabel={false}
+                    options={[
+                      { value: "", label: "Pilih Kolom Excel..." },
+                      ...detectedColumns.map(c => ({ value: c, label: c }))
+                    ]}
+                  />
+                </div>
+
+                <div>
+                  <h4 className="text-xs font-bold text-slate-700 mb-3 mt-2">Pemetaan Kolom Excel ke Kuesioner</h4>
+                  <div className="max-h-[300px] overflow-y-auto space-y-2 pr-2">
+                    {[...detectedColumns, '__AUTO_COUNT__'].map(col => {
+                      const isAutoCount = col === '__AUTO_COUNT__';
+                      return (
+                      <div key={col} className="flex flex-col md:flex-row md:items-center gap-2 p-2 border-b border-slate-100 last:border-0">
+                        <div className="w-full md:w-1/3">
+                          <span className={`text-[11px] font-semibold ${isAutoCount ? 'text-emerald-600' : 'text-slate-700'}`}>
+                            {isAutoCount ? '[Otomatis: Jumlah Baris]' : col}
+                          </span>
+                        </div>
+                        <div className="w-full md:w-2/3">
+                          <SearchableSelect 
+                            value={columnMapping[col] || ""}
+                            onChange={val => setColumnMapping({...columnMapping, [col]: val})}
+                            placeholder="Tidak Dipetakan (Abaikan)"
+                            showValueInLabel={false}
+                            options={[
+                              { value: "", label: "Tidak Dipetakan (Abaikan)" },
+                              ...questions.slice().sort((a, b) => (a.label || "").localeCompare(b.label || "")).map(q => ({ value: q.id, label: q.label }))
+                            ]}
+                          />
+                        </div>
+                      </div>
+                    )})}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6 pt-4 border-t border-slate-100">
+                  <button onClick={() => setMappingStep(1)} className="flex-1 py-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 cursor-pointer transition-all border-0">
+                    Kembali
+                  </button>
+                  <button 
+                    disabled={!groupingColumn || isUploading}
+                    onClick={handleImportPrelist}
+                    className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-xs font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98]"
+                  >
+                    {isUploading ? "Memproses..." : "Impor Data Prelist"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       )}

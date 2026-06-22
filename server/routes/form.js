@@ -366,6 +366,27 @@ router.post('/copy', async (req, res) => {
       return jsonStr;
     };
 
+    // Helper to update question IDs in validation JSON strings (loop_by_question_id, options_source_question_id)
+    const updateValidationJson = (validationStr, idMap) => {
+      if (!validationStr) return null;
+      try {
+        const parsed = JSON.parse(validationStr);
+        let changed = false;
+        if (parsed.loop_by_question_id && idMap[parsed.loop_by_question_id]) {
+          parsed.loop_by_question_id = idMap[parsed.loop_by_question_id];
+          changed = true;
+        }
+        if (parsed.options_source_question_id && idMap[parsed.options_source_question_id]) {
+          parsed.options_source_question_id = idMap[parsed.options_source_question_id];
+          changed = true;
+        }
+        if (changed) {
+          return JSON.stringify(parsed);
+        }
+      } catch (e) {}
+      return validationStr;
+    };
+
     // 7. Update relasi dan aturan logika pada pertanyaan baru
     for (const sq of sourceQuestions) {
       const newQId = questionIdMap[sq.id];
@@ -381,12 +402,15 @@ router.post('/copy', async (req, res) => {
         updates.skip_target = questionIdMap[sq.skip_target];
       }
 
-      // Update skip_logic & show_if_value JSON strings
+      // Update skip_logic, show_if_value, & validation JSON strings
       if (sq.skip_logic) {
         updates.skip_logic = updateJsonIds(sq.skip_logic, questionIdMap);
       }
       if (sq.show_if_value) {
         updates.show_if_value = updateJsonIds(sq.show_if_value, questionIdMap);
+      }
+      if (sq.validation) {
+        updates.validation = updateValidationJson(sq.validation, questionIdMap);
       }
 
       if (Object.keys(updates).length > 0) {

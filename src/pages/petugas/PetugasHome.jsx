@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { WifiOff, Wifi, Bell, MapPin, FileText, Upload, Download, ChevronRight, CheckCircle, AlertCircle, Calendar, RefreshCw } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
+import { offlineDB } from "../../services/offlineStorage";
+import { useNotification } from "../../components/ui/NotificationContext";
 
 /**
  * Hapus duplikat dari dokumen berdasarkan kode dokumen.
@@ -39,6 +41,7 @@ const deduplicateDocs = (docs) => {
  * @returns {React.ReactElement}
  */
 function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities, currentUser, loading }) {
+  const { showToast, showAlert } = useNotification();
   const [documents, setDocuments] = useState([]);
   const [localLoading, setLocalLoading] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false);
@@ -50,7 +53,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
 
   const handleDownloadOfflineData = async () => {
     if (isOffline) {
-      alert("Anda sedang dalam mode offline. Silakan aktifkan mode online untuk mengunduh kuesioner.");
+      showToast("Anda sedang dalam mode offline. Silakan aktifkan mode online untuk mengunduh kuesioner.", "warning");
       return;
     }
     setIsDownloading(true);
@@ -61,6 +64,16 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       setDocuments(dedupedDocs);
       localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
 
+      // Simpan dokumen ke IndexedDB
+      if (offlineDB.isAvailable()) {
+        for (const doc of dedupedDocs) {
+          await offlineDB.saveDokumen({
+            ...doc,
+            sync_status: doc.sync_status || (doc.sync !== false ? 'synced' : 'pending')
+          });
+        }
+      }
+
       // 2. Download form structures for all assigned activities
       if (officerActivities && officerActivities.length > 0) {
         for (const act of officerActivities) {
@@ -70,6 +83,10 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
               blocks: res.blocks,
               questions: res.questions
             }));
+            // Simpan struktur formulir ke IndexedDB
+            if (offlineDB.isAvailable()) {
+              await offlineDB.saveFormStructure(act.id, res.blocks, res.questions);
+            }
           }
         }
       }
@@ -80,10 +97,10 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       localStorage.setItem(`last_download_${currentUser.id}`, timeStr);
       setDownloadTime(timeStr);
 
-      alert("Kuesioner dan data prelist berhasil diunduh. Anda sekarang dapat mengisi kuesioner secara offline.");
+      showToast("Kuesioner dan data prelist berhasil diunduh.", "success");
     } catch (err) {
       console.error("Gagal mengunduh kuesioner offline:", err);
-      alert("Gagal mengunduh data offline: " + err.message);
+      showToast("Gagal mengunduh data offline: " + err.message, "error");
     } finally {
       setIsDownloading(false);
     }
@@ -91,34 +108,67 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
 
   const loadDocs = async () => {
     if (isOffline) {
-      // Load from localStorage
+      // Load dari localStorage dengan fallback ke IndexedDB
       const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+      let localDocs = [];
       if (cached) {
         try {
-          setDocuments(deduplicateDocs(JSON.parse(cached)));
+          localDocs = JSON.parse(cached);
         } catch (e) {
           console.error("Gagal parse cached offline docs:", e);
         }
       }
+      
+      if (localDocs.length === 0 && offlineDB.isAvailable()) {
+        try {
+          const idbDocs = await offlineDB.getAllDokumen();
+          if (idbDocs && idbDocs.length > 0) {
+            localDocs = idbDocs;
+          }
+        } catch (idbErr) {
+          console.error("Gagal load dari IndexedDB:", idbErr);
+        }
+      }
+      setDocuments(deduplicateDocs(localDocs));
     } else {
       setLocalLoading(true);
       try {
         const docs = await api.dokumen.getByPetugas(currentUser.id);
         const dedupedDocs = deduplicateDocs(docs);
         setDocuments(dedupedDocs);
-        // Sync cache
+        // Sync cache ke localStorage dan IndexedDB
         localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
+        if (offlineDB.isAvailable()) {
+          for (const doc of dedupedDocs) {
+            await offlineDB.saveDokumen({
+              ...doc,
+              sync_status: doc.sync_status || (doc.sync !== false ? 'synced' : 'pending')
+            });
+          }
+        }
       } catch (err) {
         console.error("Gagal load dokumen dari server:", err);
         // Fallback to cache if request fails
         const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+        let localDocs = [];
         if (cached) {
           try {
-            setDocuments(deduplicateDocs(JSON.parse(cached)));
+            localDocs = JSON.parse(cached);
           } catch (e) {
             console.error("Gagal parse cached offline docs:", e);
           }
         }
+        if (localDocs.length === 0 && offlineDB.isAvailable()) {
+          try {
+            const idbDocs = await offlineDB.getAllDokumen();
+            if (idbDocs && idbDocs.length > 0) {
+              localDocs = idbDocs;
+            }
+          } catch (idbErr) {
+            console.error("Gagal load dari IndexedDB:", idbErr);
+          }
+        }
+        setDocuments(deduplicateDocs(localDocs));
       } finally {
         setLocalLoading(false);
       }
@@ -205,12 +255,14 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                         </div>
                         <div className="w-20 h-6 bg-slate-200 rounded-full"></div>
                       </div>
-                      <div className="pt-3 border-t border-solid border-slate-50 space-y-2">
-                        <div className="flex justify-between">
-                          <div className="h-3 w-28 bg-slate-100 rounded"></div>
-                          <div className="h-3 w-10 bg-slate-200 rounded"></div>
+                      <div className="pt-3 border-t border-solid border-slate-50 flex justify-between items-center gap-2">
+                        <div className="h-3 w-28 bg-slate-100 rounded"></div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          <div className="h-5 w-10 bg-slate-100 rounded"></div>
+                          <div className="h-5 w-12 bg-slate-100 rounded"></div>
+                          <div className="h-5 w-12 bg-slate-100 rounded"></div>
+                          <div className="h-5 w-10 bg-slate-100 rounded"></div>
                         </div>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full"></div>
                       </div>
                     </div>
                   ))}
@@ -223,34 +275,51 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
     );
   }
 
+  const getInitials = (name) => {
+    if (!name) return "U";
+    const parts = name.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.slice(0, 2).toUpperCase();
+  };
+
   return (
     <PetugasLayout activeTab="petugas-home" onNavigate={onNavigate}>
       <div className="min-h-screen bg-white slide-up pb-24">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-slate-400 font-medium">Selamat datang,</p>
-                <h2 className="text-xl font-bold text-slate-900 mt-0.5 tracking-tight">{currentPetugas.name || currentPetugas.username}</h2>
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <MapPin size={12} className="text-blue-500"/>
-                  <span className="text-xs text-slate-400 font-medium">Desa {currentPetugas.desa || "Belum Ditentukan"}</span>
+          <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+            <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
+            <div className="flex items-center justify-between relative z-10">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white text-base font-bold shadow-md shadow-blue-500/20">
+                  {getInitials(currentPetugas.name || currentPetugas.username)}
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Desa Cantik Portal</p>
+                  <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight">{currentPetugas.name || currentPetugas.username}</h2>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <MapPin size={11} className="text-blue-500"/>
+                    <span className="text-[11px] text-slate-500 font-semibold">Desa {currentPetugas.desa || "Belum Ditentukan"}</span>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setIsOffline(!isOffline)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border-0 cursor-pointer transition-all ${
-                    isOffline ? "bg-red-50 text-red-500" : "bg-emerald-50 text-emerald-600"
+                <div
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold border border-solid transition-all ${
+                    isOffline 
+                      ? "bg-rose-50 text-rose-600 border-rose-100/50" 
+                      : "bg-emerald-50 text-emerald-700 border-emerald-100/50"
                   }`}>
-                  {isOffline ? <WifiOff size={14}/> : <Wifi size={14}/>}
+                  {isOffline ? <WifiOff size={12}/> : <Wifi size={12}/>}
                   <span className="hidden sm:inline">{isOffline ? "Offline" : "Online"}</span>
-                </button>
+                </div>
                 <button 
                   onClick={loadDocs}
-                  className="w-9 h-9 bg-slate-50 hover:bg-slate-100 text-slate-400 transition-all border-0 cursor-pointer rounded-lg flex items-center justify-center"
+                  className="w-9 h-9 bg-slate-50 hover:bg-slate-100 active:scale-95 text-slate-400 hover:text-slate-650 transition-all border border-solid border-slate-200/50 cursor-pointer rounded-xl flex items-center justify-center"
                 >
-                  <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+                  <RefreshCw size={14} className={loading ? "animate-spin text-blue-600" : ""} />
                 </button>
               </div>
             </div>
@@ -269,58 +338,87 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
             )}
 
             {/* Stats */}
-            <div className="grid grid-cols-4 gap-3 mb-8">
+            <div className="grid grid-cols-4 gap-3.5 mb-8">
               {[
-                { l: "Target", v: targetCount, c: "text-slate-900" },
-                { l: "Selesai", v: selesaiCount, c: "text-emerald-600" },
-                { l: "Kirim", v: kirimCount, c: "text-blue-600" },
-                { l: "Ditolak", v: ditolakCount, c: "text-red-500" },
+                { 
+                  l: "Target", 
+                  v: targetCount, 
+                  bg: "bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-100/70", 
+                  c: "text-blue-700"
+                },
+                { 
+                  l: "Selesai", 
+                  v: selesaiCount, 
+                  bg: "bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-100/70", 
+                  c: "text-emerald-700"
+                },
+                { 
+                  l: "Kirim", 
+                  v: kirimCount, 
+                  bg: "bg-gradient-to-br from-indigo-500/10 to-indigo-600/5 border-indigo-100/70", 
+                  c: "text-indigo-700"
+                },
+                { 
+                  l: "Ditolak", 
+                  v: ditolakCount, 
+                  bg: "bg-gradient-to-br from-rose-500/10 to-rose-600/5 border-rose-100/70", 
+                  c: "text-rose-700"
+                },
               ].map(s => (
-                <div key={s.l} className="bg-slate-50 rounded-xl p-4 text-center">
-                  <p className={`mono text-2xl font-bold ${s.c}`}>{s.v}</p>
-                  <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{s.l}</p>
+                <div key={s.l} className={`rounded-2xl p-4 border border-solid ${s.bg} text-center shadow-sm relative overflow-hidden transition-all duration-300 hover:scale-[1.02]`}>
+                  <p className={`mono text-2xl font-extrabold tracking-tight ${s.c}`}>{s.v}</p>
+                  <p className={`text-[10px] font-bold ${s.c} uppercase mt-1 tracking-wider`}>{s.l}</p>
                 </div>
               ))}
             </div>
 
             {/* Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-10">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5 mb-10">
               <button onClick={() => onNavigate("questionnaire")}
-                className="bg-white rounded-xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-blue-200 hover:shadow-sm group">
-                <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center mb-3 group-hover:bg-blue-100 transition-colors">
-                  <FileText size={20} className="text-blue-600"/>
+                className="bg-white rounded-2xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md hover:shadow-blue-500/5 group flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-2xl pointer-events-none -mr-6 -mt-6" />
+                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-blue-100 transition-colors">
+                  <FileText size={18} className="text-blue-600"/>
                 </div>
-                <p className="text-sm font-semibold text-slate-800">Isi Kuesioner</p>
-                <p className="text-xs text-slate-400 mt-0.5">Lanjutkan atau buat baru</p>
+                <div>
+                  <p className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">Isi Kuesioner</p>
+                  <p className="text-[11px] text-slate-400 mt-1 font-semibold">Mulai mengisi dokumen baru atau edit draf yang tersimpan</p>
+                </div>
               </button>
               
               <button onClick={() => onNavigate("petugas-sync")}
-                className="bg-blue-600 rounded-xl p-5 text-left cursor-pointer border-0 transition-all hover:bg-blue-700 group active:scale-[0.98]">
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3 bg-white/15">
-                  <Upload size={20} color="white"/>
+                className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-5 text-left cursor-pointer border-0 transition-all hover:shadow-lg hover:shadow-blue-600/25 group active:scale-[0.98] flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl pointer-events-none -mr-6 -mt-6" />
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 bg-white/15 group-hover:bg-white/20 transition-colors">
+                  <Upload size={18} color="white"/>
                 </div>
-                <p className="text-sm font-semibold text-white">Sinkronisasi</p>
-                <p className="text-xs mt-0.5 text-blue-200">{antriKirimCount} dokumen antri kirim</p>
+                <div>
+                  <p className="text-sm font-bold text-white tracking-tight">Sinkronisasi Data</p>
+                  <p className="text-[11px] mt-1 text-blue-100/90 font-medium">
+                    {antriKirimCount > 0 ? `${antriKirimCount} dokumen menunggu dikirim` : "Semua data lokal telah terkirim"}
+                  </p>
+                </div>
               </button>
 
               <button 
                 onClick={handleDownloadOfflineData}
                 disabled={isDownloading}
-                className="bg-white rounded-xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-slate-200 hover:shadow-sm group disabled:opacity-75 disabled:cursor-not-allowed">
+                className="bg-white rounded-2xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-slate-300 hover:shadow-md group disabled:opacity-75 disabled:cursor-not-allowed flex flex-col justify-between min-h-[140px] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-24 h-24 bg-slate-500/5 rounded-full blur-2xl pointer-events-none -mr-6 -mt-6" />
                 <div className="flex items-start justify-between w-full">
-                  <div className="w-10 h-10 bg-slate-50 rounded-lg flex items-center justify-center group-hover:bg-slate-100 transition-colors">
+                  <div className="w-10 h-10 bg-slate-50 rounded-xl flex items-center justify-center group-hover:bg-slate-100 transition-colors">
                     {isDownloading ? (
-                      <RefreshCw size={18} className="text-blue-600 animate-spin" />
+                      <RefreshCw size={16} className="text-blue-600 animate-spin" />
                     ) : (
-                      <Download size={18} className="text-slate-500"/>
+                      <Download size={16} className="text-slate-500"/>
                     )}
                   </div>
-                  <ChevronRight size={16} className="text-slate-200 group-hover:text-slate-400 transition-colors mt-1"/>
+                  <ChevronRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors mt-1"/>
                 </div>
                 <div className="mt-3">
-                  <p className="text-sm font-semibold text-slate-800">Unduh Kuesioner</p>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    {isDownloading ? "Mengunduh data..." : downloadTime ? `Terunduh: ${downloadTime}` : "Belum diunduh untuk offline"}
+                  <p className="text-sm font-bold text-slate-800 tracking-tight">Unduh Kuesioner</p>
+                  <p className="text-[11px] text-slate-400 mt-1 font-semibold">
+                    {isDownloading ? "Sedang memproses..." : downloadTime ? `Diupdate: ${downloadTime}` : "Unduh referensi prelist offline"}
                   </p>
                 </div>
               </button>
@@ -366,22 +464,31 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                       </div>
                     </div>
 
-                    {/* Progress bar and details */}
-                    <div className="flex flex-col gap-2 pt-3 border-t border-solid border-slate-50">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-slate-400 font-medium flex items-center gap-1.5">
-                          <Calendar size={13} className="text-slate-400" />
-                          Mulai: {act.start_date ? new Date(act.start_date).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric' }) : "-"}
-                        </span>
-                        <span className="font-bold text-slate-700">{act.progress}% Selesai</span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all duration-500 ${act.color || 'bg-blue-600'}`}
-                          style={{ width: `${act.progress}%` }}
-                        />
-                      </div>
-                    </div>
+                    {/* Document stats details */}
+                    {(() => {
+                      const actDocs = documents.filter(d => d.kegiatan_id === act.id);
+                      const approvedCount = actDocs.filter(d => d.review_status === 'approved').length;
+                      const rejectedCount = actDocs.filter(d => d.review_status === 'rejected').length;
+                      const terkirimCount = actDocs.filter(d => d.status === 'terkirim' && d.review_status !== 'approved' && d.review_status !== 'rejected').length;
+                      const draftCount = actDocs.filter(d => d.status !== 'terkirim' && d.review_status !== 'approved' && d.review_status !== 'rejected').length;
+
+                      return (
+                        <div className="flex flex-col gap-2.5 pt-3 border-t border-solid border-slate-50">
+                          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2.5 text-xs">
+                            <span className="text-slate-400 font-medium flex items-center gap-1.5">
+                              <Calendar size={13} className="text-slate-400" />
+                              Mulai: {act.start_date ? new Date(act.start_date).toLocaleDateString("id-ID", { day: 'numeric', month: 'short', year: 'numeric' }) : "-"}
+                            </span>
+                            <div className="flex flex-wrap gap-2 text-[10px] font-bold">
+                              <span className="px-2 py-0.5 rounded bg-slate-50 text-slate-500 border border-solid border-slate-200/50">Draft: {draftCount}</span>
+                              <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-solid border-blue-100/50">Terkirim: {terkirimCount}</span>
+                              <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-solid border-emerald-100/50">Approve: {approvedCount}</span>
+                              <span className="px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-solid border-rose-100/50">Reject: {rejectedCount}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </button>
                 ))}
                 {officerActivities.length === 0 && (

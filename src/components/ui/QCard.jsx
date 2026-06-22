@@ -19,18 +19,16 @@ function QCard({ r, label, subLabel, required, hint, skipInfo, description, chil
   const isSkipped = skipInfo && skipInfo.startsWith("Dilewati");
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm transition-all">
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start gap-3">
-          <span className="mono text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-0.5">R.{r}</span>
-          <div>
-            <p className="text-sm font-semibold text-slate-800 leading-snug">{label}</p>
-            {subLabel && <p className="text-xs text-slate-500 mt-1 font-medium leading-relaxed">{subLabel}</p>}
-            {hint && <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">{hint}</p>}
-          </div>
-        </div>
+      <div className="flex items-center justify-between mb-3">
+        <span className="mono text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">R.{r}</span>
         {required && (
           <span className="text-[10px] text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-md">Wajib</span>
         )}
+      </div>
+      <div className="mb-4">
+        <p className="text-sm font-semibold text-slate-800 leading-snug">{label}</p>
+        {subLabel && <p className="text-xs text-slate-500 mt-1 font-medium leading-relaxed">{subLabel}</p>}
+        {hint && <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">{hint}</p>}
       </div>
       {skipInfo && (
         <div className={`flex items-center gap-2 text-[11px] mb-3 px-3 py-2 rounded-lg ${

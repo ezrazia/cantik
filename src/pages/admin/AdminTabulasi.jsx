@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { Database, Download, Sliders, CheckCircle, RefreshCw, X, Table, Info, ChevronDown, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { api } from "../../services/api";
+import { api, API_BASE } from "../../services/api";
 
 const COLORS = ["#2563eb", "#7c3aed", "#10b981", "#f59e0b", "#e11d48", "#06b6d4"];
 
@@ -385,6 +385,12 @@ export default function AdminTabulasi({
     document.body.removeChild(link);
   };
 
+  const handleExportExcelRaw = () => {
+    if (!currentActivity?.id) return;
+    const url = `${API_BASE}/tabulasi/${currentActivity.id}/export-excel`;
+    window.open(url, '_blank');
+  };
+
   const getFinalityBadge = () => {
     switch (activityStatus) {
       case "selesai":
@@ -482,11 +488,18 @@ export default function AdminTabulasi({
 
           <div className="flex items-center gap-2 shrink-0">
             <button
+              onClick={handleExportExcelRaw}
+              disabled={loading || error || cleanData.length === 0}
+              className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 border border-solid border-blue-600 rounded-xl text-white cursor-pointer shadow-sm hover:shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Database size={14} /> Export Raw Excel
+            </button>
+            <button
               onClick={handleExportCSV}
               disabled={loading || error || cleanData.length === 0}
               className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold bg-white border border-solid border-slate-200 hover:border-blue-200 hover:text-blue-600 rounded-xl text-slate-600 cursor-pointer shadow-sm hover:shadow transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Download size={14} /> Export CSV
+              <Download size={14} /> Pivot CSV
             </button>
           </div>
         </div>

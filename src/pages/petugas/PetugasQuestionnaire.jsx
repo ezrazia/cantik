@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2 } from "lucide-react";
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { offlineDB } from "../../services/offlineStorage";
+import SignaturePad from "../../components/ui/SignaturePad";
 
 // Debounce helper
 const useDebounce = (callback, delay) => {
@@ -14,6 +15,102 @@ const useDebounce = (callback, delay) => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => callback(...args), delay);
   }, [callback, delay]);
+};
+
+// Debounced Input Components
+const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, allowedPattern, isNumberFormat = false, ...props }) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const [isFocused, setIsFocused] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const handleChange = (e) => {
+    let rawVal = e.target.value;
+    
+    if (isNumberFormat) {
+      // Convert typed comma to dot for internal processing and validation
+      rawVal = rawVal.replace(/,/g, ".");
+    }
+    
+    const newVal = forceUppercase ? rawVal.toUpperCase() : rawVal;
+
+    if (allowedPattern && newVal !== "" && newVal !== "-" && !allowedPattern.test(newVal)) {
+      return; // Reject keystroke
+    }
+
+    setLocalValue(newVal);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(newVal);
+    }, delay);
+  };
+
+  const handleFocus = (e) => {
+    setIsFocused(true);
+    if (props.onFocus) props.onFocus(e);
+  };
+
+  const handleBlur = (e) => {
+    setIsFocused(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (localValue !== (value || "")) {
+      onChange(localValue);
+    }
+    if (props.onBlur) props.onBlur(e);
+  };
+
+  const displayValue = useMemo(() => {
+    if (!isNumberFormat) return localValue;
+    if (isFocused) {
+      // While focused, show unformatted number but use comma for decimal
+      return localValue.replace(/\./g, ",");
+    }
+    // On blur, apply full formatting
+    if (!localValue || localValue === "-" || localValue === "-." || localValue.endsWith(".")) {
+      return localValue.replace(/\./g, ",");
+    }
+    
+    const parts = localValue.toString().split(".");
+    // Format integer part with thousands separator (dot)
+    const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    const decimalPart = parts.length > 1 ? "," + parts[1] : "";
+    return integerPart + decimalPart;
+  }, [localValue, isFocused, isNumberFormat]);
+
+  return <input {...props} value={displayValue} onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur} />;
+};
+
+const DebouncedTextarea = ({ value, onChange, delay = 500, ...props }) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const handleChange = (e) => {
+    const newVal = e.target.value;
+    setLocalValue(newVal);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(newVal);
+    }, delay);
+  };
+
+  const handleBlur = (e) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (localValue !== (value || "")) {
+      onChange(localValue);
+    }
+    if (props.onBlur) props.onBlur(e);
+  };
+
+  return <textarea {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
 };
 
 // Memoized parseValidation cache
@@ -342,6 +439,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
         return val !== undefined && val !== null ? val : (isSerialNumber ? String(idx + 1) : "");
       } else if (typeof parsed === 'object' && parsed !== null) {
+        if (parsed.hasOwnProperty('value')) {
+          return idx === 0 ? raw : "";
+        }
         const val = parsed[idx];
         if (isSerialNumber && (val === undefined || val === null || val === '')) {
           return String(idx + 1);
@@ -402,6 +502,21 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           return false;
         }
       });
+
+      const hasManual = groupQs.some(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
+        }
+      });
+
+      if (!hasManual) {
+        return null;
+      }
+
       const masterQ = groupQs.find(x => {
         if (!x.validation) return false;
         try {
@@ -498,6 +613,72 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
 
     return null;
+  };
+
+  const getQuestionLoopCount = (q) => {
+    if (!q) return 1;
+
+    // 1. Parent relationship
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getQuestionLoopCount(parent);
+      }
+    }
+
+    // 2. Loop Group relationship
+    let loopGroupName = "";
+    if (q.validation) {
+      try {
+        const parsed = JSON.parse(q.validation);
+        if (parsed && parsed.loop_group) {
+          loopGroupName = parsed.loop_group;
+        }
+      } catch (e) {}
+    }
+
+    if (loopGroupName) {
+      const groupQs = questions.filter(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.loop_group === loopGroupName;
+        } catch (e) {
+          return false;
+        }
+      });
+      // Find the master loop question in the group
+      const masterQ = groupQs.find(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop;
+        } catch (e) {
+          return false;
+        }
+      }) || groupQs[0];
+
+      if (masterQ && masterQ.id !== q.id) {
+        return getQuestionLoopCount(masterQ);
+      }
+    }
+
+    // 3. Direct loop configuration
+    const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+    if (isLoop) {
+      if (loopByQuestionId) {
+        const triggerValue = ans.values[loopByQuestionId];
+        const parsedTrigger = parseInt(triggerValue, 10);
+        return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
+      }
+      if (loopType === "manual") {
+        const manualCount = getManualLoopCount(q);
+        return manualCount !== null ? manualCount : 1;
+      }
+    }
+
+    return 1;
   };
 
   const handleAddManualLoop = (qId) => {
@@ -625,130 +806,145 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   const handleValueChange = (q, val, idx = 0, instancesLength = 1) => {
-    let newValues = { ...ans.values };
-    let headerUpdates = {};
+    setAns(prevAns => {
+      const newValues = { ...prevAns.values };
+      let headerUpdates = {};
 
-    if (instancesLength > 1) {
-      const raw = ans.values[q.id];
-      let parsed = [];
-      if (raw) {
+      const qValStr = q.val || q.validation;
+      let isTargetLoop = false;
+      if (qValStr && qValStr.trim().startsWith('{')) {
         try {
-          parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) {
+          const parsed = JSON.parse(qValStr);
+          isTargetLoop = !!parsed.is_loop || !!parsed.loop_group;
+        } catch (e) {}
+      }
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const checkParentLoop = (pId) => {
+          const parent = questions.find(p => p.id === pId);
+          if (!parent) return false;
+          const pValStr = parent.val || parent.validation;
+          if (pValStr && pValStr.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(pValStr);
+              if (parsed.is_loop || parsed.loop_group) return true;
+            } catch (e) {}
+          }
+          const nextParentId = parent.parent_id || parent.parentId;
+          return nextParentId ? checkParentLoop(nextParentId) : false;
+        };
+        if (checkParentLoop(parentId)) {
+          isTargetLoop = true;
+        }
+      }
+
+      if (instancesLength > 1 || isTargetLoop) {
+        const raw = prevAns.values[q.id];
+        let parsed = [];
+        if (raw) {
+          try {
+            parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+              parsed = [raw];
+            }
+          } catch (e) {
             parsed = [raw];
           }
-        } catch (e) {
-          parsed = [raw];
         }
-      }
-      parsed[idx] = val;
-      newValues[q.id] = JSON.stringify(parsed);
-    } else {
-      newValues[q.id] = val;
+        parsed[idx] = val;
+        newValues[q.id] = JSON.stringify(parsed);
+      } else {
+        newValues[q.id] = val;
 
-      const lowerLabel = q.label.toLowerCase();
-      if (lowerLabel.includes("kecamatan")) {
-        headerUpdates.kecamatan = val;
-      } else if (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) {
-        headerUpdates.desa = val;
-      } else if (lowerLabel.includes("sls") || lowerLabel.includes("rt ")) {
-        headerUpdates.sls = val;
-      } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
-        headerUpdates.alamat = val;
-      } else if (lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) {
-        headerUpdates.krt = val;
-      } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls")) {
-        headerUpdates.sub_sls = val;
-      } else if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
-        headerUpdates.umur = val;
-      } else if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
-        headerUpdates.gender = val;
-      } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
-        headerUpdates.perkawinan = val;
-      } else if (lowerLabel.includes("bekerja")) {
-        headerUpdates.bekerja = val;
-      }
-    }
-
-    const qVal = parseValidation(q.validation);
-    if (qVal.isLookupKey && val && idx === 0) {
-      const matchingDoc = localPrelist.find(doc => {
-        if (selectedRtItem && doc.id === selectedRtItem.id) return false;
-        if (doc.kode === ans.kode) return false;
-        if (doc.desa !== (headerUpdates.desa || ans.desa) || doc.sls !== (headerUpdates.sls || ans.sls)) return false;
-
-        let docValues = doc.values;
-        if (typeof docValues === 'string') {
-          try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
-        }
-
-        if (docValues && String(docValues[q.id]) === String(val)) {
-          return true;
-        }
-        return false;
-      });
-
-      if (matchingDoc) {
-        let docValues = matchingDoc.values;
-        if (typeof docValues === 'string') {
-          try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
-        }
-
-        let copyCount = 0;
-        questions.forEach(otherQ => {
-          const otherQVal = parseValidation(otherQ.validation);
-          if (otherQVal.copyOnKeyMatch) {
-            const prevVal = docValues[otherQ.id];
-            if (prevVal !== undefined && prevVal !== null && prevVal !== "" && !newValues[otherQ.id]) {
-              newValues[otherQ.id] = prevVal;
-              copyCount++;
-
-              const savedCountKey = `${otherQ.id}_loop_count`;
-              if (docValues[savedCountKey] && !newValues[savedCountKey]) {
-                newValues[savedCountKey] = docValues[savedCountKey];
-              }
-            }
+        const lowerLabel = q.label.toLowerCase();
+        let extractedText = val;
+        const opts = resolveDynamicOptions(q);
+        if (opts && opts.length > 0) {
+          const matchedOpt = opts.find(o => String(o.value) === String(val));
+          if (matchedOpt) {
+            extractedText = matchedOpt.label || matchedOpt.text || val;
           }
+        }
+
+        if (lowerLabel.includes("kecamatan")) {
+          headerUpdates.kecamatan = extractedText;
+        } else if (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) {
+          headerUpdates.desa = extractedText;
+        } else if (lowerLabel.includes("sls") || lowerLabel.match(/\brt\b/)) {
+          headerUpdates.sls = extractedText;
+        } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
+          headerUpdates.alamat = extractedText;
+        } else if (lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) {
+          headerUpdates.krt = extractedText;
+        } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) {
+          headerUpdates.sub_sls = extractedText;
+        } else if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
+          headerUpdates.umur = extractedText;
+        } else if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
+          headerUpdates.gender = extractedText;
+        } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
+          headerUpdates.perkawinan = extractedText;
+        } else if (lowerLabel.includes("bekerja")) {
+          headerUpdates.bekerja = extractedText;
+        }
+      }
+
+      const qVal = parseValidation(q.validation);
+      if (qVal.isLookupKey && val && idx === 0) {
+        const matchingDoc = localPrelist.find(doc => {
+          if (selectedRtItem && doc.id === selectedRtItem.id) return false;
+          if (doc.kode === prevAns.kode) return false;
+          if (doc.desa !== (headerUpdates.desa || prevAns.desa) || doc.sls !== (headerUpdates.sls || prevAns.sls)) return false;
+
+          let docValues = doc.values;
+          if (typeof docValues === 'string') {
+            try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
+          }
+
+          if (docValues && String(docValues[q.id]) === String(val)) {
+            return true;
+          }
+          return false;
         });
 
-        if (copyCount > 0) {
-          setWarningMessage(`Data pencarian "${val}" cocok. ${copyCount} rincian disalin otomatis.`);
-          setTimeout(() => setWarningMessage(null), 5000);
+        if (matchingDoc) {
+          let docValues = matchingDoc.values;
+          if (typeof docValues === 'string') {
+            try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
+          }
+
+          let copyCount = 0;
+          questions.forEach(otherQ => {
+            const otherQVal = parseValidation(otherQ.validation);
+            if (otherQVal.copyOnKeyMatch) {
+              const prevVal = docValues[otherQ.id];
+              if (prevVal !== undefined && prevVal !== null && prevVal !== "" && !newValues[otherQ.id]) {
+                newValues[otherQ.id] = prevVal;
+                copyCount++;
+
+                const savedCountKey = `${otherQ.id}_loop_count`;
+                if (docValues[savedCountKey] && !newValues[savedCountKey]) {
+                  newValues[savedCountKey] = docValues[savedCountKey];
+                }
+              }
+            }
+          });
+
+          if (copyCount > 0) {
+            setWarningMessage(`Data pencarian "${val}" cocok. ${copyCount} rincian disalin otomatis.`);
+            setTimeout(() => setWarningMessage(null), 5000);
+          }
         }
       }
-    }
 
-    setAns(p => ({
-      ...p,
-      ...headerUpdates,
-      values: newValues
-    }));
+      const updatedAns = {
+        ...prevAns,
+        ...headerUpdates,
+        values: newValues
+      };
 
-    // Prepare document data for saving
-    const docData = {
-      kode: ans.kode,
-      kegiatan_id: selectedActivity?.id,
-      petugas_id: currentUser.id,
-      krt: ans.krt || "Tanpa Nama",
-      alamat: ans.alamat,
-      kecamatan: ans.kecamatan,
-      desa: ans.desa,
-      sls: ans.sls,
-      sub_sls: ans.sub_sls,
-      status: selectedRtItem?.status || "draft",
-      is_prelist: ans.is_prelist,
-      values: newValues,
-      sync_status: 'pending',
-      updated_at: Date.now()
-    };
-
-    // Trigger debounced auto-save to localStorage (non-blocking)
-    debouncedSaveToLocal(docData);
-
-    // Also save to IndexedDB immediately for better offline reliability
-    if (selectedActivity?.id) {
-      saveDokumenToIDB(docData);
-    }
+      return updatedAns;
+    });
   };
 
 
@@ -869,7 +1065,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           isLookupKey: !!parsed.is_lookup_key,
           readOnly: !!parsed.read_only,
           parentMode: parsed.parent_mode || "label",
-          subLabel: parsed.sub_label || ""
+          subLabel: parsed.sub_label || "",
+          formula: parsed.formula || ""
         };
       } catch (e) {}
     }
@@ -944,11 +1141,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           if (Array.isArray(parsed)) {
             return parsed.map((name, idx) => ({
               value: String(idx + 1),
-              label: `${idx + 1}. ${name}`
-            })).filter(o => o.label && o.label.trim() !== "");
+              label: name && name.trim() !== "" ? name : `(Belum ada nama ${idx + 1})`
+            }));
           }
         } catch(e) {}
-        return [{ value: "1", label: `1. ${val}` }];
+        return [{ value: "1", label: val }];
       }
       return [];
     }
@@ -1052,8 +1249,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         if (numVal <= min) return `Nilai harus lebih besar dari ${min}.`;
       }
     }
-    
-    if (q.type === 'text' && q.validation) {
+        if (q.type === 'text' && q.validation) {
       const trimmed = q.validation.trim();
       if (trimmed.startsWith('{')) {
         try {
@@ -1069,10 +1265,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             return "Hanya diperbolehkan memasukkan huruf dan angka.";
           } else if (type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
             return "Format email tidak valid.";
-          } else if (type === 'length') {
+          }
+
+          if (type && type !== 'none' && type !== 'email') {
             const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
             const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
             if (val.length < min || val.length > max) {
+              if (min === max) {
+                return `Panjang karakter harus tepat ${min} karakter.`;
+              }
               return `Panjang karakter harus antara ${min} sampai ${max} karakter.`;
             }
           }
@@ -1208,14 +1409,67 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       }
     };
 
+    const getLoopValueFromValues = (qId, idx) => {
+      const raw = currentValues[qId];
+      const targetQ = questions.find(x => x.id === qId);
+      const isSerialNumber = targetQ && targetQ.type === 'number' && (
+        targetQ.label.toLowerCase().includes('no. urut') ||
+        targetQ.label.toLowerCase().includes('nomor urut') ||
+        targetQ.label.toLowerCase().includes('no urut')
+      );
+
+      if (!raw) {
+        return isSerialNumber ? String(idx + 1) : "";
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const val = parsed[idx];
+          if (isSerialNumber && (val === undefined || val === null || val === '')) {
+            return String(idx + 1);
+          }
+          return val !== undefined && val !== null ? val : (isSerialNumber ? String(idx + 1) : "");
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          if (parsed.hasOwnProperty('value')) {
+            return idx === 0 ? raw : "";
+          }
+          const val = parsed[idx];
+          if (isSerialNumber && (val === undefined || val === null || val === '')) {
+            return String(idx + 1);
+          }
+          return val !== undefined && val !== null ? val : "";
+        }
+      } catch (e) {}
+      if (isSerialNumber && idx > 0) {
+        return String(idx + 1);
+      }
+      return idx === 0 ? raw : "";
+    };
+
     // 1. Handle aggregation functions on loop/array values: e.g. MAX(R401)
     const funcRegex = /(MAX|MIN|SUM|AVG|COUNT)\((R[0-9a-zA-Z.]+)\)/gi;
     evalStr = evalStr.replace(funcRegex, (match, op, code) => {
       const targetQ = findQuestionByCode(code);
       if (!targetQ) return "0";
 
-      // First try: direct value (plain or JSON array)
-      let numbers = extractNumbers(currentValues[targetQ.id]);
+      const targetQVal = parseValidation(targetQ.validation);
+      const isTargetLoop = targetQVal.isLoop || !!targetQ.parent_id || !!targetQ.parentId || !!targetQVal.loop_group;
+
+      let numbers = [];
+      if (isTargetLoop) {
+        const loopCount = getQuestionLoopCount(targetQ);
+        if (loopCount > 0) {
+          for (let idx = 0; idx < loopCount; idx++) {
+            const val = getLoopValueFromValues(targetQ.id, idx);
+            const num = parseFloat(val);
+            if (!isNaN(num)) {
+              numbers.push(num);
+            }
+          }
+        }
+      } else {
+        numbers = extractNumbers(currentValues[targetQ.id]);
+      }
 
       // Second try: if question belongs to a loop group, collect all questions in that group
       if (numbers.length === 0 && targetQ.validation) {
@@ -1385,6 +1639,47 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       return await api.dokumen.getByPetugas(currentUser.id);
     }
   };
+
+  const getQuestionLoopGroup = (q) => {
+    if (!q) return "";
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getQuestionLoopGroup(parent);
+      }
+    }
+    if (q.validation) {
+      try {
+        const parsed = JSON.parse(q.validation);
+        if (parsed && parsed.loop_group) {
+          return parsed.loop_group;
+        }
+      } catch (e) {}
+    }
+    return "";
+  };
+
+  const getActiveBlockOrderedQuestions = (currentActiveBlock) => {
+    if (!currentActiveBlock) return [];
+    const blockQs = questions.filter(q => String(q.blok_id) === String(currentActiveBlock.id) || String(q.blok_id) === String(currentActiveBlock.kode));
+    const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+    const ordered = [];
+    const addChildrenRecursive = (parentId) => {
+      const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId))
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      children.forEach(child => {
+        ordered.push(child);
+        addChildrenRecursive(child.id);
+      });
+    };
+    mainQs.forEach(parent => {
+      ordered.push(parent);
+      addChildrenRecursive(parent.id);
+    });
+    return ordered;
+  };
+
   const sortBlocksNaturally = (blks) => {
     const romanToDecimal = (roman) => {
       const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
@@ -1606,6 +1901,22 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     };
   }, [selectedActivity, isOffline, currentUser.id]);
 
+  useEffect(() => {
+    if (!isOffline) {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith("form_structure_")) {
+            localStorage.removeItem(key);
+            i--;
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to clear stale form structure caches:", e);
+      }
+    }
+  }, [isOffline]);
+
   const isReadOnly = 
     isPml ||
     selectedRtItem?.review_status === "approved" || 
@@ -1651,22 +1962,31 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         const type = parsed.text_validation_type;
         if (!type || type === 'none') return true;
 
+        let patternValid = true;
         if (type === 'nik') {
-          return /^\d{16}$/.test(val);
+          patternValid = /^\d{16}$/.test(val);
         } else if (type === 'digits_only') {
-          return /^\d+$/.test(val);
+          patternValid = /^\d+$/.test(val);
         } else if (type === 'letters_only') {
-          return /^[a-zA-Z\s]+$/.test(val);
+          patternValid = /^[a-zA-Z\s]+$/.test(val);
         } else if (type === 'alphanumeric') {
-          return /^[a-zA-Z0-9\s]+$/.test(val);
+          patternValid = /^[a-zA-Z0-9\s]+$/.test(val);
         } else if (type === 'email') {
-          return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
-        } else if (type === 'length') {
+          patternValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+        }
+
+        if (!patternValid) return false;
+
+        // Perform length validation for non-email and non-none validation types
+        if (type !== 'email') {
           const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
           const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
           const len = val.length;
-          return len >= min && len <= max;
+          if (len < min || len > max) {
+            return false;
+          }
         }
+        return true;
       } catch (e) {}
     }
     return true;
@@ -1942,49 +2262,69 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     
     for (const q of blockQuestions) {
       if (!isQuestionVisible(q)) continue;
-      
-      const val = ans.values[q.id];
-      let isOtherTextEmpty = false;
-      if (val !== undefined && val !== null && val !== '') {
-        if (typeof val === 'string' && val.trim().startsWith('{')) {
-          try {
-            const parsedVal = JSON.parse(val);
-            if (parsedVal && typeof parsedVal === 'object') {
-              if ('value' in parsedVal) {
-                const selectedOpt = resolveDynamicOptions(q).find(o => String(o.value) === String(parsedVal.value));
-                if (selectedOpt && selectedOpt.is_other && (!parsedVal.text || !parsedVal.text.trim())) {
-                  isOtherTextEmpty = true;
-                }
-              } else {
-                resolveDynamicOptions(q).forEach(opt => {
-                  if (opt.is_other && parsedVal[opt.value] !== undefined && parsedVal[opt.value] !== 0 && parsedVal[opt.value] !== '0') {
-                    const txt = parsedVal[opt.value];
-                    if (txt === 1 || txt === '1' || (typeof txt === 'string' && !txt.trim())) {
-                      isOtherTextEmpty = true;
-                    }
-                  }
-                });
-              }
-            }
-          } catch (e) {}
+
+      // Skip validation if this is a parent question with children and not in original mode
+      const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+      const qVal = parseValidation(q.validation);
+      const parentMode = qVal.parentMode || "label";
+      if (childQs.length > 0 && parentMode !== "original") continue;
+
+      const { isLoop, loopByQuestionId } = parseValidation(q.validation);
+      let loopCount = 1;
+      if (isLoop && loopByQuestionId) {
+        const triggerValue = ans.values[loopByQuestionId];
+        const parsedTrigger = parseInt(triggerValue, 10);
+        loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+      } else {
+        const manualCount = getManualLoopCount(q);
+        if (manualCount !== null) {
+          loopCount = manualCount;
         }
       }
 
-      if (val !== undefined && val !== null && val !== '' && !isOtherTextEmpty) {
-        hasFilledAny = true;
-        // Range/Min/Max validation if applicable
-        if (q.type === 'number' && q.validation) {
-          if (!validateNumberRule(val, q.validation)) {
-            hasValidationError = true;
+      for (let idx = 0; idx < loopCount; idx++) {
+        const val = getLoopValue(q.id, idx);
+        let isOtherTextEmpty = false;
+        if (val !== undefined && val !== null && val !== '') {
+          if (typeof val === 'string' && val.trim().startsWith('{')) {
+            try {
+              const parsedVal = JSON.parse(val);
+              if (parsedVal && typeof parsedVal === 'object') {
+                if ('value' in parsedVal) {
+                  const selectedOpt = resolveDynamicOptions(q).find(o => String(o.value) === String(parsedVal.value));
+                  if (selectedOpt && selectedOpt.is_other && (!parsedVal.text || !parsedVal.text.trim())) {
+                    isOtherTextEmpty = true;
+                  }
+                } else {
+                  resolveDynamicOptions(q).forEach(opt => {
+                    if (opt.is_other && parsedVal[opt.value] !== undefined && parsedVal[opt.value] !== 0 && parsedVal[opt.value] !== '0') {
+                      const txt = parsedVal[opt.value];
+                      if (txt === 1 || txt === '1' || (typeof txt === 'string' && !txt.trim())) {
+                        isOtherTextEmpty = true;
+                      }
+                    }
+                  });
+                }
+              }
+            } catch (e) {}
           }
         }
-        if (q.type === 'text' && q.validation) {
-          if (!validateTextRule(val, q.validation)) {
-            hasValidationError = true;
+
+        if (val !== undefined && val !== null && val !== '' && !isOtherTextEmpty) {
+          hasFilledAny = true;
+          if (q.type === 'number' && q.validation) {
+            if (!validateNumberRule(val, q.validation)) {
+              hasValidationError = true;
+            }
           }
+          if (q.type === 'text' && q.validation) {
+            if (!validateTextRule(val, q.validation)) {
+              hasValidationError = true;
+            }
+          }
+        } else if (q.required || isOtherTextEmpty) {
+          hasEmptyRequired = true;
         }
-      } else if (q.required || isOtherTextEmpty) {
-        hasEmptyRequired = true;
       }
     }
     
@@ -2114,20 +2454,44 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               let errorMsg = `[${blockName}] Nilai ${q.label}${suffix} tidak valid.`;
               try {
                 const parsed = JSON.parse(q.validation);
-                if (parsed.text_validation_type === 'nik') {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} harus tepat 16 digit angka (Format NIK).`;
-                } else if (parsed.text_validation_type === 'digits_only') {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} harus berupa angka saja.`;
-                } else if (parsed.text_validation_type === 'letters_only') {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} harus berupa huruf saja.`;
-                } else if (parsed.text_validation_type === 'alphanumeric') {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} harus berupa huruf/angka saja.`;
-                } else if (parsed.text_validation_type === 'email') {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} harus berformat e-mail yang valid.`;
-                } else if (parsed.text_validation_type === 'length') {
-                  const min = parsed.text_validation_min || 0;
-                  const max = parsed.text_validation_max || "tidak terbatas";
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} harus berukuran ${min} sampai ${max} karakter.`;
+                const type = parsed.text_validation_type;
+                
+                let patternMsg = "";
+                if (type === 'nik') {
+                  patternMsg = "harus tepat 16 digit angka (Format NIK)";
+                } else if (type === 'digits_only') {
+                  patternMsg = "harus berupa angka saja";
+                } else if (type === 'letters_only') {
+                  patternMsg = "harus berupa huruf saja";
+                } else if (type === 'alphanumeric') {
+                  patternMsg = "harus berupa huruf/angka saja";
+                } else if (type === 'email') {
+                  patternMsg = "harus berformat e-mail yang valid";
+                }
+
+                let lengthMsg = "";
+                if (type && type !== 'none' && type !== 'email') {
+                  const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
+                  const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : null;
+                  if (min > 0 && max) {
+                    if (min === max) {
+                      lengthMsg = `harus tepat ${min} karakter`;
+                    } else {
+                      lengthMsg = `harus berukuran ${min} sampai ${max} karakter`;
+                    }
+                  } else if (min > 0) {
+                    lengthMsg = `minimal ${min} karakter`;
+                  } else if (max) {
+                    lengthMsg = `maksimal ${max} karakter`;
+                  }
+                }
+
+                if (patternMsg && lengthMsg) {
+                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} ${patternMsg} dan ${lengthMsg}.`;
+                } else if (patternMsg) {
+                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} ${patternMsg}.`;
+                } else if (lengthMsg) {
+                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} ${lengthMsg}.`;
                 }
               } catch (e) {}
               errors.push(errorMsg);
@@ -2186,6 +2550,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     const finalDoc = docDetail || item;
 
+    const updatedValues = { ...(finalDoc.values || {}) };
+    questions.forEach(q => {
+      if (q.type === 'pcl' && !updatedValues[q.id]) {
+        updatedValues[q.id] = currentUser.name;
+      } else if (q.type === 'pml' && !updatedValues[q.id]) {
+        const docPclId = finalDoc.petugas_id;
+        const docPetugas = docPclId ? (petugas || []).find(p => p.id === docPclId) : null;
+        updatedValues[q.id] = (docPetugas || currentPetugas).assignments?.[selectedActivity?.name]?.pengawas || "";
+      }
+    });
+
     setAns({
       kode: finalDoc.kode || "",
       krt: finalDoc.krt || "",
@@ -2195,7 +2570,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       sls: finalDoc.sls || "",
       sub_sls: finalDoc.sub_sls || "",
       is_prelist: !!finalDoc.is_prelist,
-      values: finalDoc.values || {}
+      values: updatedValues
     });
 
     if (blocks.length > 0) {
@@ -2697,40 +3072,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     if (!ans.kode || !selectedActivity?.id) return;
 
     const handleBeforeUnload = (e) => {
-      const storageKey = `offline_docs_${currentUser.id}`;
-      const cached = localStorage.getItem(storageKey);
-      let cachedList = cached ? JSON.parse(cached) : [];
-
-      const docToSave = {
-        kode: ans.kode,
-        kegiatan_id: selectedActivity.id,
-        petugas_id: currentUser.id,
-        krt: ans.krt || "Tanpa Nama",
-        alamat: ans.alamat,
-        kecamatan: ans.kecamatan,
-        desa: ans.desa,
-        sls: ans.sls,
-        sub_sls: ans.sub_sls,
-        status: selectedRtItem?.status || "draft",
-        is_prelist: ans.is_prelist,
-        values: ans.values,
-        sync_status: 'pending',
-        updated_at: Date.now()
-      };
-
-      const idx = cachedList.findIndex(d => d.kode === ans.kode);
-      if (idx > -1) {
-        cachedList[idx] = { ...cachedList[idx], ...docToSave };
-      } else {
-        cachedList.push(docToSave);
-      }
-
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(cachedList));
-      } catch (err) {
-        // localStorage penuh, abaikan
-      }
-
       e.preventDefault();
       e.returnValue = 'Anda memiliki data yang belum disimpan. Yakin ingin keluar?';
       return e.returnValue;
@@ -2776,7 +3117,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   // Memoize activeQuestions to avoid re-filtering on every render
   const activeQuestions = useMemo(() => {
     if (!activeBlock) return [];
-    return questions.filter(q => q.blok_id === activeBlock.id || q.blok_id === activeBlock.kode);
+    return questions.filter(q => String(q.blok_id) === String(activeBlock.id) || String(q.blok_id) === String(activeBlock.kode));
   }, [questions, activeBlock?.id, activeBlock?.kode, visibleBlocks]);
 
   useEffect(() => {
@@ -2791,7 +3132,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         <div className="min-h-screen bg-white animate-pulse pb-24">
           <div className="max-w-3xl mx-auto">
             {/* Header Skeleton */}
-            <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex items-center justify-between">
+            <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex justify-between items-center">
               <div className="space-y-2 flex-1">
                 <div className="h-3.5 w-32 bg-slate-200 rounded"></div>
                 <div className="h-6 w-48 bg-slate-300 rounded"></div>
@@ -2831,7 +3172,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   }
 
   return (
-    <PetugasLayout activeTab="questionnaire" onNavigate={onNavigate}>
+    <PetugasLayout activeTab="questionnaire" onNavigate={onNavigate} hideNav={view === "form"}>
       {/* Dynamic Smooth View Transition CSS */}
       <style>{`
         .view-transition {
@@ -2843,38 +3184,49 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
       `}</style>
 
-      <div className="min-h-screen bg-white slide-up pb-24">
+      <div className={`min-h-screen bg-white slide-up ${view === "form" ? "pb-2" : "pb-24"}`}>
         <div className="max-w-3xl mx-auto">
           
           {/* VIEW 1: SELECT ACTIVITY */}
           {view === "select_activity" && (
             <div className="flex-1 bg-white view-transition">
-              <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100">
-                <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider">Pengisian Kuesioner</p>
-                <h2 className="text-xl font-bold text-slate-900 mt-1 tracking-tight">Pilih Kegiatan</h2>
-                <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">Pilih salah satu kegiatan aktif untuk mulai mengelola kuesioner.</p>
+              <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
+                <div className="relative z-10">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold">Pengisian Kuesioner</p>
+                  <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight font-bold">Pilih Kegiatan</h2>
+                  <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">Pilih salah satu kegiatan aktif untuk mulai mengelola kuesioner.</p>
+                </div>
               </div>
               <div className="p-6 space-y-3">
                 {officerActivities.map(act => (
                   <button key={act.name} onClick={() => handleSelectActivity(act)}
-                    className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md group relative overflow-hidden">
+                    className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md hover:shadow-blue-500/5 group relative overflow-hidden active:scale-[0.99]">
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${act.color || 'bg-blue-600'}`} />
                     <div className="flex items-start justify-between w-full">
                       <div className="flex-1 min-w-0 pr-4">
                         <h4 className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors truncate">{act.name}</h4>
-                        <p className="text-xs text-slate-400 mt-1 line-clamp-2 leading-relaxed">{act.description}</p>
+                        <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 leading-relaxed font-semibold">{act.description}</p>
                       </div>
                       <div className="flex-shrink-0">
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${act.role === 'PML' ? 'bg-purple-50 text-purple-700 border border-solid border-purple-100/50' : 'bg-blue-50 text-blue-700 border border-solid border-blue-100/50'}`}>
-                          {act.role === 'PML' ? 'Pengawas (PML)' : 'Pencacah (PCL)'}
-                        </span>
+                        {act.role === "PML" ? (
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-solid border-purple-100/50 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                            Pengawas (PML)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-solid border-blue-100/50 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                            Pencacah (PCL)
+                          </span>
+                        )}
                       </div>
                     </div>
                   </button>
                 ))}
                 {officerActivities.length === 0 && (
-                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl py-12 text-center">
-                    <p className="text-xs text-slate-400 font-semibold">Belum ditugaskan ke kegiatan survei apapun.</p>
+                  <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl py-12 text-center">
+                    <p className="text-xs text-slate-400 font-bold">Belum ditugaskan ke kegiatan survei apapun.</p>
                   </div>
                 )}
               </div>
@@ -2884,24 +3236,25 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           {/* VIEW 2: PRELIST */}
           {view === "prelist" && selectedActivity && (
             <div className="flex-1 bg-white view-transition">
-              <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex items-center gap-3">
+              <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex items-center gap-4">
+                <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
                 <button onClick={() => setView("select_activity")}
-                  className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-solid border-slate-100 cursor-pointer rounded-lg flex items-center justify-center text-slate-400 transition-all flex-shrink-0">
+                  className="w-10 h-10 bg-white hover:bg-slate-50 border border-solid border-slate-200/60 hover:border-slate-350 cursor-pointer rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-655 transition-all flex-shrink-0 active:scale-95 shadow-sm relative z-10">
                   <ArrowLeft size={16} />
                 </button>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-slate-400 font-medium truncate">Kegiatan: {selectedActivity.name}</p>
-                  <h2 className="text-base font-bold text-slate-900 truncate">Daftar Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}</h2>
+                <div className="flex-1 min-w-0 relative z-10">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold truncate">Kegiatan: {selectedActivity.name}</p>
+                  <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight truncate font-bold">Daftar Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}</h2>
                 </div>
               </div>
 
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-slate-400 font-semibold">{localPrelist.length} {selectedActivity.fokus || 'Rumah Tangga'}</span>
+                  <span className="text-xs text-slate-400 font-bold">{localPrelist.length} {selectedActivity.fokus || 'Rumah Tangga'}</span>
                   {!isPml && (
                     <button onClick={handleAddNew}
                       disabled={loadingForm || blocks.length === 0}
-                      className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                      className="px-4 py-2.5 bg-gradient-to-br from-blue-600 to-indigo-650 text-white rounded-xl text-xs font-bold border-0 cursor-pointer hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm hover:shadow-lg hover:shadow-blue-500/20 disabled:opacity-50"
                     >
                       <Plus size={14} /> Tambah Baru
                     </button>
@@ -2911,26 +3264,29 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 {loadingForm ? (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400">
                     <RefreshCw className="animate-spin mb-2" size={24} />
-                    <p className="text-xs font-semibold">Memuat formulir...</p>
+                    <p className="text-xs font-bold">Memuat formulir...</p>
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {localPrelist.map((item, i) => (
                       <div key={item.kode} onClick={() => handleEditItem(item)}
-                        className="w-full bg-white rounded-xl p-4 border border-solid border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-blue-200 hover:shadow-sm group">
-                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold flex-shrink-0 ${
-                          item.status === "terkirim" ? "bg-blue-50 text-blue-600" :
-                          item.status === "tersimpan" ? "bg-emerald-50 text-emerald-600" :
-                          "bg-slate-50 text-slate-400"
+                        className="w-full bg-white rounded-2xl p-4.5 border border-solid border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-blue-200 hover:shadow-md hover:shadow-blue-500/5 group active:scale-[0.99]">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0 border border-solid ${
+                          item.status === "terkirim" ? "bg-blue-50 text-blue-600 border-blue-100/50" :
+                          item.status === "tersimpan" ? "bg-emerald-50 text-emerald-600 border-emerald-100/50" :
+                          "bg-slate-50 text-slate-400 border-slate-200/50"
                         }`}>{i + 1}</div>
                         
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
-                            {item.krt || "Tanpa Nama"} - <span className="text-slate-400 font-mono text-xs">{item.kode}</span>
+                          <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
+                            {item.krt || "Tanpa Nama"}
+                          </p>
+                          <p className="text-[10px] text-slate-400 mt-1 font-mono font-semibold">
+                            Kode: {item.kode}
                           </p>
                           
                           {/* Badges and actions placed below info to avoid layout overflow on mobile */}
-                          <div className="flex flex-wrap items-center gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex flex-wrap items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
                             {/* PCL completion status badge */}
                             {!isPml && (
                               <Badge status={item.review_status === "rejected" ? "rejected" : item.status}/>
@@ -2939,18 +3295,18 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             {/* PML review status badge */}
                             {isPml && (
                               item.review_status === "approved" ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 flex items-center gap-1">
-                                  <span className="w-1 h-1 rounded-full bg-emerald-500" />
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-solid border-emerald-100/50 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                                   Approved
                                 </span>
                               ) : item.review_status === "rejected" ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 flex items-center gap-1">
-                                  <span className="w-1 h-1 rounded-full bg-rose-500" />
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-solid border-rose-100/50 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                                   Rejected
                                 </span>
                               ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-50 text-slate-650 flex items-center gap-1">
-                                  <span className="w-1 h-1 rounded-full bg-slate-400" />
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-50 text-slate-500 border border-solid border-slate-200/50 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
                                   Draft
                                 </span>
                               )
@@ -2961,7 +3317,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 e.stopPropagation();
                                 setSelectedLogItem(item);
                               }}
-                              className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
+                              className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 hover:border-slate-350 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer active:scale-90"
                               title="Log Aktivitas"
                             >
                               <MessageSquare size={12} />
@@ -2973,7 +3329,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                   e.stopPropagation();
                                   handleDeleteDoc(item);
                                 }}
-                                className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 border border-solid border-rose-200/60 flex items-center justify-center text-rose-500 hover:text-rose-700 transition-all cursor-pointer"
+                                className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 border border-solid border-rose-200/60 hover:border-rose-350 flex items-center justify-center text-rose-500 hover:text-rose-700 transition-all cursor-pointer active:scale-90"
                                 title="Hapus Kuesioner"
                               >
                                 <Trash2 size={12} />
@@ -2984,9 +3340,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       </div>
                     ))}
                     {localPrelist.length === 0 && (
-                      <div className="bg-slate-50 rounded-xl py-12 text-center border border-dashed border-slate-200">
-                        <p className="text-xs text-slate-550 font-semibold">Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')} Kosong</p>
-                        <p className="text-[10px] text-slate-400 mt-1">Klik Tambah Baru untuk mengisi kuesioner baru</p>
+                      <div className="bg-slate-50 rounded-2xl py-12 text-center border border-dashed border-slate-200">
+                        <p className="text-xs text-slate-550 font-bold">Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')} Kosong</p>
+                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">Klik Tambah Baru untuk mengisi kuesioner baru</p>
                       </div>
                     )}
                   </div>
@@ -3069,7 +3425,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <div className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg transition-all text-slate-500 bg-slate-50">
-                      <Save size={12}/> Auto-Saved
+                      Form Kuesioner
                     </div>
                     <button
                       type="button"
@@ -3153,7 +3509,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         setAns(p => ({ ...p, kode: e.target.value }));
                       }}
                       placeholder={`Contoh: ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}-001`} 
-                      disabled={isReadOnly || (selectedRtItem && selectedRtItem.status !== 'draft')}
+                      disabled={true}
                       className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
                     />
                   </QCard>
@@ -3188,14 +3544,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   };
 
                   const renderInputs = (q, rawInstances, activeInstanceIdx = null) => {
-                    const instances = new Proxy(activeInstanceIdx !== null ? [activeInstanceIdx] : rawInstances, {
-                      get(target, prop, receiver) {
-                        if (prop === 'length') {
-                          return rawInstances.length;
-                        }
-                        return Reflect.get(target, prop, receiver);
-                      }
-                    });
+                    const instances = activeInstanceIdx !== null ? [activeInstanceIdx] : rawInstances;
                     const isTextType = q.type === 'text';
                     const isNumberType = q.type === 'number';
                     const isTextAreaType = q.type === 'textarea';
@@ -3205,6 +3554,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     const isPclType = q.type === 'pcl';
                     const isPmlType = q.type === 'pml';
                     const isSearchType = q.type === 'search';
+                    const isSignatureType = q.type === 'signature';
 
                     const qVal = parseValidation(q.validation);
                     // isReadOnly comes from outer scope; qVal.readOnly allows per-question override
@@ -3212,23 +3562,83 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
  
                     return (
                       <>
-                        {/* Searchable Dropdown */}
-                        {isSearchType && (
+                        {/* Signature Pad */}
+                        {isSignatureType && (
                           <div className="space-y-3">
                             {instances.map((idx) => (
-                              <div key={idx} className="space-y-1">
-                                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                                <SearchableSelect
-                                  value={getLoopValue(q.id, idx)}
-                                  options={resolveDynamicOptions(q)}
-                                  disabled={isReadOnly}
-                                  placeholder="Cari dan pilih opsi..."
-                                  onChange={(val) => {
-                                    handleValueChange(q, val, idx, instances.length);
-                                  }}
+                              <div key={idx} className="mt-2">
+                                <SignaturePad 
+                                  value={getLoopValue(q.id, idx) || ""} 
+                                  onChange={(url) => handleValueChange(q, url, idx, instances.length)} 
+                                  disabled={isReadOnlyQ}
+                                  uploadUrl={`${api.defaults.baseURL}/api/upload/signature`}
                                 />
                               </div>
                             ))}
+                          </div>
+                        )}
+                        {/* Searchable Dropdown */}
+                        {isSearchType && (
+                          <div className="space-y-3">
+                            {instances.map((idx) => {
+                              const val = getLoopValue(q.id, idx);
+                              let isOtherSelected = false;
+                              let otherText = "";
+                              let otherOpt = null;
+                              let selectedVal = "";
+                              if (val !== undefined && val !== null && val !== '') {
+                                  if (typeof val === 'string' && val.trim().startsWith('{')) {
+                                    try {
+                                      const parsed = JSON.parse(val);
+                                      selectedVal = String(parsed.value);
+                                      otherText = parsed.text || "";
+                                    } catch (e) {}
+                                  } else {
+                                    selectedVal = String(val);
+                                  }
+                              }
+                              if (selectedVal) {
+                                otherOpt = resolveDynamicOptions(q).find(o => String(o.value) === selectedVal && o.is_other);
+                                if (otherOpt) {
+                                  isOtherSelected = true;
+                                }
+                              }
+
+                              return (
+                                <div key={idx} className="space-y-1">
+                                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                  <SearchableSelect
+                                    value={val}
+                                    options={resolveDynamicOptions(q)}
+                                    disabled={isReadOnly}
+                                    placeholder="Cari dan pilih opsi..."
+                                    onChange={(selectedVal) => {
+                                      const opt = resolveDynamicOptions(q).find(o => String(o.value) === String(selectedVal));
+                                      const finalVal = opt && opt.is_other
+                                        ? JSON.stringify({ value: selectedVal, text: "" })
+                                        : selectedVal;
+                                      handleValueChange(q, finalVal, idx, instances.length);
+                                    }}
+                                  />
+                                  {isOtherSelected && otherOpt && (
+                                    <div className="space-y-1 mt-2">
+                                      <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan {otherOpt.label}</label>
+                                      <input
+                                        type="text"
+                                        value={otherText}
+                                        disabled={isReadOnly}
+                                        placeholder="Sebutkan..."
+                                        onChange={(e) => {
+                                          const newVal = JSON.stringify({ value: otherOpt.value, text: e.target.value });
+                                          handleValueChange(q, newVal, idx, instances.length);
+                                        }}
+                                        className="w-full px-4 py-2.5 text-xs bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                         {/* PCL INPUTS */}
@@ -3236,13 +3646,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                           <div className="space-y-3">
                             {instances.map((idx) => {
                               const val = getLoopValue(q.id, idx);
-                              // Automatically set value if empty
                               const defaultPcl = val || currentPetugas.name || currentUser.name || "";
-                              if (!val && defaultPcl) {
-                                setTimeout(() => {
-                                  handleValueChange(q, defaultPcl, idx, instances.length);
-                                }, 0);
-                              }
                               return (
                                 <div key={idx} className="space-y-1">
                                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
@@ -3263,17 +3667,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                           <div className="space-y-3">
                             {instances.map((idx) => {
                               const val = getLoopValue(q.id, idx);
-                              // Automatically set value if empty
                               let defaultPml = val;
                               if (!defaultPml) {
                                 const docPclId = selectedRtItem ? selectedRtItem.petugas_id : null;
                                 const docPetugas = docPclId ? (petugas || []).find(p => p.id === docPclId) : null;
                                 defaultPml = (docPetugas || currentPetugas).assignments?.[selectedActivity?.name]?.pengawas || "";
-                              }
-                              if (!val && defaultPml) {
-                                setTimeout(() => {
-                                  handleValueChange(q, defaultPml, idx, instances.length);
-                                }, 0);
                               }
                               return (
                                 <div key={idx} className="space-y-1">
@@ -3300,13 +3698,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               return (
                                 <div key={idx} className="space-y-1">
                                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                                  <input 
+                                  <DebouncedInput 
                                     type="text"
                                     value={val}
+                                    forceUppercase={true}
                                     placeholder={`Isi ${q.label}${instances.length > 1 ? ` ke-${idx + 1}` : ""}`}
                                     disabled={isReadOnly}
-                                    onChange={(e) => {
-                                      handleValueChange(q, e.target.value.toUpperCase(), idx, instances.length);
+                                    onChange={(newVal) => {
+                                      handleValueChange(q, newVal, idx, instances.length);
                                     }}
                                     className={`w-full px-4 py-3 text-sm bg-white border border-solid rounded-xl outline-none focus:ring-2 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${
                                       hasErr 
@@ -3337,27 +3736,53 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 const hasErr = !!errMsg;
                                 return (
                                   <div key={idx} className="space-y-1">
-                                    {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                                    {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
                                     <div className="flex flex-col space-y-1">
-                                      <div className="flex items-center gap-3">
-                                        <input 
-                                          type="number"
-                                          step="any"
-                                          value={val}
-                                          placeholder={isFormula ? "Kalkulasi otomatis..." : "Contoh: 12"}
-                                          disabled={isReadOnly || isFormula}
-                                          onChange={(e) => {
-                                            handleValueChange(q, e.target.value, idx, instances.length);
-                                          }}
-                                          className={`w-32 px-4 py-3 text-sm bg-white border border-solid rounded-xl outline-none focus:ring-2 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${
-                                            hasErr 
-                                              ? "border-red-500 text-red-905 focus:border-red-500 focus:ring-red-500/10" 
-                                              : "border-slate-200 text-slate-800 focus:border-blue-500 focus:ring-blue-500/10"
-                                          }`}
-                                        />
-                                        <span className="text-xs text-slate-400 font-medium">
-                                          {isFormula ? `Kalkulasi Otomatis (Formula: ${qVal.formula})` : "Satuan Angka"}
-                                        </span>
+                                      <div className="flex items-center gap-2 w-full">
+                                        <div className={`flex-1 flex items-center justify-between bg-white border border-solid rounded-xl px-4 py-2.5 focus-within:ring-2 transition-all ${
+                                          hasErr 
+                                            ? "border-red-500 focus-within:ring-red-500/10" 
+                                            : "border-slate-200 focus-within:ring-blue-500/10"
+                                        }`}>
+                                          <DebouncedInput 
+                                            type="text"
+                                            value={val}
+                                            allowedPattern={/^-?\d*\.?\d*$/}
+                                            isNumberFormat={true}
+                                            placeholder={isFormula ? "Kalkulasi otomatis..." : "Masukkan angka..."}
+                                            disabled={isReadOnly || isFormula}
+                                            onChange={(newVal) => {
+                                              handleValueChange(q, newVal, idx, instances.length);
+                                            }}
+                                            className="w-full !border-none !outline-none focus:!ring-0 focus:!outline-none focus:!border-none focus:!shadow-none bg-transparent py-1 text-sm font-semibold text-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-left"
+                                          />
+                                        </div>
+                                        {!isFormula && !isReadOnly && (
+                                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const currentVal = parseFloat(val) || 0;
+                                                const newVal = Math.max(0, currentVal - 1);
+                                                handleValueChange(q, String(newVal), idx, instances.length);
+                                              }}
+                                              className="w-11 h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-90 text-slate-600 flex items-center justify-center border border-solid border-slate-200 cursor-pointer font-bold transition-all text-lg"
+                                            >
+                                              -
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                const currentVal = parseFloat(val) || 0;
+                                                const newVal = currentVal + 1;
+                                                handleValueChange(q, String(newVal), idx, instances.length);
+                                              }}
+                                              className="w-11 h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-90 text-slate-600 flex items-center justify-center border border-solid border-slate-200 cursor-pointer font-bold transition-all text-lg"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        )}
                                       </div>
                                       {hasErr && (
                                         <p className="text-[10px] text-red-500 font-semibold mt-1">
@@ -3378,12 +3803,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             {instances.map((idx) => (
                               <div key={idx} className="space-y-1">
                                 {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                                <textarea
+                                <DebouncedTextarea
                                   value={getLoopValue(q.id, idx)}
                                   placeholder={`Masukkan detail ${q.label}`}
                                   disabled={isReadOnly}
-                                  onChange={(e) => {
-                                    handleValueChange(q, e.target.value, idx, instances.length);
+                                  onChange={(newVal) => {
+                                    handleValueChange(q, newVal, idx, instances.length);
                                   }}
                                   className="w-full h-20 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none disabled:bg-slate-50"
                                 />
@@ -3398,7 +3823,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             {instances.map((idx) => (
                               <div key={idx} className="space-y-2">
                                 {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   {resolveDynamicOptions(q).map((opt) => {
                                     let isSelected = false;
                                     if (q.type === 'select') {
@@ -3449,13 +3874,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                           }
                                         }}
                                         disabled={isReadOnly}
-                                        className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
+                                        className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
                                           isSelected 
                                             ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
                                             : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
                                         } ${isReadOnly ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
                                       >
-                                        <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${
+                                        <div className={`w-4 h-4 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${
                                           q.type === 'select'
                                             ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
                                             : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
@@ -3466,7 +3891,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                               : <div className="w-2 h-2 rounded-full bg-blue-600"/>
                                           )}
                                         </div>
-                                        {opt.value}. {opt.label}
+                                        <span className="flex-1 break-words leading-relaxed whitespace-pre-wrap" style={{ wordBreak: 'break-word' }}>
+                                          {opt.value}. {opt.label}
+                                        </span>
                                       </button>
                                     );
                                   })}
@@ -3511,16 +3938,27 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                     let isOtherSelected = false;
                                     let otherText = "";
                                     let otherOpt = null;
-                                    if (val && typeof val === 'string' && val.trim().startsWith('{')) {
-                                      try {
-                                        const parsed = JSON.parse(val);
-                                        otherOpt = resolveDynamicOptions(q).find(o => String(o.value) === String(parsed.value) && o.is_other);
-                                        if (otherOpt) {
-                                          isOtherSelected = true;
+                                    let selectedVal = "";
+                                    
+                                    if (val !== undefined && val !== null && val !== '') {
+                                      if (typeof val === 'string' && val.trim().startsWith('{')) {
+                                        try {
+                                          const parsed = JSON.parse(val);
+                                          selectedVal = String(parsed.value);
                                           otherText = parsed.text || "";
-                                        }
-                                      } catch (e) {}
+                                        } catch (e) {}
+                                      } else {
+                                        selectedVal = String(val);
+                                      }
                                     }
+
+                                    if (selectedVal) {
+                                      otherOpt = resolveDynamicOptions(q).find(o => String(o.value) === selectedVal && o.is_other);
+                                      if (otherOpt) {
+                                        isOtherSelected = true;
+                                      }
+                                    }
+                                    
                                     if (!isOtherSelected) return null;
                                     
                                     return (
@@ -3686,7 +4124,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       }
 
                       return (
-                        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5">
+                        <div key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5">
                           <p className="text-sm font-semibold text-amber-950 leading-relaxed break-words">
                             {renderNoteText(labelText, computeAggregation)}
                           </p>
@@ -3694,25 +4132,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       );
                     }
 
-                    const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+                    const childQs = questions.filter(c => (c.parent_id === q.id || c.parentId === q.id) && (String(c.blok_id) === String(q.blok_id) || String(c.blok_id) === String(activeBlock.id) || String(c.blok_id) === String(activeBlock.kode)));
                     const hasChildren = childQs.length > 0;
 
                     const { rangeText, hintText, description, isLoop, loopType, loopByQuestionId, subLabel } = parseValidation(q.validation);
 
-                    let loopCount = 1;
-                    // Priority: loop_by_question_id > manual loop count
-                    // This ensures auto-loops based on another question override manual
-                    if (isLoop && loopByQuestionId) {
-                      const triggerValue = ans.values[loopByQuestionId];
-                      const parsedTrigger = parseInt(triggerValue, 10);
-                      loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-                      if (loopCount <= 0) return null;
-                    } else {
-                      const manualCount = getManualLoopCount(q);
-                      if (manualCount !== null) {
-                        loopCount = manualCount;
-                      }
-                    }
+                    const loopCount = getQuestionLoopCount(q);
+                    if (loopCount <= 0) return null;
                     const instances = Array.from({ length: loopCount }, (_, idx) => idx);
 
                     const qCode = getQuestionCode(q, questions, blocks);
@@ -3720,49 +4146,25 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     const parentMode = qVal.parentMode || "label";
 
                     if (hasChildren && parentMode === "empty") {
-                      return (
-                        <div key={q.id} className="space-y-4 animate-fade-in w-full">
-                          {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth, forceCard, activeInstanceIdx))}
-                        </div>
-                      );
+                      return null;
                     }
 
                     if (depth === 0 || forceCard) {
                       return (
                         <QCard 
-                          key={q.id} 
+                          key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} 
                           r={qCode} 
                           label={resolveLabelText(q.label, activeInstanceIdx)} 
-                          subLabel={subLabel}
+                          subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
                           required={!!q.required} 
                           description={description}
                         >
-                          {hasChildren ? (
-                            <div className="space-y-4">
-                              {parentMode === "original" && (
-                                <div className="mb-4">
-                                  {renderInputs(q, instances, activeInstanceIdx)}
-                                </div>
-                              )}
-                              {isLoop && (
-                                <div className="space-y-6 mt-4">
-                                  {instances.map((idx) => (
-                                    <div key={idx} className="p-4 bg-slate-50/50 rounded-xl border border-solid border-slate-200/50 space-y-4">
-                                      <div className="flex items-center justify-between pb-2 border-b border-solid border-slate-100">
-                                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                          Anggota / Data Ke-{idx + 1}
-                                        </span>
-                                      </div>
-                                      <div className="space-y-4">
-                                        {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, idx))}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
+                          {parentMode === "original" ? (
+                            <div className="mb-4">
+                              {renderInputs(q, instances, activeInstanceIdx)}
                             </div>
                           ) : (
-                            renderInputs(q, instances, activeInstanceIdx)
+                            !hasChildren && renderInputs(q, instances, activeInstanceIdx)
                           )}
 
                           {isLoop && loopType === "manual" && activeInstanceIdx === null && (
@@ -3806,7 +4208,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
                               </div>
                               <p className="text-xs font-bold text-slate-700 mt-1">{resolveLabelText(q.label, activeInstanceIdx)}</p>
-                              {subLabel && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
+                              {subLabel && !(q.type === 'number' && subLabel === 'Satuan Angka') && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
                             </div>
                           </div>
                           <div className="pl-4 mt-2">
@@ -3860,146 +4262,114 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     }
                   };
 
-                  const renderQuestionWithChildren = (q, activeInstanceIdx = null) => {
-                    const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
-                    const hasChildren = childQs.length > 0;
-                    const qVal = parseValidation(q.validation);
-                    const { isLoop } = qVal;
-                    const parentMode = qVal.parentMode || "label";
-
-                    const shouldRenderParent = q.label && q.label.trim() !== "" && parentMode !== "empty";
-                    const parentEl = shouldRenderParent ? renderQuestionRow(q, 0, true, activeInstanceIdx) : null;
-
-                    if (hasChildren && !isLoop) {
-                      const sortedChildren = childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-                      const childrenEls = sortedChildren.flatMap(child => renderQuestionWithChildren(child, activeInstanceIdx));
-                      return parentEl ? [parentEl, ...childrenEls] : childrenEls;
-                    }
-
-                    return parentEl ? [parentEl] : [];
-                  };
-
-                  const topLevelQs = activeQuestions.filter(q => !q.parent_id && !q.parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                  const orderedBlockQs = getActiveBlockOrderedQuestions(activeBlock);
                   const renderedGroups = new Set();
                   
-                  return topLevelQs.flatMap(q => {
-                    let loopGroupName = "";
-                    if (q.validation) {
-                      try {
-                        const parsed = JSON.parse(q.validation);
-                        if (parsed && parsed.loop_group) {
-                          loopGroupName = parsed.loop_group;
-                        }
-                      } catch (e) {}
+                  return orderedBlockQs.flatMap(q => {
+                    let groupId = getQuestionLoopGroup(q);
+                    let isManual = false;
+                    
+                    if (!groupId) {
+                      const val = parseValidation(q.validation);
+                      if (val.isLoop && val.loopByQuestionId) {
+                        groupId = `loop_by_${val.loopByQuestionId}`;
+                      } else if (val.isLoop && val.loopType === "manual") {
+                        groupId = `loop_manual_${q.id}`;
+                        isManual = true;
+                      }
+                    } else {
+                      isManual = true;
                     }
 
-                    if (loopGroupName) {
-                      if (renderedGroups.has(loopGroupName)) {
+                    if (groupId) {
+                      if (renderedGroups.has(groupId)) {
                         return [];
                       }
-                      renderedGroups.add(loopGroupName);
+                      renderedGroups.add(groupId);
 
-                      const groupQs = topLevelQs.filter(x => {
-                        if (!x.validation) return false;
-                        try {
-                          const parsed = JSON.parse(x.validation);
-                          return parsed && parsed.loop_group === loopGroupName;
-                        } catch (e) {
-                          return false;
+                      const groupQs = orderedBlockQs.filter(x => {
+                        const xGrp = getQuestionLoopGroup(x);
+                        if (groupId === xGrp) return true;
+                        
+                        const xVal = parseValidation(x.validation);
+                        if (!xGrp && xVal.isLoop) {
+                          if (xVal.loopByQuestionId && `loop_by_${xVal.loopByQuestionId}` === groupId) return true;
+                          if (xVal.loopType === "manual" && `loop_manual_${x.id}` === groupId) return true;
                         }
-                      }).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                        return false;
+                      });
 
                       const masterQ = groupQs.find(x => {
                         if (!x.validation) return false;
                         try {
                           const parsed = JSON.parse(x.validation);
-                          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+                          return parsed && parsed.is_loop;
                         } catch (e) {
                           return false;
                         }
                       }) || groupQs[0];
 
-                      let loopCount = 1;
-                      const manualCount = getManualLoopCount(masterQ);
-                      if (manualCount !== null) {
-                        loopCount = manualCount;
-                      } else {
-                        const triggerQ = groupQs.find(x => {
-                          if (!x.validation) return false;
-                          try {
-                            const parsed = JSON.parse(x.validation);
-                            return parsed && parsed.is_loop && parsed.loop_type === "question" && parsed.loop_by_question_id;
-                          } catch (e) {
-                            return false;
-                          }
-                        });
-                        if (triggerQ) {
-                          try {
-                            const parsed = JSON.parse(triggerQ.validation);
-                            const triggerValue = ans.values[parsed.loop_by_question_id];
-                            const parsedTrigger = parseInt(triggerValue, 10);
-                            loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-                          } catch (e) {}
-                        }
-                      }
-                      const instances = Array.from({ length: loopCount }, (_, idx) => idx);
+                      const loopCount = getQuestionLoopCount(masterQ);
+                      const instances = Array.from({ length: Math.max(1, loopCount) }, (_, idx) => idx);
+                      
+                      const groupIsManual = groupQs.some(x => {
+                        const v = parseValidation(x.validation);
+                        return v.isLoop && v.loopType === "manual";
+                      });
 
-                       const groupTitle = loopGroupName === 'art' || loopGroupName === 'anggota_keluarga' 
-                        ? 'Daftar Anggota Keluarga' 
-                        : loopGroupName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-                      return [
-                        <QCard
-                          key={`loop_group_${loopGroupName}`}
-                          r=""
-                          label={groupTitle}
-                          required={false}
-                          description={`Kelompok Looping: ${groupTitle}`}
-                        >
-                          <div className="space-y-6 mt-4">
-                            {instances.map((idx) => (
-                              <div key={idx} className="p-5 bg-slate-50/50 rounded-xl border border-solid border-slate-200/50 space-y-4">
-                                <div className="flex items-center justify-between pb-2 border-b border-solid border-slate-250">
-                                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                    Isian Ke-{idx + 1}
-                                  </span>
-                                </div>
-                                <div className="space-y-4">
-                                  {groupQs.map(gq => renderQuestionRow(gq, 0, false, idx))}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                      const resultElements = [];
 
-                          {!isReadOnly && (
-                            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-dashed border-slate-100">
-                              <button
-                                type="button"
-                                onClick={() => handleAddManualLoop(masterQ.id)}
-                                className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
-                              >
-                                <Plus size={14} />
-                                Tambah Isian
-                              </button>
-                              {loopCount > 1 && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveManualLoop(masterQ.id, loopCount)}
-                                  className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
-                                >
-                                  <X size={14} />
-                                  Hapus Terakhir
-                                </button>
-                              )}
-                              <span className="text-xs text-slate-500 font-semibold ml-auto">
-                                Total: {loopCount} isian
+                      instances.forEach((idx) => {
+                        if (instances.length > 1) {
+                          resultElements.push(
+                            <div key={`loop_header_${groupId}_${idx}`} className="flex items-center gap-2 py-2 border-b border-solid border-slate-200 mt-6 first:mt-0 mb-4">
+                              <span className="text-sm font-bold text-slate-700 uppercase tracking-wider">
+                                Isian Ke-{idx + 1}
                               </span>
                             </div>
-                          )}
-                        </QCard>
-                      ];
+                          );
+                        }
+                        
+                        groupQs.forEach(gq => {
+                          const el = renderQuestionRow(gq, 0, true, idx);
+                          if (el) {
+                            resultElements.push(el);
+                          }
+                        });
+                      });
+
+                      if (groupIsManual && !isReadOnly) {
+                        resultElements.push(
+                          <div key={`loop_controls_${groupId}`} className="flex items-center gap-3 mt-6 p-4 bg-white rounded-xl border border-solid border-slate-200">
+                            <button
+                              type="button"
+                              onClick={() => handleAddManualLoop(masterQ.id)}
+                              className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                            >
+                              <Plus size={14} />
+                              Tambah Isian
+                            </button>
+                            {loopCount > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveManualLoop(masterQ.id, loopCount)}
+                                className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                              >
+                                <X size={14} />
+                                Hapus Terakhir
+                              </button>
+                            )}
+                            <span className="text-xs text-slate-500 font-semibold ml-auto">
+                              Total: {loopCount} isian
+                            </span>
+                          </div>
+                        );
+                      }
+
+                      return resultElements;
                     }
 
-                    return renderQuestionWithChildren(q);
+                    return renderQuestionRow(q, 0, true);
                   });
                 })()}
 
@@ -4326,20 +4696,54 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         </div>
       )}
       
-      {/* Floating Save button (only in form view, not read-only, positioned above bottom menu, small size) */}
-      {view === "form" && selectedActivity && !isReadOnly && (
-        <div className="fixed bottom-24 right-6 z-50 md:right-[calc(50vw-18rem)]">
-          <button
-            type="button"
-            onClick={handleIntermediateSave}
-            className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white flex items-center justify-center shadow-lg hover:shadow-xl transition-all border-0 cursor-pointer"
-            title="Simpan Sementara"
-          >
-            <Save size={18} />
-          </button>
-        </div>
+      {/* Floating Action Buttons */}
+      {view === "form" && selectedActivity && !showSummaryModal && !selectedLogItem && !rejectionNoteItem && !confirmDialog.isOpen && !warningMessage && (
+        <FloatingActions 
+          onSave={handleIntermediateSave} 
+          isReadOnly={isReadOnly} 
+        />
       )}
     </PetugasLayout>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// HELPER COMPONENT: Floating Action Buttons (Scroll to Top & Save)
+// -----------------------------------------------------------------------------
+function FloatingActions({ onSave, isReadOnly }) {
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  return (
+    <div className="fixed bottom-28 right-6 z-50 flex flex-col gap-3 md:right-[calc(50vw-18rem)]">
+      {showScrollTop && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 flex items-center justify-center shadow-lg border border-solid border-slate-200 cursor-pointer animate-fade-in transition-all active:scale-95"
+          title="Kembali ke Atas"
+        >
+          <ChevronUp size={20} />
+        </button>
+      )}
+      {!isReadOnly && (
+        <button
+          type="button"
+          onClick={onSave}
+          className="w-11 h-11 rounded-full bg-orange-500 hover:bg-orange-600 active:scale-95 text-white flex items-center justify-center shadow-lg hover:shadow-xl transition-all border-0 cursor-pointer"
+          title="Simpan Sementara"
+        >
+          <Save size={18} />
+        </button>
+      )}
+    </div>
   );
 }
 

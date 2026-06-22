@@ -6,8 +6,11 @@ import {
   Hash, Eye, Save, Settings, Plus, ChevronDown, List, Type, 
   Trash2, Upload, Database, FileText, X, Check, GripVertical, 
   CornerDownRight, Edit3, Trash, AlertTriangle, ArrowRight, MapPin, Variable,
-  StickyNote, Bold, Italic, Calendar, User, Users, Smartphone, Copy
+  StickyNote, Bold, Italic, Calendar, User, Users, Smartphone, Copy, Clock
 } from "lucide-react";
+import QCard from "../../components/ui/QCard";
+import SearchableSelect from "../../components/ui/SearchableSelect";
+
 
 
 const ROMAN_NUMERALS = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX"];
@@ -463,9 +466,1597 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const [showPreview, setShowPreview] = useState(false);
   const [previewActiveBlok, setPreviewActiveBlok] = useState("");
 
+  // Read active data
+  const currentProjectData = projectData[selectedProject] || {
+    blocks: [],
+    questions: []
+  };
+
+  const blocks = currentProjectData.blocks;
+  const questions = currentProjectData.questions;
+
+  // ─── PETUGAS PREVIEW HELPERS & LOGIC ────────────────────────
+  const [previewAnswers, setPreviewAnswers] = useState({});
+
+  const parseValidation = (str) => {
+    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null, subLabel: "" };
+    const trimmed = str.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        let rangeText = "";
+        if (parsed.type === 'range') {
+          rangeText = `Rentang: ${parsed.min} - ${parsed.max}`;
+        } else if (parsed.type === 'min') {
+          rangeText = `Minimal: ${parsed.min}`;
+        } else if (parsed.type === 'gt') {
+          rangeText = `Lebih dari: ${parsed.min}`;
+        }
+        return {
+          rangeText,
+          hintText: parsed.hint || "",
+          description: parsed.description || parsed.hint || "",
+          isLoop: !!parsed.is_loop,
+          loopType: parsed.loop_type || "question",
+          loopByQuestionId: parsed.loop_by_question_id || null,
+          defaultVal: parsed.default_val || null,
+          isLookupKey: !!parsed.is_lookup_key,
+          readOnly: !!parsed.read_only,
+          parentMode: parsed.parent_mode || "label",
+          subLabel: parsed.sub_label || "",
+          formula: parsed.formula || ""
+        };
+      } catch (e) {}
+    }
+    
+    if (trimmed.startsWith('range:')) {
+      return {
+        rangeText: `Rentang: ${trimmed.replace('range:', '').trim()}`,
+        hintText: "",
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false,
+        subLabel: ""
+      };
+    } else if (trimmed.startsWith('min:')) {
+      return {
+        rangeText: `Minimal: ${trimmed.replace('min:', '').trim()}`,
+        hintText: "",
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false,
+        subLabel: ""
+      };
+    } else if (trimmed.startsWith('gt:')) {
+      return {
+        rangeText: `Lebih dari: ${trimmed.replace('gt:', '').trim()}`,
+        hintText: "",
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false,
+        subLabel: ""
+      };
+    }
+    
+    return {
+      rangeText: "",
+      hintText: "",
+      description: str,
+      isLoop: false,
+      loopType: "question",
+      loopByQuestionId: null,
+      defaultVal: null,
+      isLookupKey: false,
+      copyOnKeyMatch: false,
+      subLabel: ""
+    };
+  };
+
+  const checkOptionTrigger = (val, triggerOptions) => {
+    if (val === undefined || val === null || val === '') return false;
+    const trimmed = typeof val === 'string' ? val.trim() : '';
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const parsedVal = JSON.parse(trimmed);
+        if (Array.isArray(parsedVal)) {
+          return parsedVal.some(item => triggerOptions.includes(String(item)));
+        }
+        if (parsedVal && typeof parsedVal === 'object') {
+          if ('value' in parsedVal) {
+            return triggerOptions.includes(String(parsedVal.value));
+          }
+          return triggerOptions.some(opt => {
+            const optVal = parsedVal[opt];
+            return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
+          });
+        }
+      } catch (e) {}
+    }
+    return triggerOptions.includes(String(val));
+  };
+
+  const isEvaluatingPreviewRef = useRef(false);
+
+  const findQuestionByCode = (codeStr) => {
+    if (!codeStr) return null;
+    const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+    return questions.find(q => {
+      const qCode = getQuestionCode(q, questions, blocks);
+      const normalizedQCode = qCode.toLowerCase().replace(/\s/g, "");
+      return normalizedQCode === normalizedCode;
+    });
+  };
+
+  const evaluatePreviewFormula = (formulaStr, currentValues) => {
+    if (!formulaStr) return "";
+    let evalStr = formulaStr;
+    
+    const extractNumbers = (raw) => {
+      if (raw === undefined || raw === null || raw === "") return [];
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.map(x => {
+            if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+            if (typeof x === 'string' && x.startsWith('{')) {
+              try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch(e){}
+            }
+            return parseFloat(x);
+          }).filter(x => !isNaN(x));
+        } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+          const n = parseFloat(parsed.value);
+          return isNaN(n) ? [] : [n];
+        } else {
+          const n = parseFloat(parsed);
+          return isNaN(n) ? [] : [n];
+        }
+      } catch (e) {
+        const n = parseFloat(raw);
+        return isNaN(n) ? [] : [n];
+      }
+    };
+
+    const getLoopValueFromValues = (qId, idx) => {
+      const raw = currentValues[qId];
+      const targetQ = questions.find(x => x.id === qId);
+      const isSerialNumber = targetQ && targetQ.type === 'number' && (
+        targetQ.label.toLowerCase().includes('no. urut') ||
+        targetQ.label.toLowerCase().includes('nomor urut') ||
+        targetQ.label.toLowerCase().includes('no urut')
+      );
+
+      if (!raw) {
+        return isSerialNumber ? String(idx + 1) : "";
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const val = parsed[idx];
+          if (isSerialNumber && (val === undefined || val === null || val === '')) {
+            return String(idx + 1);
+          }
+          return val !== undefined && val !== null ? val : (isSerialNumber ? String(idx + 1) : "");
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          if (parsed.hasOwnProperty('value')) {
+            return idx === 0 ? raw : "";
+          }
+          const val = parsed[idx];
+          if (isSerialNumber && (val === undefined || val === null || val === '')) {
+            return String(idx + 1);
+          }
+          return val !== undefined && val !== null ? val : "";
+        }
+      } catch (e) {}
+      if (isSerialNumber && idx > 0) {
+        return String(idx + 1);
+      }
+      return idx === 0 ? raw : "";
+    };
+
+    const funcRegex = /(MAX|MIN|SUM|AVG|COUNT)\((R[0-9a-zA-Z.]+)\)/gi;
+    evalStr = evalStr.replace(funcRegex, (match, op, code) => {
+      const targetQ = findQuestionByCode(code);
+      if (!targetQ) return "0";
+
+      const targetQVal = parseValidation(targetQ.val || targetQ.validation);
+      const isTargetLoop = targetQVal.isLoop || !!targetQ.parent_id || !!targetQ.parentId || !!targetQVal.loop_group;
+
+      let numbers = [];
+      if (isTargetLoop) {
+        const loopCount = getQuestionLoopCount(targetQ);
+        if (loopCount > 0) {
+          for (let idx = 0; idx < loopCount; idx++) {
+            const val = getLoopValueFromValues(targetQ.id, idx);
+            const num = parseFloat(val);
+            if (!isNaN(num)) {
+              numbers.push(num);
+            }
+          }
+        }
+      } else {
+        numbers = extractNumbers(currentValues[targetQ.id]);
+      }
+
+      if (numbers.length === 0 && (targetQ.val || targetQ.validation)) {
+        try {
+          const vParsed = JSON.parse(targetQ.val || targetQ.validation);
+          if (vParsed && vParsed.loop_group) {
+            const groupQs = questions.filter(x => {
+              const valStr = x.val || x.validation;
+              if (!valStr) return false;
+              try { const p = JSON.parse(valStr); return p && p.loop_group === vParsed.loop_group; }
+              catch(e) { return false; }
+            });
+            groupQs.forEach(gq => {
+              numbers = numbers.concat(extractNumbers(currentValues[gq.id]));
+            });
+          }
+        } catch(e) {}
+      }
+
+      if (numbers.length === 0) return "0";
+      switch (op.toUpperCase()) {
+        case "MAX": return String(Math.max(...numbers));
+        case "MIN": return String(Math.min(...numbers));
+        case "SUM": return String(numbers.reduce((a, b) => a + b, 0));
+        case "AVG": return String(numbers.reduce((a, b) => a + b, 0) / numbers.length);
+        case "COUNT": return String(numbers.length);
+        default: return "0";
+      }
+    });
+
+    const codeRegex = /R[0-9a-zA-Z.]+/g;
+    const codes = evalStr.match(codeRegex) || [];
+    
+    for (const code of codes) {
+      const targetQ = findQuestionByCode(code);
+      if (targetQ) {
+        const val = currentValues[targetQ.id] || "0";
+        let valNum = parseFloat(val);
+        if (isNaN(valNum)) {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed)) {
+              const numbers = parsed.map(x => {
+                if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+                return parseFloat(x);
+              }).filter(x => !isNaN(x));
+              valNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+            }
+          } catch(e) {
+            valNum = 0;
+          }
+        }
+        evalStr = evalStr.replace(new RegExp(code, 'g'), isNaN(valNum) ? "0" : String(valNum));
+      } else {
+        evalStr = evalStr.replace(new RegExp(code, 'g'), "0");
+      }
+    }
+    
+    try {
+      const result = new Function(`return (${evalStr})`)();
+      return isNaN(result) ? "0" : String(result);
+    } catch (e) {
+      return "0";
+    }
+  };
+
+  useEffect(() => {
+    if (!showPreview) return;
+    const formulaQs = questions.filter(q => {
+      const qVal = parseValidation(q.val || q.validation);
+      return qVal && qVal.formula;
+    });
+
+    if (formulaQs.length === 0) return;
+    if (isEvaluatingPreviewRef.current) return;
+
+    isEvaluatingPreviewRef.current = true;
+
+    let updated = false;
+    const newValues = { ...previewAnswers };
+
+    formulaQs.forEach(q => {
+      const qVal = parseValidation(q.val || q.validation);
+      if (qVal && qVal.formula) {
+        const computedVal = evaluatePreviewFormula(qVal.formula, newValues);
+        if (newValues[q.id] !== computedVal) {
+          newValues[q.id] = computedVal;
+          updated = true;
+        }
+      }
+    });
+
+    if (updated) {
+      setPreviewAnswers(newValues);
+    }
+    isEvaluatingPreviewRef.current = false;
+  }, [previewAnswers, showPreview, questions]);
+
+  const evaluateCondition = (c, values) => {
+    const val = values[c.question_id];
+    if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
+      if (val === undefined || val === null || val === '') return false;
+      let actualVal = val;
+      if (typeof val === 'string' && val.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(val);
+          if (parsed && 'value' in parsed) {
+            actualVal = parsed.value;
+          }
+        } catch (e) {}
+      }
+      const numericVal = parseFloat(actualVal);
+      const targetVal = parseFloat(c.value);
+      if (isNaN(numericVal) || isNaN(targetVal)) return false;
+      switch (c.operator) {
+        case '=': return numericVal === targetVal;
+        case '>': return numericVal > targetVal;
+        case '>=': return numericVal >= targetVal;
+        case '<': return numericVal < targetVal;
+        case '<=': return numericVal <= targetVal;
+        default: return false;
+      }
+    }
+    const triggerOptions = String(c.value).split(",").map(x => x.trim()).filter(Boolean);
+    return checkOptionTrigger(val, triggerOptions);
+  };
+
+  const getManualLoopCount = (q) => {
+    if (!q) return null;
+    let loopGroupName = "";
+    const qValStr = q.val || q.validation;
+    if (qValStr) {
+      try {
+        const parsed = JSON.parse(qValStr);
+        if (parsed && parsed.loop_group) {
+          loopGroupName = parsed.loop_group;
+        }
+      } catch (e) {}
+    }
+
+    if (loopGroupName) {
+      const groupQs = questions.filter(x => {
+        const v = x.val || x.validation;
+        if (!v) return false;
+        try {
+          const parsed = JSON.parse(v);
+          return parsed && parsed.loop_group === loopGroupName;
+        } catch (e) {
+          return false;
+        }
+      });
+      const masterQ = groupQs.find(x => {
+        const v = x.val || x.validation;
+        if (!v) return false;
+        try {
+          const parsed = JSON.parse(v);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
+        }
+      }) || groupQs[0];
+
+      if (masterQ && masterQ.id !== q.id) {
+        return getManualLoopCount(masterQ);
+      }
+
+      for (const gq of groupQs) {
+        const savedCount = previewAnswers[`${gq.id}_loop_count`];
+        if (savedCount) {
+          const parsed = parseInt(savedCount, 10);
+          if (!isNaN(parsed) && parsed >= 1) {
+            return parsed;
+          }
+        }
+      }
+
+      let maxArrayLength = 1;
+      let maxFilledCount = 1;
+      for (const gq of groupQs) {
+        const raw = previewAnswers[gq.id];
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              if (parsed.length > maxArrayLength) {
+                maxArrayLength = parsed.length;
+              }
+              const filledCount = parsed.filter(v => v !== undefined && v !== null && v !== "" && v !== 0).length;
+              if (filledCount > maxFilledCount) {
+                maxFilledCount = filledCount;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+      return Math.max(maxArrayLength, maxFilledCount, 1);
+    }
+
+    const { isLoop, loopType } = parseValidation(q.val || q.validation);
+    if (isLoop && loopType === "manual") {
+      const savedCount = previewAnswers[`${q.id}_loop_count`];
+      if (savedCount) {
+        const parsed = parseInt(savedCount, 10);
+        if (!isNaN(parsed) && parsed >= 1) {
+          return parsed;
+        }
+      }
+      const raw = previewAnswers[q.id];
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const filledCount = parsed.filter(v => v !== undefined && v !== null && v !== "" && v !== 0).length;
+            if (filledCount > 1) {
+              return filledCount;
+            }
+            if (parsed.length > 1) {
+              return parsed.length;
+            }
+          }
+        } catch (e) {}
+      }
+      return 1;
+    }
+
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getManualLoopCount(parent);
+      }
+    }
+    return null;
+  };
+
+  const getQuestionLoopCount = (q) => {
+    if (!q) return 1;
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getQuestionLoopCount(parent);
+      }
+    }
+
+    let loopGroupName = "";
+    const qValStr = q.val || q.validation;
+    if (qValStr) {
+      try {
+        const parsed = JSON.parse(qValStr);
+        if (parsed && parsed.loop_group) {
+          loopGroupName = parsed.loop_group;
+        }
+      } catch (e) {}
+    }
+
+    if (loopGroupName) {
+      const groupQs = questions.filter(x => {
+        const v = x.val || x.validation;
+        if (!v) return false;
+        try {
+          const parsed = JSON.parse(v);
+          return parsed && parsed.loop_group === loopGroupName;
+        } catch (e) {
+          return false;
+        }
+      });
+      const masterQ = groupQs.find(x => {
+        const v = x.val || x.validation;
+        if (!v) return false;
+        try {
+          const parsed = JSON.parse(v);
+          return parsed && parsed.is_loop;
+        } catch (e) {
+          return false;
+        }
+      }) || groupQs[0];
+
+      if (masterQ && masterQ.id !== q.id) {
+        return getQuestionLoopCount(masterQ);
+      }
+    }
+
+    const { isLoop, loopType, loopByQuestionId } = parseValidation(q.val || q.validation);
+    if (isLoop) {
+      if (loopByQuestionId) {
+        const triggerValue = previewAnswers[loopByQuestionId];
+        const parsedTrigger = parseInt(triggerValue, 10);
+        return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
+      }
+      if (loopType === "manual") {
+        const manualCount = getManualLoopCount(q);
+        return manualCount !== null ? manualCount : 1;
+      }
+    }
+    return 1;
+  };
+
+  const getLoopValue = (qId, idx) => {
+    const raw = previewAnswers[qId];
+    const q = questions.find(x => x.id === qId);
+    const isSerialNumber = q && q.type === 'number' && (
+      q.label.toLowerCase().includes('no. urut') ||
+      q.label.toLowerCase().includes('nomor urut') ||
+      q.label.toLowerCase().includes('no urut')
+    );
+
+    if (!raw) {
+      return isSerialNumber ? String(idx + 1) : "";
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const val = parsed[idx];
+        if (isSerialNumber && (val === undefined || val === null || val === '')) {
+          return String(idx + 1);
+        }
+        return val !== undefined && val !== null ? val : (isSerialNumber ? String(idx + 1) : "");
+      } else if (typeof parsed === 'object' && parsed !== null) {
+        if (parsed.hasOwnProperty('value')) {
+          return idx === 0 ? raw : "";
+        }
+        const val = parsed[idx];
+        if (isSerialNumber && (val === undefined || val === null || val === '')) {
+          return String(idx + 1);
+        }
+        return val !== undefined && val !== null ? val : "";
+      }
+    } catch (e) {}
+    if (isSerialNumber && idx > 0) {
+      return String(idx + 1);
+    }
+    return idx === 0 ? raw : "";
+  };
+
+  const handleUpdateLoopValue = (qId, idx, val) => {
+    const raw = previewAnswers[qId];
+    let parsed = [];
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          parsed = [raw];
+        }
+      } catch (e) {
+        parsed = [raw];
+      }
+    }
+    parsed[idx] = val;
+    setPreviewAnswers(p => ({
+      ...p,
+      [qId]: JSON.stringify(parsed)
+    }));
+  };
+
+  const handleAddManualLoop = (qId) => {
+    const currentCount = previewAnswers[`${qId}_loop_count`] ? parseInt(previewAnswers[`${qId}_loop_count`], 10) : 1;
+    const newCount = currentCount + 1;
+    const newValues = { ...previewAnswers, [`${qId}_loop_count`]: newCount };
+
+    const q = questions.find(x => x.id === qId);
+    if (q) {
+      let loopGroupName = "";
+      const qValStr = q.val || q.validation;
+      if (qValStr) {
+        try {
+          const parsed = JSON.parse(qValStr);
+          if (parsed && parsed.loop_group) {
+            loopGroupName = parsed.loop_group;
+          }
+        } catch (e) {}
+      }
+
+      if (loopGroupName) {
+        const groupQs = questions.filter(x => {
+          const v = x.val || x.validation;
+          if (!v) return false;
+          try {
+            const parsed = JSON.parse(v);
+            return parsed && parsed.loop_group === loopGroupName;
+          } catch (e) {
+            return false;
+          }
+        });
+        for (const gq of groupQs) {
+          newValues[`${gq.id}_loop_count`] = newCount;
+          const raw = previewAnswers[gq.id];
+          const isSerialNumber = gq.type === 'number' && (
+            gq.label.toLowerCase().includes('no. urut') ||
+            gq.label.toLowerCase().includes('nomor urut') ||
+            gq.label.toLowerCase().includes('no urut')
+          );
+          if (isSerialNumber) {
+            let parsed = [];
+            if (raw) {
+              try {
+                parsed = JSON.parse(raw);
+                if (!Array.isArray(parsed)) {
+                  parsed = [raw];
+                }
+              } catch (e) {
+                parsed = [raw];
+              }
+            }
+            while (parsed.length < newCount) {
+              parsed.push(String(parsed.length + 1));
+            }
+            newValues[gq.id] = JSON.stringify(parsed);
+          }
+        }
+      }
+    }
+    setPreviewAnswers(newValues);
+  };
+
+  const handleRemoveManualLoop = (qId, currentCount) => {
+    const newCount = Math.max(1, currentCount - 1);
+    const updatedValues = { ...previewAnswers };
+    updatedValues[`${qId}_loop_count`] = newCount;
+
+    const q = questions.find(x => x.id === qId);
+    if (q) {
+      let loopGroupName = "";
+      const qValStr = q.val || q.validation;
+      if (qValStr) {
+        try {
+          const parsed = JSON.parse(qValStr);
+          if (parsed && parsed.loop_group) {
+            loopGroupName = parsed.loop_group;
+          }
+        } catch (e) {}
+      }
+
+      if (loopGroupName) {
+        const groupQs = questions.filter(x => {
+          const v = x.val || x.validation;
+          if (!v) return false;
+          try {
+            const parsed = JSON.parse(v);
+            return parsed && parsed.loop_group === loopGroupName;
+          } catch (e) {
+            return false;
+          }
+        });
+        for (const gq of groupQs) {
+          updatedValues[`${gq.id}_loop_count`] = newCount;
+        }
+      }
+    }
+
+    const childQs = questions.filter(c => c.parent_id === qId || c.parentId === qId);
+    const targetQIds = [qId, ...childQs.map(c => c.id)];
+
+    for (const id of targetQIds) {
+      const raw = previewAnswers[id];
+      if (raw) {
+        try {
+          let parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            if (parsed.length > newCount) {
+              parsed = parsed.slice(0, newCount);
+            }
+            updatedValues[id] = JSON.stringify(parsed);
+          }
+        } catch (e) {}
+      }
+    }
+    setPreviewAnswers(updatedValues);
+  };
+
+  const handleValueChange = (q, val, idx = 0, instancesLength = 1) => {
+    setPreviewAnswers(prev => {
+      const newValues = { ...prev };
+      
+      const qValStr = q.val || q.validation;
+      let isTargetLoop = false;
+      if (qValStr && qValStr.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(qValStr);
+          isTargetLoop = !!parsed.is_loop || !!parsed.loop_group;
+        } catch (e) {}
+      }
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const checkParentLoop = (pId) => {
+          const parent = questions.find(p => p.id === pId);
+          if (!parent) return false;
+          const pValStr = parent.val || parent.validation;
+          if (pValStr && pValStr.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(pValStr);
+              if (parsed.is_loop || parsed.loop_group) return true;
+            } catch (e) {}
+          }
+          const nextParentId = parent.parent_id || parent.parentId;
+          return nextParentId ? checkParentLoop(nextParentId) : false;
+        };
+        if (checkParentLoop(parentId)) {
+          isTargetLoop = true;
+        }
+      }
+
+      if (instancesLength > 1 || isTargetLoop) {
+        const raw = prev[q.id];
+        let parsed = [];
+        if (raw) {
+          try {
+            parsed = JSON.parse(raw);
+            if (!Array.isArray(parsed)) {
+              parsed = [raw];
+            }
+          } catch (e) {
+            parsed = [raw];
+          }
+        }
+        parsed[idx] = val;
+        newValues[q.id] = JSON.stringify(parsed);
+      } else {
+        newValues[q.id] = val;
+      }
+      return newValues;
+    });
+  };
+
+  const resolveDynamicOptions = (q) => {
+    let qVal = null;
+    const qValStr = q.val || q.validation;
+    try {
+      qVal = JSON.parse(qValStr || "{}");
+    } catch(e) {}
+    
+    if (qVal && qVal.options_source_question_id) {
+      const sourceQId = qVal.options_source_question_id;
+      const val = previewAnswers[sourceQId];
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) {
+            return parsed.map((name, idx) => ({
+              value: String(idx + 1),
+              label: `${idx + 1}. ${name}`
+            })).filter(o => o.label && o.label.trim() !== "");
+          }
+        } catch(e) {}
+        return [{ value: "1", label: `1. ${val}` }];
+      }
+      return [];
+    }
+    
+    let rawOpts = [];
+    if (q.options) {
+      if (Array.isArray(q.options)) {
+        rawOpts = q.options;
+      } else if (typeof q.options === 'string') {
+        try {
+          rawOpts = JSON.parse(q.options);
+        } catch (e) {
+          rawOpts = q.options.split(',').map(o => o.trim());
+        }
+      }
+    }
+
+    return rawOpts.map(opt => {
+      if (opt && typeof opt === 'object') {
+        return {
+          value: opt.value || "",
+          label: opt.label || opt.value || "",
+          is_other: !!opt.is_other
+        };
+      }
+      const optStr = String(opt);
+      const dotIndex = optStr.indexOf('.');
+      if (dotIndex > 0) {
+        const valPart = optStr.substring(0, dotIndex).trim();
+        const lblPart = optStr.substring(dotIndex + 1).trim();
+        if (!isNaN(valPart)) {
+          return { value: valPart, label: lblPart, is_other: lblPart.toLowerCase().includes('lainnya') };
+        }
+      }
+      return { value: optStr, label: optStr, is_other: optStr.toLowerCase().includes('lainnya') };
+    });
+  };
+
+  const getResolvedValuesForIndex = (values, idx) => {
+    if (idx === null) return values;
+    const resolved = {};
+    for (const qId in values) {
+      const raw = values[qId];
+      if (raw && typeof raw === 'string' && (raw.startsWith('[') || raw.startsWith('{'))) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+          } else if (typeof parsed === 'object' && parsed !== null) {
+            resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+          } else {
+            resolved[qId] = raw;
+          }
+        } catch (e) {
+          resolved[qId] = raw;
+        }
+      } else {
+        resolved[qId] = raw;
+      }
+    }
+    return resolved;
+  };
+
+  const resolveLabelText = (labelText, activeInstanceIdx) => {
+    if (!labelText) return "";
+    const placeholderRegex = /\{([a-zA-Z0-9.]+)\}|\$([a-zA-Z0-9.]+)/g;
+    return labelText.replace(placeholderRegex, (match, p1, p2) => {
+      const code = p1 || p2;
+      if (!code) return match;
+      const cleanCode = code.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+      const targetQ = questions.find(x => {
+        const qCode = getQuestionCode(x, questions, blocks);
+        return qCode && qCode.toLowerCase().replace(/\s/g, "") === cleanCode;
+      });
+      if (!targetQ) return match;
+      const resolvedValues = getResolvedValuesForIndex(previewAnswers, activeInstanceIdx);
+      const val = resolvedValues[targetQ.id];
+      return val !== undefined && val !== null && val !== "" ? val : match;
+    });
+  };
+
+  const isQuestionVisibleIgnoreBlock = (q, activeInstanceIdx = null) => {
+    const resolvedValues = getResolvedValuesForIndex(previewAnswers, activeInstanceIdx);
+    const showIfValue = q.show_if_value || q.showIfValue;
+    if (showIfValue) {
+      let matchesShowIf = true;
+      let isJson = false;
+      try {
+        const parsed = JSON.parse(showIfValue);
+        if (parsed && parsed.conditions) {
+          isJson = true;
+          const operator = parsed.operator || "AND";
+          const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
+          matchesShowIf = operator === "OR" ? results.some(r => r) : results.every(r => r);
+        }
+      } catch (e) {}
+
+      if (isJson) {
+        if (!matchesShowIf) {
+          return false;
+        }
+      } else {
+        const showIfParentId = q.show_if_parent_id || q.showIfParentId;
+        if (showIfParentId) {
+          const parentVal = resolvedValues[showIfParentId];
+          const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
+          if (!checkOptionTrigger(parentVal, triggerOptions)) {
+            return false;
+          }
+        }
+      }
+    }
+
+    const allOrdered = [];
+    blocks.forEach(b => {
+      const blockQs = questions.filter(x => x.blokId === b.id || x.blok_id === b.dbId);
+      const mainQs = blockQs.filter(x => !x.parentId && !x.parent_id);
+      const addChildrenRecursive = (parentId) => {
+        const children = blockQs.filter(x => (x.parentId === parentId || x.parent_id === parentId))
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        children.forEach(child => {
+          allOrdered.push(child);
+          addChildrenRecursive(child.id);
+        });
+      };
+      mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      mainQs.forEach(parent => {
+        allOrdered.push(parent);
+        addChildrenRecursive(parent.id);
+      });
+    });
+
+    const skippers = questions.filter(quest => quest.skipTarget && quest.skip !== undefined && quest.skip !== null);
+
+    for (const skipper of skippers) {
+      let matchesTrigger = false;
+      try {
+        const parsed = JSON.parse(skipper.skip);
+        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
+          const operator = parsed.operator || "AND";
+          const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
+          matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
+        }
+      } catch (e) {
+        const skipperVal = resolvedValues[skipper.id];
+        const triggerOptions = String(skipper.skip).split(",").map(x => x.trim()).filter(Boolean);
+        matchesTrigger = checkOptionTrigger(skipperVal, triggerOptions);
+      }
+
+      const skipperIdx = allOrdered.findIndex(x => x.id === skipper.id);
+      let targetQ = questions.find(x => String(x.id) === String(skipper.skipTarget));
+      if (!targetQ) {
+        const normalizedTarget = String(skipper.skipTarget).toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+        targetQ = questions.find(x => {
+          const qCode = getQuestionCode(x, questions, blocks);
+          return qCode && qCode.toLowerCase().replace(/\s/g, "") === normalizedTarget;
+        });
+      }
+
+      const targetIdx = targetQ ? allOrdered.findIndex(x => x.id === targetQ.id) : -1;
+      const currentIdx = allOrdered.findIndex(x => x.id === q.id);
+
+      if (q.id === skipper.id) {
+        // Skipper is visible
+      } else if (targetQ && q.id === targetQ.id) {
+        // Target is visible
+      } else if (matchesTrigger && skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
+        if (currentIdx > skipperIdx && currentIdx < targetIdx) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
+  const isQuestionVisible = (q, activeInstanceIdx = null) => {
+    return isQuestionVisibleIgnoreBlock(q, activeInstanceIdx);
+  };
+
   const handleOpenPreview = () => {
     setPreviewActiveBlok(activeBlok || (blocks[0]?.id || ""));
+    setPreviewAnswers({});
     setShowPreview(true);
+  };
+
+  const renderPreviewInputs = (q, rawInstances, activeInstanceIdx = null) => {
+    const instances = activeInstanceIdx !== null ? [activeInstanceIdx] : rawInstances;
+    const isTextType = q.type === 'text';
+    const isNumberType = q.type === 'number';
+    const isTextAreaType = q.type === 'textarea';
+    const isChoiceType = q.type === 'select' || q.type === 'radio';
+    const isLocationType = q.type === 'location';
+    const isDateType = q.type === 'date';
+    const isPclType = q.type === 'pcl';
+    const isPmlType = q.type === 'pml';
+    const isSearchType = q.type === 'search';
+
+    return (
+      <>
+        {isSearchType && (
+          <div className="space-y-3">
+            {instances.map((idx) => {
+              const val = getLoopValue(q.id, idx);
+              let isOtherSelected = false;
+              let otherText = "";
+              let otherOpt = null;
+              let selectedVal = "";
+              if (val !== undefined && val !== null && val !== '') {
+                if (typeof val === 'string' && val.trim().startsWith('{')) {
+                  try {
+                    const parsed = JSON.parse(val);
+                    selectedVal = String(parsed.value);
+                    otherText = parsed.text || "";
+                  } catch (e) {}
+                } else {
+                  selectedVal = String(val);
+                }
+              }
+              if (selectedVal) {
+                otherOpt = resolveDynamicOptions(q).find(o => String(o.value) === selectedVal && o.is_other);
+                if (otherOpt) {
+                  isOtherSelected = true;
+                }
+              }
+
+              return (
+                <div key={idx} className="space-y-1">
+                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                  <SearchableSelect
+                    value={val}
+                    options={resolveDynamicOptions(q)}
+                    placeholder="Cari dan pilih opsi..."
+                    onChange={(selectedVal) => {
+                      const opt = resolveDynamicOptions(q).find(o => String(o.value) === String(selectedVal));
+                      const finalVal = opt && opt.is_other
+                        ? JSON.stringify({ value: selectedVal, text: "" })
+                        : selectedVal;
+                      handleValueChange(q, finalVal, idx, instances.length);
+                    }}
+                  />
+                  {isOtherSelected && otherOpt && (
+                    <div className="space-y-1 mt-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan {otherOpt.label}</label>
+                      <input
+                        type="text"
+                        value={otherText}
+                        placeholder="Sebutkan..."
+                        onChange={(e) => {
+                          const newVal = JSON.stringify({ value: otherOpt.value, text: e.target.value });
+                          handleValueChange(q, newVal, idx, instances.length);
+                        }}
+                        className="w-full px-4 py-2.5 text-xs bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {isPclType && (
+          <div className="space-y-3">
+            {instances.map((idx) => {
+              const val = getLoopValue(q.id, idx) || "Nama Petugas (Simulator)";
+              return (
+                <div key={idx} className="space-y-1">
+                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                  <input 
+                    type="text"
+                    value={val}
+                    disabled={true}
+                    className="w-full px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none font-medium text-slate-500 cursor-not-allowed"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {isPmlType && (
+          <div className="space-y-3">
+            {instances.map((idx) => {
+              const val = getLoopValue(q.id, idx) || "Pengawas Lapangan (Simulator)";
+              return (
+                <div key={idx} className="space-y-1">
+                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                  <input 
+                    type="text"
+                    value={val}
+                    disabled={true}
+                    className="w-full px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none font-medium text-slate-500 cursor-not-allowed"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {isTextType && (
+          <div className="space-y-3">
+            {instances.map((idx) => {
+              const val = getLoopValue(q.id, idx);
+              return (
+                <div key={idx} className="space-y-1">
+                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                  <input 
+                    type="text"
+                    value={val}
+                    placeholder={`Isi ${q.label}${instances.length > 1 ? ` ke-${idx + 1}` : ""}`}
+                    onChange={(e) => {
+                      handleValueChange(q, e.target.value.toUpperCase(), idx, instances.length);
+                    }}
+                    className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-205 rounded-xl outline-none focus:ring-2 focus:border-blue-500 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {isNumberType && (() => {
+          const qVal = parseValidation(q.val || q.validation);
+          const isFormula = !!qVal.formula;
+          return (
+            <div className="space-y-3">
+              {instances.map((idx) => {
+                const val = getLoopValue(q.id, idx);
+                return (
+                  <div key={idx} className="space-y-1">
+                    {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
+                    <div className="flex flex-col space-y-1">
+                      <div className="flex items-center gap-3 w-full">
+                        {!isFormula && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentVal = parseFloat(val) || 0;
+                              const newVal = Math.max(0, currentVal - 1);
+                              handleValueChange(q, String(newVal), idx, instances.length);
+                            }}
+                            className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-90 text-slate-600 flex items-center justify-center border border-solid border-slate-200 cursor-pointer font-bold transition-all text-lg flex-shrink-0"
+                          >
+                            -
+                          </button>
+                        )}
+                        <div className="flex-1 flex items-center justify-between bg-white border border-solid border-slate-200 rounded-xl px-4 py-2.5 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
+                          <input 
+                            type="text"
+                            value={val}
+                            placeholder={isFormula ? "Kalkulasi otomatis..." : "Masukkan angka..."}
+                            disabled={isFormula}
+                            onChange={(e) => {
+                              const inputVal = e.target.value;
+                              if (inputVal === "" || inputVal === "-" || /^-?\d*\.?\d*$/.test(inputVal)) {
+                                handleValueChange(q, inputVal, idx, instances.length);
+                              }
+                            }}
+                            className="w-full border-0 bg-transparent py-1 outline-none text-sm font-semibold text-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-center"
+                          />
+                        </div>
+                        {!isFormula && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const currentVal = parseFloat(val) || 0;
+                              const newVal = currentVal + 1;
+                              handleValueChange(q, String(newVal), idx, instances.length);
+                            }}
+                            className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-90 text-slate-600 flex items-center justify-center border border-solid border-slate-200 cursor-pointer font-bold transition-all text-lg flex-shrink-0"
+                          >
+                            +
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+
+        {isTextAreaType && (
+          <div className="space-y-3">
+            {instances.map((idx) => (
+              <div key={idx} className="space-y-1">
+                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                <textarea
+                  value={getLoopValue(q.id, idx)}
+                  placeholder={`Masukkan detail ${q.label}`}
+                  onChange={(e) => {
+                    handleValueChange(q, e.target.value, idx, instances.length);
+                  }}
+                  className="w-full h-20 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isChoiceType && (
+          <div className="space-y-4">
+            {instances.map((idx) => (
+              <div key={idx} className="space-y-2">
+                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
+                <div className="grid grid-cols-2 gap-2">
+                  {resolveDynamicOptions(q).map((opt) => {
+                    let isSelected = false;
+                    if (q.type === 'select') {
+                      let selectedMap = {};
+                      try {
+                        const val = getLoopValue(q.id, idx);
+                        selectedMap = JSON.parse(val || "{}");
+                      } catch (e) {}
+                      isSelected = !!selectedMap[opt.value];
+                    } else {
+                      const val = getLoopValue(q.id, idx);
+                      if (val && typeof val === 'string' && val.trim().startsWith('{')) {
+                        try {
+                          const parsed = JSON.parse(val);
+                          isSelected = String(parsed.value) === String(opt.value);
+                        } catch (e) {}
+                      } else {
+                        isSelected = String(val) === String(opt.value);
+                      }
+                    }
+
+                    return (
+                      <button 
+                        key={opt.value} 
+                        type="button" 
+                        onClick={() => {
+                          if (q.type === 'select') {
+                            let selectedMap = {};
+                            try {
+                              const val = getLoopValue(q.id, idx);
+                              selectedMap = JSON.parse(val || "{}");
+                            } catch (e) {}
+                            if (selectedMap[opt.value]) {
+                              delete selectedMap[opt.value];
+                            } else {
+                              selectedMap[opt.value] = opt.is_other ? "" : 1;
+                            }
+                            const valStr = JSON.stringify(selectedMap);
+                            handleValueChange(q, valStr, idx, instances.length);
+                          } else {
+                            const val = opt.is_other 
+                              ? JSON.stringify({ value: opt.value, text: "" })
+                              : opt.value;
+                            handleValueChange(q, val, idx, instances.length);
+                          }
+                        }}
+                        className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left cursor-pointer ${
+                          isSelected 
+                            ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
+                            : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
+                        }`}
+                      >
+                        <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${
+                          q.type === 'select'
+                            ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
+                            : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
+                        }`}>
+                          {isSelected && (
+                            q.type === 'select'
+                              ? <Check size={10} className="text-white stroke-[3px]" />
+                              : <div className="w-2 h-2 rounded-full bg-blue-600"/>
+                          )}
+                        </div>
+                        {opt.value}. {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {(() => {
+                  const val = getLoopValue(q.id, idx);
+                  if (q.type === 'select') {
+                    let selectedMap = {};
+                    try {
+                      selectedMap = JSON.parse(val || "{}");
+                    } catch (e) {}
+                    const otherOpts = resolveDynamicOptions(q).filter(o => o.is_other && selectedMap[o.value] !== undefined);
+                    if (otherOpts.length === 0) return null;
+                    return (
+                      <div className="space-y-2 mt-2">
+                        {otherOpts.map(opt => (
+                          <div key={opt.value} className="space-y-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan {opt.label}</label>
+                            <input
+                              type="text"
+                              value={selectedMap[opt.value] === 1 || selectedMap[opt.value] === '1' ? "" : (selectedMap[opt.value] || "")}
+                              placeholder="Sebutkan..."
+                              onChange={(e) => {
+                                  selectedMap[opt.value] = e.target.value;
+                                  handleValueChange(q, JSON.stringify(selectedMap), idx, instances.length);
+                              }}
+                              className="w-full px-4 py-2.5 text-xs bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  } else {
+                    let isOtherSelected = false;
+                    let otherText = "";
+                    let otherOpt = null;
+                    let selectedVal = "";
+                    if (val !== undefined && val !== null && val !== '') {
+                      if (typeof val === 'string' && val.trim().startsWith('{')) {
+                        try {
+                          const parsed = JSON.parse(val);
+                          selectedVal = String(parsed.value);
+                          otherText = parsed.text || "";
+                        } catch (e) {}
+                      } else {
+                        selectedVal = String(val);
+                      }
+                    }
+                    if (selectedVal) {
+                      otherOpt = resolveDynamicOptions(q).find(o => String(o.value) === selectedVal && o.is_other);
+                      if (otherOpt) {
+                        isOtherSelected = true;
+                      }
+                    }
+                    if (!isOtherSelected) return null;
+                    return (
+                      <div className="space-y-1 mt-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan {otherOpt.label}</label>
+                        <input
+                          type="text"
+                          value={otherText}
+                          placeholder="Sebutkan..."
+                          onChange={(e) => {
+                            const newVal = JSON.stringify({ value: otherOpt.value, text: e.target.value });
+                            handleValueChange(q, newVal, idx, instances.length);
+                          }}
+                          className="w-full px-4 py-2.5 text-xs bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
+                        />
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isLocationType && (
+          <div className="space-y-4">
+            {instances.map((idx) => (
+              <div key={idx} className="space-y-1">
+                {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                <div className="flex flex-col gap-3">
+                  <div className="flex gap-2">
+                    <input 
+                      type="text"
+                      value={getLoopValue(q.id, idx)}
+                      placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
+                      readOnly
+                      className="flex-1 px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-800"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleValueChange(q, "-3.456789, 117.123456", idx, instances.length);
+                      }}
+                      className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <MapPin size={14} />
+                      <span>Ambil Lokasi</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isDateType && (
+          <div className="space-y-4">
+            {instances.map((idx) => {
+              let dateType = "date";
+              let isAutoNow = false;
+              const valStr = q.val || q.validation;
+              if (valStr && valStr.trim().startsWith('{')) {
+                try {
+                  const parsed = JSON.parse(valStr);
+                  dateType = parsed.date_type || "date";
+                  isAutoNow = !!parsed.auto_now;
+                } catch (e) {}
+              }
+
+              const handleAutoNowClick = () => {
+                const now = new Date();
+                let valueToSet = "";
+                if (dateType === "date") {
+                  valueToSet = now.toISOString().split("T")[0];
+                } else if (dateType === "datetime-local") {
+                  const tzOffset = now.getTimezoneOffset() * 60000;
+                  const localISOTime = (new Date(now.getTime() - tzOffset)).toISOString().slice(0, 16);
+                  valueToSet = localISOTime;
+                } else if (dateType === "time") {
+                  const hours = String(now.getHours()).padStart(2, "0");
+                  const minutes = String(now.getMinutes()).padStart(2, "0");
+                  valueToSet = `${hours}:${minutes}`;
+                }
+                handleValueChange(q, valueToSet, idx, instances.length);
+              };
+
+              return (
+                <div key={idx} className="space-y-1">
+                  {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input 
+                      type={dateType}
+                      value={getLoopValue(q.id, idx)}
+                      onChange={(e) => {
+                        handleValueChange(q, e.target.value, idx, instances.length);
+                      }}
+                      className="flex-1 px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
+                    />
+                    {isAutoNow && (
+                      <button
+                        type="button"
+                        onClick={handleAutoNowClick}
+                        className="px-4 py-3 bg-blue-55 hover:bg-blue-100 text-blue-600 rounded-xl text-xs font-semibold border border-solid border-blue-200 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                      >
+                        <Clock size={14} />
+                        <span>Waktu Sekarang</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  const renderPreviewQuestionRow = (q, depth = 0, forceCard = false, activeInstanceIdx = null) => {
+    if (!isQuestionVisible(q, activeInstanceIdx)) return null;
+
+    if (q.type === 'note') {
+      let labelText = q.label || "";
+      return (
+        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5">
+          <p className="text-sm font-semibold text-amber-950 leading-relaxed break-words">
+            {renderNoteText(labelText)}
+          </p>
+        </div>
+      );
+    }
+
+    const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+    const hasChildren = childQs.length > 0;
+    const { description, isLoop, loopType, subLabel } = parseValidation(q.val || q.validation);
+
+    const loopCount = getQuestionLoopCount(q);
+    if (loopCount <= 0) return null;
+    const instances = Array.from({ length: loopCount }, (_, idx) => idx);
+
+    const qCode = getQuestionCode(q, questions, blocks);
+    const qVal = parseValidation(q.val || q.validation);
+    const parentMode = qVal.parentMode || "label";
+
+    if (hasChildren && parentMode === "empty") {
+      return (
+        <div key={q.id} className="space-y-4 w-full animate-fade-in">
+          {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth, forceCard, activeInstanceIdx))}
+        </div>
+      );
+    }
+
+    if (depth === 0 || forceCard) {
+      return (
+        <QCard 
+          key={q.id} 
+          r={qCode} 
+          label={resolveLabelText(q.label, activeInstanceIdx)} 
+          subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
+          required={!!q.req} 
+          description={description}
+        >
+          {hasChildren ? (
+            <div className="space-y-4">
+              {parentMode === "original" && (
+                <div className="mb-4">
+                  {renderPreviewInputs(q, instances, activeInstanceIdx)}
+                </div>
+              )}
+              {isLoop && activeInstanceIdx === null && (
+                <div className="space-y-6 mt-4">
+                  {instances.map((idx) => (
+                    <div key={idx} className="p-4 bg-slate-50/50 rounded-xl border border-solid border-slate-200/50 space-y-4">
+                      <div className="flex items-center justify-between pb-2 border-b border-solid border-slate-100">
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                          Anggota / Data Ke-{idx + 1}
+                        </span>
+                      </div>
+                      <div className="space-y-4">
+                        {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, idx))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {isLoop && activeInstanceIdx !== null && (
+                <div className="space-y-4 mt-4">
+                  {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                </div>
+              )}
+            </div>
+          ) : (
+            renderPreviewInputs(q, instances, activeInstanceIdx)
+          )}
+
+          {isLoop && loopType === "manual" && activeInstanceIdx === null && (
+            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-dashed border-slate-100">
+              <button
+                type="button"
+                onClick={() => handleAddManualLoop(q.id)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+              >
+                <Plus size={14} />
+                Tambah Isian
+              </button>
+              {loopCount > 1 && (
+                <button
+                  type="button"
+                  onClick={() => handleRemoveManualLoop(q.id, loopCount)}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                >
+                  <X size={14} />
+                  Hapus Terakhir
+                </button>
+              )}
+              <span className="text-xs text-slate-500 font-semibold ml-auto">
+                Total: {loopCount} isian
+              </span>
+            </div>
+          )}
+        </QCard>
+      );
+    } else {
+      return (
+        <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
+                {q.req && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+              </div>
+              <p className="text-xs font-bold text-slate-700 mt-1">{resolveLabelText(q.label, activeInstanceIdx)}</p>
+              {subLabel && !(q.type === 'number' && subLabel === 'Satuan Angka') && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
+            </div>
+          </div>
+          <div className="pl-4 mt-2">
+            {hasChildren ? (
+              <div className="space-y-3">
+                {parentMode === "original" && (
+                  <div className="mb-3">
+                    {renderPreviewInputs(q, instances, activeInstanceIdx)}
+                  </div>
+                )}
+                <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
+                  {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                </div>
+              </div>
+            ) : (
+              renderPreviewInputs(q, instances, activeInstanceIdx)
+            )}
+
+            {isLoop && loopType === "manual" && activeInstanceIdx === null && (
+              <div className="flex items-center gap-3 mt-3 pt-2 border-t border-dashed border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => handleAddManualLoop(q.id)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                >
+                  <Plus size={12} />
+                  Tambah Isian
+                </button>
+                {loopCount > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveManualLoop(q.id, loopCount)}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                  >
+                    <X size={12} />
+                    Hapus Terakhir
+                  </button>
+                )}
+                <span className="text-[11px] text-slate-500 font-semibold ml-auto">
+                  Total: {loopCount} isian
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+  };
+
+  const renderPreviewQuestionWithChildren = (q, activeInstanceIdx = null) => {
+    const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+    const hasChildren = childQs.length > 0;
+    const qVal = parseValidation(q.val || q.validation);
+    const { isLoop } = qVal;
+    const parentMode = qVal.parentMode || "label";
+
+    const shouldRenderParent = q.label && q.label.trim() !== "" && parentMode !== "empty";
+    const parentEl = shouldRenderParent ? renderPreviewQuestionRow(q, 0, true, activeInstanceIdx) : null;
+
+    if (hasChildren && (!isLoop || activeInstanceIdx !== null)) {
+      const sortedChildren = childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const childrenEls = sortedChildren.flatMap(child => renderPreviewQuestionWithChildren(child, activeInstanceIdx));
+      return parentEl ? [parentEl, ...childrenEls] : childrenEls;
+    }
+
+    return parentEl ? [parentEl] : [];
   };
 
   const isLoading = loading || localLoading;
@@ -607,14 +2198,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     fetchFormStructure();
   }, [selectedProject, activeActivity]);
 
-  // Read active data
-  const currentProjectData = projectData[selectedProject] || {
-    blocks: [],
-    questions: []
-  };
 
-  const blocks = currentProjectData.blocks;
-  const questions = currentProjectData.questions;
 
   // Keep active block valid if current list changes
   useEffect(() => {
@@ -1616,7 +3200,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
   return (
     <AdminLayout tab="admin-builder" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
-      <div className="p-6 lg:p-8 w-full slide-up">
+      <div className="p-6 lg:p-8 w-full slide-up lg:h-[calc(100vh-72px)] lg:flex lg:flex-col lg:overflow-hidden">
         
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
@@ -1658,10 +3242,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:flex-1 lg:min-h-0">
           {/* Left: Blok list */}
-          <div className="lg:col-span-3">
-            <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm">
+          <div className="lg:col-span-3 lg:h-full lg:flex lg:flex-col lg:min-h-0">
+            <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
               <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Struktur Blok</h3>
                 {canEdit && (
@@ -1753,7 +3337,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               )}
 
               {/* Block List */}
-              <div className="divide-y divide-slate-50">
+              <div className="divide-y divide-slate-50 lg:flex-1 lg:overflow-y-auto">
                 {blocks.map(b => {
                   const isEditing = editingBlockId === b.id;
                   const isCurrent = activeBlok === b.id;
@@ -1863,7 +3447,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           </div>
 
           {/* Center: Questions */}
-          <div className={`transition-all duration-300 ${showRightPanel ? "lg:col-span-5" : "lg:col-span-9"}`}>
+          <div className={`transition-all duration-300 lg:h-full lg:flex lg:flex-col lg:min-h-0 ${showRightPanel ? "lg:col-span-5" : "lg:col-span-9"}`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-slate-900">{activeBlok} — Daftar Rincian</h3>
               <div className="flex items-center gap-1.5">
@@ -1966,7 +3550,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             </div>
 
             {/* Questions Container with relation lines */}
-            <div className="relative" ref={listContainerRef}>
+            <div className="relative lg:flex-1 lg:overflow-y-auto lg:min-h-0" ref={listContainerRef}>
               
               {/* Skip logic relationship SVG lines */}
               {arrows.length > 0 && (
@@ -2360,7 +3944,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
           {/* Right: Properties & Sub-Question Addition Modal */}
           {showRightPanel && (
-            <div className="lg:col-span-4 relative z-20 animate-sidebar-enter">
+            <div className="lg:col-span-4 relative z-20 animate-sidebar-enter lg:h-full lg:flex lg:flex-col lg:min-h-0">
             
             {/* Inline Subquestion Creator */}
 {/* Sub-question form is now inline below each question card */}
@@ -2370,8 +3954,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               // === NOTE EDITOR (early return) ===
               if (selected.type === 'note') {
                 return (
-                  <div className="bg-white rounded-xl border border-amber-100 overflow-hidden sticky top-6 shadow-sm">
-                    <div className="px-5 py-4 border-b border-amber-50 flex items-center justify-between bg-amber-50/50">
+                  <div className="bg-white rounded-xl border border-amber-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+                    <div className="px-5 py-4 border-b border-amber-50 flex items-center justify-between bg-amber-50/50 flex-shrink-0">
                       <div className="flex items-center gap-2">
                         <StickyNote size={14} className="text-amber-600"/>
                         <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider">Edit Catatan</h3>
@@ -2384,7 +3968,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         Catatan hanya dapat direview (Mode Read-Only)
                       </div>
                     )}
-                    <div className="p-5 space-y-4">
+                    <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
                           <label className="text-[11px] font-semibold text-slate-400 uppercase">Isi Catatan</label>
@@ -2474,8 +4058,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               const optionsList = Array.isArray(selected.options) ? selected.options : [];
 
               return (
-                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden sticky top-6 shadow-sm">
-                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
                     <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Properti Rincian</h3>
                     <Settings size={14} className="text-slate-300 animate-spin-slow"/>
                   </div>
@@ -2485,7 +4069,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       Properti hanya dapat direview (Mode Read-Only)
                     </div>
                   )}
-                  <div className="p-5 space-y-4">
+                  <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">No. Rincian</label>
@@ -2612,6 +4196,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             <option value="date">Tanggal/Waktu</option>
                             <option value="pcl">PCL (Daftar Petugas)</option>
                             <option value="pml">PML (Daftar Pengawas)</option>
+                            <option value="signature">Tanda Tangan</option>
                           </select>
                         ) : (
                           <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type === "search" ? "Searchable Dropdown" : selected.type}</div>
@@ -2727,7 +4312,6 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
                           >
                             <option value="none">Tanpa Validasi</option>
-                            <option value="nik">NIK (16 Digit Angka)</option>
                             <option value="digits_only">Hanya Angka</option>
                             <option value="letters_only">Hanya Huruf</option>
                             <option value="alphanumeric">Huruf & Angka</option>
@@ -2735,7 +4319,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             <option value="length">Panjang Karakter (Min/Max)</option>
                           </select>
                         </div>
-                        {parsedVal.text_validation_type === "length" && (
+                        {parsedVal.text_validation_type !== "none" && parsedVal.text_validation_type !== "email" && (
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Min Karakter</label>
@@ -2758,9 +4342,6 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               />
                             </div>
                           </div>
-                        )}
-                        {parsedVal.text_validation_type === "nik" && (
-                          <p className="text-[9px] text-slate-400 leading-snug">Sistem akan memvalidasi input petugas agar tepat 16 digit angka saja.</p>
                         )}
                       </div>
                     )}
@@ -3183,8 +4764,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 );
               }
               return (
-                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden sticky top-6 shadow-sm">
-                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between">
+                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
                     <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
                       <Settings size={14} className="text-slate-500"/>
                       Properti Blok ({activeBlockObj.id})
@@ -3196,7 +4777,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       Properti hanya dapat direview (Mode Read-Only)
                     </div>
                   )}
-                  <div className="p-5 space-y-4">
+                  <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Kode Blok</label>
                       <input
@@ -3591,7 +5172,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             </div>
 
             {/* Block Switcher Tabs */}
-            <div className="bg-white border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto px-6 py-3 scrollbar-none flex-shrink-0" style={{ display: 'flex', flexWrap: 'nowrap' }}>
+            <div className="bg-white border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto px-6 py-3 flex-shrink-0" style={{ display: 'flex', flexWrap: 'nowrap' }}>
               {blocks.map(b => (
                 <button
                   key={b.id}
@@ -3613,170 +5194,141 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 ℹ️ Ini adalah pratinjau interaktif dari kuesioner petugas. Anda dapat mengisi nilai secara langsung di bawah ini untuk menguji form builder.
               </div>
 
-              {questions.filter(q => q.blokId === previewActiveBlok && !q.parentId).map((q, idx) => {
-                const subQs = questions.filter(child => child.blokId === previewActiveBlok && child.parentId === q.id);
-                
-                // Parse Options safely
-                let parsedOpts = [];
-                if (q.options) {
-                  if (Array.isArray(q.options)) {
-                    parsedOpts = q.options;
-                  } else if (typeof q.options === 'string') {
+              {(() => {
+                const blockQs = questions.filter(q => q.blokId === previewActiveBlok);
+                const topLevelQs = blockQs.filter(q => !q.parentId && !q.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+                const renderedGroups = new Set();
+
+                return topLevelQs.flatMap(q => {
+                  let loopGroupName = "";
+                  const qValStr = q.val || q.validation;
+                  if (qValStr) {
                     try {
-                      parsedOpts = JSON.parse(q.options);
-                    } catch (e) {
-                      parsedOpts = q.options.split(',').map(o => o.trim());
+                      const parsed = JSON.parse(qValStr);
+                      if (parsed && parsed.loop_group) {
+                        loopGroupName = parsed.loop_group;
+                      }
+                    } catch (e) {}
+                  }
+
+                  if (loopGroupName) {
+                    if (renderedGroups.has(loopGroupName)) {
+                      return [];
                     }
-                  }
-                }
+                    renderedGroups.add(loopGroupName);
 
-                // Normalise array options if they are stored as objects like [{label, value}] or [{value}]
-                const normalizedOpts = parsedOpts.map(opt => {
-                  if (opt && typeof opt === 'object') {
-                    return opt.label || opt.value || JSON.stringify(opt);
-                  }
-                  return opt;
-                });
+                    const groupQs = topLevelQs.filter(x => {
+                      const v = x.val || x.validation;
+                      if (!v) return false;
+                      try {
+                        const parsed = JSON.parse(v);
+                        return parsed && parsed.loop_group === loopGroupName;
+                      } catch (e) {
+                        return false;
+                      }
+                    }).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
-                return (
-                  <div key={q.id} className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        <span className="mono text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-0.5">R.{getQuestionCode(q, questions, blocks)}</span>
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-slate-800 leading-snug">{q.label}</p>
-                          {q.val && q.val.includes('hint:') && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">Hint: {q.val.split('hint:')[1]?.split(';')[0]}</p>
+                    const masterQ = groupQs.find(x => {
+                      const v = x.val || x.validation;
+                      if (!v) return false;
+                      try {
+                        const parsed = JSON.parse(v);
+                        return parsed && parsed.is_loop && parsed.loop_type === "manual";
+                      } catch (e) {
+                        return false;
+                      }
+                    }) || groupQs[0];
+
+                    let loopCount = 1;
+                    const manualCount = getManualLoopCount(masterQ);
+                    if (manualCount !== null) {
+                      loopCount = manualCount;
+                    } else {
+                      const triggerQ = groupQs.find(x => {
+                        const v = x.val || x.validation;
+                        if (!v) return false;
+                        try {
+                          const parsed = JSON.parse(v);
+                          return parsed && parsed.is_loop && parsed.loop_type === "question" && parsed.loop_by_question_id;
+                        } catch (e) {
+                          return false;
+                        }
+                      });
+                      if (triggerQ) {
+                        try {
+                          const parsed = JSON.parse(triggerQ.val || triggerQ.validation);
+                          const triggerValue = previewAnswers[parsed.loop_by_question_id];
+                          const parsedTrigger = parseInt(triggerValue, 10);
+                          loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+                        } catch (e) {}
+                      }
+                    }
+                    const instances = Array.from({ length: loopCount }, (_, idx) => idx);
+                    
+                    const isManualLoop = groupQs.some(x => {
+                      const v = x.val || x.validation;
+                      if (!v) return false;
+                      try {
+                        const parsed = JSON.parse(v);
+                        return parsed && parsed.is_loop && parsed.loop_type === "manual";
+                      } catch (e) {
+                        return false;
+                      }
+                    });
+
+                    const resultElements = [];
+
+                    instances.forEach((idx) => {
+                      resultElements.push(
+                        <div key={`loop_header_${loopGroupName}_${idx}`} className="flex items-center gap-2 py-2 border-b border-solid border-slate-200 mt-6 first:mt-0">
+                          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg uppercase tracking-wider">
+                            Isian Ke-{idx + 1}
+                          </span>
+                        </div>
+                      );
+                      
+                      groupQs.forEach(gq => {
+                        const els = renderPreviewQuestionWithChildren(gq, idx);
+                        if (els && els.length > 0) {
+                          resultElements.push(...els);
+                        }
+                      });
+                    });
+
+                    if (isManualLoop) {
+                      resultElements.push(
+                        <div key={`loop_controls_${loopGroupName}`} className="flex items-center gap-3 mt-6 p-4 bg-white rounded-xl border border-solid border-slate-200">
+                          <button
+                            type="button"
+                            onClick={() => handleAddManualLoop(masterQ.id)}
+                            className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                          >
+                            <Plus size={14} />
+                            Tambah Isian
+                          </button>
+                          {loopCount > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveManualLoop(masterQ.id, loopCount)}
+                              className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                            >
+                              <X size={14} />
+                              Hapus Terakhir
+                            </button>
                           )}
+                          <span className="text-xs text-slate-500 font-semibold ml-auto">
+                            Total: {loopCount} isian
+                          </span>
                         </div>
-                      </div>
-                      {q.req ? (
-                        <span className="text-[10px] text-red-500 font-medium bg-red-50 px-2 py-0.5 rounded-md flex-shrink-0">Wajib</span>
-                      ) : (
-                        <span className="text-[10px] text-slate-400 font-medium bg-slate-50 px-2 py-0.5 rounded-md flex-shrink-0">Opsional</span>
-                      )}
-                    </div>
+                      );
+                    }
 
-                    {/* Question Input Control Rendering */}
-                    <div className="pt-1">
-                      {q.type === "text" && (
-                        <input type="text" placeholder="Masukkan jawaban teks..." className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
-                      )}
-                      {q.type === "number" && (
-                        <input type="number" placeholder="Masukkan angka..." className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
-                      )}
-                      {q.type === "select" && (
-                        <select className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold cursor-pointer outline-none">
-                          <option value="">Pilih opsi...</option>
-                          {normalizedOpts.map((opt, i) => (
-                            <option key={i} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      )}
-                      {q.type === "radio" && (
-                        <div className="space-y-2.5">
-                          {normalizedOpts.map((opt, i) => (
-                            <label key={i} className="flex items-center gap-2.5 text-sm text-slate-600 cursor-pointer font-medium">
-                              <input type="radio" name={q.id} value={opt} className="w-4 h-4 text-blue-600 border-slate-300 focus:ring-blue-500" />
-                              <span>{opt}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
-                      {q.type === "location" && (
-                        <div className="flex items-center gap-2 px-4 py-3 border border-dashed border-slate-200 bg-slate-50/30 rounded-xl text-sm text-slate-500 font-medium">
-                          <MapPin size={15} className="text-slate-400 animate-bounce" />
-                          <span>Ambil Koordinat GPS (Simulator)</span>
-                        </div>
-                      )}
-                      {q.type === "date" && (
-                        <input type="date" className="w-full px-4.5 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/20 text-slate-700 font-semibold outline-none" />
-                      )}
-                      {q.type === "pcl" && (
-                        <div className="flex items-center gap-2 px-4 py-3 border border-slate-200 bg-slate-50/50 rounded-xl text-sm text-slate-600 font-semibold">
-                          <User size={15} className="text-slate-400" />
-                          <span>PCL: {selectedProject || "Nama Petugas"}</span>
-                        </div>
-                      )}
-                      {q.type === "pml" && (
-                        <div className="flex items-center gap-2 px-4 py-3 border border-slate-200 bg-slate-50/50 rounded-xl text-sm text-slate-600 font-semibold">
-                          <Users size={15} className="text-slate-400" />
-                          <span>PML: Pengawas Lapangan</span>
-                        </div>
-                      )}
-                    </div>
+                    return resultElements;
+                  }
 
-                    {/* Sub Questions Rendering inside Container */}
-                    {subQs.length > 0 && (
-                      <div className="pl-4 border-l-2 border-slate-100 space-y-4 mt-3 pt-1">
-                        {subQs.map(child => {
-                          let childOpts = [];
-                          if (child.options) {
-                            if (Array.isArray(child.options)) {
-                              childOpts = child.options;
-                            } else if (typeof child.options === 'string') {
-                              try {
-                                childOpts = JSON.parse(child.options);
-                              } catch (e) {
-                                childOpts = child.options.split(',').map(o => o.trim());
-                              }
-                            }
-                          }
-
-                          const normalizedChildOpts = childOpts.map(opt => {
-                            if (opt && typeof opt === 'object') {
-                              return opt.label || opt.value || JSON.stringify(opt);
-                            }
-                            return opt;
-                          });
-
-                          return (
-                            <div key={child.id} className="space-y-2">
-                              <div className="flex items-start justify-between gap-4">
-                                <div className="flex items-start gap-2.5">
-                                  <span className="mono text-[10px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-md mt-0.5">R.{getQuestionCode(child, questions, blocks)}</span>
-                                  <p className="text-xs font-bold text-slate-700 leading-snug">{child.label}</p>
-                                </div>
-                                {child.req ? (
-                                  <span className="text-[9px] text-red-500 font-medium bg-red-50 px-1.5 py-0.5 rounded-md flex-shrink-0">Wajib</span>
-                                ) : (
-                                  <span className="text-[9px] text-slate-400 font-medium bg-slate-50 px-1.5 py-0.5 rounded-md flex-shrink-0">Opsional</span>
-                                )}
-                              </div>
-                              <div className="pt-0.5">
-                                {child.type === "text" && (
-                                  <input type="text" placeholder="Masukkan jawaban..." className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
-                                )}
-                                {child.type === "number" && (
-                                  <input type="number" placeholder="Masukkan angka..." className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl bg-slate-50/20 focus:border-blue-500 focus:bg-white transition-all outline-none" />
-                                )}
-                                {child.type === "select" && (
-                                  <select className="w-full px-4 py-2.5 text-xs border border-slate-200 rounded-xl bg-white text-slate-700 font-semibold cursor-pointer outline-none">
-                                    <option value="">Pilih opsi...</option>
-                                    {normalizedChildOpts.map((opt, i) => (
-                                      <option key={i} value={opt}>{opt}</option>
-                                    ))}
-                                  </select>
-                                )}
-                                {child.type === "radio" && (
-                                  <div className="space-y-2">
-                                    {normalizedChildOpts.map((opt, i) => (
-                                      <label key={i} className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer font-medium">
-                                        <input type="radio" name={child.id} value={opt} className="w-3.5 h-3.5 text-blue-600 border-slate-300 focus:ring-blue-500" />
-                                        <span>{opt}</span>
-                                      </label>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  return renderPreviewQuestionWithChildren(q);
+                });
+              })()}
 
               {questions.filter(q => q.blokId === previewActiveBlok).length === 0 && (
                 <div className="bg-white rounded-2xl p-12 border border-slate-200 text-center text-slate-400">
