@@ -15,6 +15,7 @@ import AdminKegiatan from "./pages/admin/AdminKegiatan";
 import AdminTabulasi from "./pages/admin/AdminTabulasi";
 import { api, API_BASE } from "./services/api";
 import PWAPrompt from "./components/ui/PWAPrompt";
+import { NotificationProvider } from "./components/ui/NotificationContext";
 import { initAutoSync } from "./services/syncQueue";
 import { offlineDB } from "./services/offlineStorage";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -68,7 +69,24 @@ export default function App() {
     return "login";
   });
 
-  const [isOffline, setIsOffline] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOffline(false);
+    const handleOffline = () => setIsOffline(true);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Initial sync
+    setIsOffline(!navigator.onLine);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   const [selectedProject, setSelectedProject] = useState("");
   const [activities, setActivities] = useState([]);
   const [petugas, setPetugas] = useState([]);
@@ -238,10 +256,12 @@ export default function App() {
   };
 
   return (
-    <div className="capi w-full min-h-screen" key={screen}>
-      <GlobalStyles />
-      <PWAPrompt />
-      {SCREENS[screen] || SCREENS["login"]}
-    </div>
+    <NotificationProvider>
+      <div className="capi w-full min-h-screen" key={screen}>
+        <GlobalStyles />
+        <PWAPrompt />
+        {SCREENS[screen] || SCREENS["login"]}
+      </div>
+    </NotificationProvider>
   );
 }

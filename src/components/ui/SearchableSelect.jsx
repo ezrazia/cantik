@@ -11,7 +11,7 @@ import { Search, ChevronDown, Check, X } from "lucide-react";
  * @param {string} [props.placeholder] - Placeholder text.
  * @param {function} props.onChange - Triggered when selection changes.
  */
-function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih opsi...", onChange }) {
+function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih opsi...", onChange, showValueInLabel = true }) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const containerRef = useRef(null);
@@ -34,10 +34,21 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
     }
   }, [isOpen]);
 
-  const selectedOption = options.find(opt => String(opt.value) === String(value));
+  const getActualValue = (val) => {
+    if (val && typeof val === 'string' && val.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(val);
+        return parsed.value;
+      } catch (e) {}
+    }
+    return val;
+  };
+
+  const actualVal = getActualValue(value);
+  const selectedOption = options.find(opt => String(opt.value) === String(actualVal));
 
   const filteredOptions = options.filter(opt =>
-    opt.label.toLowerCase().includes(search.toLowerCase()) ||
+    (opt.label || "").toLowerCase().includes(search.toLowerCase()) ||
     String(opt.value).toLowerCase().includes(search.toLowerCase())
   );
 
@@ -52,8 +63,8 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
           isOpen ? "border-blue-500 ring-2 ring-blue-500/10" : "border-slate-200"
         } ${disabled ? "bg-slate-50 text-slate-500 cursor-not-allowed" : "cursor-pointer text-slate-800 font-medium"}`}
       >
-        <span className={selectedOption ? "text-slate-800" : "text-slate-400 font-normal"}>
-          {selectedOption ? `${selectedOption.value}. ${selectedOption.label}` : placeholder}
+        <span className={selectedOption && selectedOption.value !== "" ? "text-slate-800" : "text-slate-400 font-normal"}>
+          {selectedOption ? (showValueInLabel && selectedOption.value !== "" ? `${selectedOption.value}. ${selectedOption.label}` : selectedOption.label) : placeholder}
         </span>
         <ChevronDown size={16} className={`text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
@@ -70,7 +81,7 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
               autoFocus
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari opsi..."
-              className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none border-none p-0"
+              className="w-full bg-transparent text-xs font-semibold text-slate-700 !outline-none !border-none focus:!ring-0 focus:!outline-none focus:!border-none focus:!shadow-none p-0 m-0"
             />
             {search && (
               <button
@@ -87,7 +98,7 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
           <div className="overflow-y-auto flex-1 p-2 space-y-0.5">
             {filteredOptions.length > 0 ? (
               filteredOptions.map((opt) => {
-                const isSelected = String(opt.value) === String(value);
+                const isSelected = String(opt.value) === String(actualVal);
                 return (
                   <button
                     key={opt.value}
@@ -102,7 +113,7 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
                         : "bg-transparent text-slate-600 hover:bg-slate-50"
                     }`}
                   >
-                    <span>{opt.value}. {opt.label}</span>
+                    <span>{showValueInLabel && opt.value !== "" ? `${opt.value}. ${opt.label}` : opt.label}</span>
                     {isSelected && <Check size={14} className="text-blue-600 stroke-[3px]" />}
                   </button>
                 );

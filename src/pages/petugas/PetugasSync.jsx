@@ -3,6 +3,7 @@ import { Upload, Download, CheckCircle, Clock, AlertCircle, RefreshCcw, AlertTri
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
 import { offlineDB } from "../../services/offlineStorage";
+import { useNotification } from "../../components/ui/NotificationContext";
 
 const checkOptionTrigger = (val, triggerOptions) => {
   if (val === undefined || val === null || val === '') return false;
@@ -53,15 +54,11 @@ const evaluateCondition = (c, values) => {
  * @returns {React.ReactElement}
  */
 function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
+  const { showToast, showAlert, showConfirm } = useNotification();
   const [localRtList, setLocalRtList] = useState([]);
   const [syncingAll, setSyncingAll] = useState(false);
   const [fetchingData, setFetchingData] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState({
-    isOpen: false,
-    title: "",
-    message: "",
-    onConfirm: null
-  });
+
 
   /**
    * Hapus duplikat dari dokumen berdasarkan kode dokumen.
@@ -179,17 +176,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     refreshList();
   }, [currentUser.id]);
 
-  const askConfirmation = (title, message, onConfirm) => {
-    setConfirmDialog({
-      isOpen: true,
-      title,
-      message,
-      onConfirm: () => {
-        onConfirm();
-        setConfirmDialog(p => ({ ...p, isOpen: false }));
-      }
-    });
-  };
+
 
   const antriKirim = localRtList.filter(rt => rt.status === "tersimpan");
   const terkirim = localRtList.filter(rt => rt.status === "terkirim" && rt.review_status !== "rejected");
@@ -302,6 +289,75 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       return null;
     };
 
+    const getQuestionLoopGroup = (q) => {
+      if (!q) return "";
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (parent) {
+          return getQuestionLoopGroup(parent);
+        }
+      }
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          if (parsed && parsed.loop_group) {
+            return parsed.loop_group;
+          }
+        } catch (e) {}
+      }
+      return "";
+    };
+
+    const getQuestionLoopCount = (q) => {
+      if (!q) return 1;
+
+      // 1. Parent relationship
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (parent) {
+          return getQuestionLoopCount(parent);
+        }
+      }
+
+      // 2. Loop Group relationship
+      const loopGroupName = getQuestionLoopGroup(q);
+      if (loopGroupName) {
+        const groupQs = questions.filter(x => getQuestionLoopGroup(x) === loopGroupName);
+        // Find the master loop question in the group
+        const masterQ = groupQs.find(x => {
+          if (!x.validation) return false;
+          try {
+            const parsed = JSON.parse(x.validation);
+            return parsed && parsed.is_loop;
+          } catch (e) {
+            return false;
+          }
+        }) || groupQs[0];
+
+        if (masterQ && masterQ.id !== q.id) {
+          return getQuestionLoopCount(masterQ);
+        }
+      }
+
+      // 3. Direct loop configuration
+      const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+      if (isLoop) {
+        if (loopByQuestionId) {
+          const triggerValue = values[loopByQuestionId];
+          const parsedTrigger = parseInt(triggerValue, 10);
+          return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
+        }
+        if (loopType === "manual") {
+          const manualCount = getManualLoopCount(q);
+          return manualCount !== null ? manualCount : 1;
+        }
+      }
+
+      return 1;
+    };
+
     const getLoopValue = (qId, idx) => {
       const raw = values[qId];
       if (!raw) return "";
@@ -341,7 +397,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       return resolved;
     };
 
-    const isQuestionVisible = (q, activeInstanceIdx = null) => {
+    const isQuestionVisibleIgnoreBlock = (q, activeInstanceIdx = null) => {
       const resolvedValues = getResolvedValuesForIndex(values, activeInstanceIdx);
       const showIfValue = q.show_if_value || q.showIfValue;
       if (showIfValue) {
@@ -440,6 +496,130 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       }
       return true;
     };
+
+    const getSkipTargetBlock = (skipTargetId) => {
+      const targetQ = questions.find(q => q.id === skipTargetId);
+      if (!targetQ) return null;
+      const targetBlock = blocks.find(b => b.id === targetQ.blok_id || b.kode === targetQ.blok_id);
+      return targetBlock;
+    };
+
+    const getActiveSkips = () => {
+      const activeSkips = [];
+      questions.forEach(q => {
+        if (!q.skip_target || !q.skip_logic) return;
+        let matchesTrigger = false;
+        const qVal = values[q.id];
+        try {
+          const parsed = JSON.parse(q.skip_logic);
+          if (parsed && parsed.conditions && parsed.conditions.length > 0) {
+            const operator = parsed.operator || "AND";
+            const results = parsed.conditions.map(c => evaluateCondition(c, values));
+            matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
+          }
+        } catch (e) {
+          const triggerOptions = String(q.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+          matchesTrigger = checkOptionTrigger(qVal, triggerOptions);
+        }
+        if (matchesTrigger) {
+          activeSkips.push({
+            questionId: q.id,
+            skipTargetId: q.skip_target
+          });
+        }
+      });
+      return activeSkips;
+    };
+
+    const getBlocksToHideBySkip = () => {
+      const activeSkips = getActiveSkips();
+      const blocksToHide = new Set();
+      if (activeSkips.length === 0) return blocksToHide;
+
+      const getBlockOrder = (b) => {
+        const kodeStr = String(b.kode || b.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          const romanToDecimal = (roman) => {
+            const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+            let dec = 0;
+            const str = roman.toLowerCase();
+            for (let i = 0; i < str.length; i++) {
+              const current = map[str[i]];
+              const next = map[str[i + 1]];
+              if (next && current < next) { dec += next - current; i++; } else { dec += current; }
+            }
+            return dec || 0;
+          };
+          return romanToDecimal(match[1]);
+        }
+        if (kodeStr.toLowerCase() === "pengantar") return 0;
+        return 999;
+      };
+
+      const sortedBlocks = [...blocks].sort((a, b) => {
+        const orderA = getBlockOrder(a);
+        const orderB = getBlockOrder(b);
+        return orderA - orderB;
+      });
+
+      activeSkips.forEach(skip => {
+        const skipperQ = questions.find(q => q.id === skip.questionId);
+        if (!skipperQ) return;
+        const skipperBlock = blocks.find(b => b.id === skipperQ.blok_id || b.kode === skipperQ.blok_id);
+        const targetBlock = getSkipTargetBlock(skip.skipTargetId);
+        if (!skipperBlock || !targetBlock) return;
+
+        const skipperBlockIdx = sortedBlocks.findIndex(b => b.id === skipperBlock.id || b.kode === skipperBlock.kode);
+        const targetBlockIdx = sortedBlocks.findIndex(b => b.id === targetBlock.id || b.kode === targetBlock.kode);
+        if (skipperBlockIdx === -1 || targetBlockIdx === -1 || targetBlockIdx <= skipperBlockIdx) return;
+
+        for (let i = skipperBlockIdx + 1; i < targetBlockIdx; i++) {
+          blocksToHide.add(sortedBlocks[i].id);
+          blocksToHide.add(sortedBlocks[i].kode);
+        }
+      });
+
+      return blocksToHide;
+    };
+
+    const isBlockVisible = (block) => {
+      if (!block) return false;
+      const blocksToHide = getBlocksToHideBySkip();
+      if (blocksToHide.has(block.id) || blocksToHide.has(block.kode)) {
+        return false;
+      }
+      if (block.hide_logic) {
+        try {
+          const parsed = JSON.parse(block.hide_logic);
+          if (parsed && parsed.conditions && parsed.conditions.length > 0) {
+            const operator = parsed.operator || "AND";
+            const results = parsed.conditions.map(c => evaluateCondition(c, values));
+            const met = operator === "OR" ? results.some(r => r) : results.every(r => r);
+            if (met) return false;
+          }
+        } catch (e) {}
+      }
+
+      // Check if all questions in this block are hidden by logic.
+      const blockQuestions = questions.filter(q => q.blok_id === block.id || q.blok_id === block.kode);
+      if (blockQuestions.length > 0) {
+        const hasAnyVisibleQuestion = blockQuestions.some(q => isQuestionVisibleIgnoreBlock(q));
+        if (!hasAnyVisibleQuestion) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    const isQuestionVisible = (q, activeInstanceIdx = null) => {
+      const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+      if (block && !isBlockVisible(block)) {
+        return false;
+      }
+      return isQuestionVisibleIgnoreBlock(q, activeInstanceIdx);
+    };
     
     if (!item.kode || item.kode.trim() === "") {
       errors.push(`[${blocks[0]?.kode || 'Pengantar'}] Kode Dokumen / Nomor Urut belum diisi.`);
@@ -457,16 +637,8 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       }
       if (childQs.length > 0 && parentMode !== "original") return;
       
-      const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
-      let loopCount = 1;
+      const loopCount = getQuestionLoopCount(q);
       const manualCount = getManualLoopCount(q);
-      if (manualCount !== null) {
-        loopCount = manualCount;
-      } else if (isLoop && loopByQuestionId) {
-        const triggerValue = values[loopByQuestionId];
-        const parsedTrigger = parseInt(triggerValue, 10);
-        loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-      }
 
       for (let idx = 0; idx < loopCount; idx++) {
         // Evaluate visibility relative to the loop index/instance!
@@ -530,7 +702,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
 
   const handleSyncItem = async (item) => {
     if (isOffline) {
-      alert("Tidak dapat mengirim data saat offline. Silakan hubungkan internet terlebih dahulu.");
+      showToast("Tidak dapat mengirim data saat offline. Silakan hubungkan internet terlebih dahulu.", "warning");
       return;
     }
 
@@ -539,15 +711,22 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     setSyncingAll(false);
 
     if (!validation.isValid) {
-      alert(`Gagal mengirim dokumen ${item.kode} karena belum lengkap:\n\n${validation.errors.join('\n')}\n\nSilakan perbaiki isian kuesioner terlebih dahulu.`);
+      showAlert(
+        `Gagal mengirim dokumen ${item.kode} karena belum lengkap:\n\n${validation.errors.join('\n')}\n\nSilakan perbaiki isian kuesioner terlebih dahulu.`,
+        "Dokumen Belum Lengkap",
+        "error"
+      );
       return;
     }
 
-    askConfirmation(
-      "Kirim Dokumen",
+    const confirmed = await showConfirm(
       `Apakah Anda yakin ingin mengirim dokumen ${item.krt || 'KRT'} (${item.kode}) ke server BPS?`,
-      () => executeSyncItem(item)
+      "Kirim Dokumen",
+      "warning"
     );
+    if (confirmed) {
+      executeSyncItem(item);
+    }
   };
 
   const filterTemporaryValues = (kegiatanId, valuesObj) => {
@@ -617,12 +796,13 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         });
 
         setLocalRtList(dedupedFresh);
+        showToast("Dokumen berhasil disinkronisasi!", "success");
       } else {
-        alert("Gagal sinkronisasi: " + res.message);
+        showAlert("Gagal sinkronisasi: " + res.message, "Gagal Sinkronisasi", "error");
       }
     } catch (e) {
       console.error("Sync error:", e);
-      alert("Terjadi kesalahan jaringan saat mengirim data.");
+      showAlert("Terjadi kesalahan jaringan saat mengirim data.", "Kesalahan Jaringan", "error");
     } finally {
       setSyncingAll(false);
     }
@@ -631,7 +811,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
   const handleSyncAll = async () => {
     if (antriKirim.length === 0) return;
     if (isOffline) {
-      alert("Tidak dapat melakukan sinkronisasi saat offline.");
+      showToast("Tidak dapat melakukan sinkronisasi saat offline.", "warning");
       return;
     }
 
@@ -646,15 +826,22 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     setSyncingAll(false);
 
     if (invalidDocs.length > 0) {
-      alert(`Beberapa dokumen memiliki galat/belum lengkap dan tidak dapat dikirim:\n\n${invalidDocs.join('\n')}\n\nSilakan lengkapi/perbaiki kuesioner tersebut terlebih dahulu.`);
+      showAlert(
+        `Beberapa dokumen memiliki galat/belum lengkap dan tidak dapat dikirim:\n\n${invalidDocs.join('\n')}\n\nSilakan lengkapi/perbaiki kuesioner tersebut terlebih dahulu.`,
+        "Validasi Gagal",
+        "error"
+      );
       return;
     }
 
-    askConfirmation(
-      "Kirim Semua Dokumen",
+    const confirmed = await showConfirm(
       `Apakah Anda yakin ingin mengirim semua (${antriKirim.length}) dokumen yang ada di antrean ke server?`,
-      executeSyncAll
+      "Kirim Semua Dokumen",
+      "warning"
     );
+    if (confirmed) {
+      executeSyncAll();
+    }
   };
 
   const executeSyncAll = async () => {
@@ -699,12 +886,13 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         });
 
         setLocalRtList(dedupedFresh);
+        showToast(`Berhasil menyinkronkan ${antriKirim.length} dokumen!`, "success");
       } else {
-        alert("Gagal sinkronisasi massal: " + res.message);
+        showAlert("Gagal sinkronisasi massal: " + res.message, "Gagal Sinkronisasi", "error");
       }
     } catch (e) {
       console.error("Sync all error:", e);
-      alert("Terjadi kesalahan jaringan.");
+      showAlert("Terjadi kesalahan jaringan.", "Kesalahan Koneksi", "error");
     } finally {
       setSyncingAll(false);
     }
@@ -712,7 +900,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
 
   const handleDownloadData = async () => {
     if (isOffline) {
-      alert("Anda sedang offline. Silakan online terlebih dahulu.");
+      showToast("Anda sedang offline. Silakan online terlebih dahulu.", "warning");
       return;
     }
     setSyncingAll(true);
@@ -735,10 +923,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       });
 
       setLocalRtList(docs);
-      alert("Data berhasil diunduh dari server!");
+      showToast("Data berhasil diunduh dari server!", "success");
     } catch (e) {
       console.error("Download error:", e);
-      alert("Gagal mengunduh data: " + e.message);
+      showAlert("Gagal mengunduh data: " + e.message, "Gagal Unduh", "error");
     } finally {
       setSyncingAll(false);
     }
@@ -752,12 +940,12 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         <div className="min-h-screen bg-white animate-pulse pb-28">
           <div className="max-w-3xl mx-auto">
             {/* Header Skeleton */}
-            <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex items-center justify-between">
+            <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex justify-between items-center">
               <div className="space-y-2">
                 <div className="h-3 w-16 bg-slate-200 rounded"></div>
-                <div className="h-6 w-32 bg-slate-300 rounded"></div>
+                <div className="h-6 w-32 bg-slate-350 rounded"></div>
               </div>
-              <div className="w-10 h-10 bg-slate-100 rounded-lg"></div>
+              <div className="w-10 h-10 bg-slate-100 rounded-xl"></div>
             </div>
 
             <div className="p-6">
@@ -766,7 +954,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
                 <div className="lg:col-span-4 space-y-4">
                   <div className="grid grid-cols-3 gap-2">
                     {[1, 2, 3].map(n => (
-                      <div key={n} className="bg-slate-50 p-4 rounded-xl flex flex-col items-center gap-2">
+                      <div key={n} className="bg-slate-50 p-4 rounded-2xl flex flex-col items-center gap-2">
                         <div className="h-6 w-8 bg-slate-200 rounded"></div>
                         <div className="h-2.5 w-12 bg-slate-200 rounded"></div>
                       </div>
@@ -816,18 +1004,19 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       <div className="min-h-screen bg-white slide-up pb-28">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100">
-            <div className="flex items-center justify-between">
+          <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+            <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
+            <div className="flex items-center justify-between relative z-10">
               <div>
-                <p className="text-xs text-slate-400 font-medium">Sinkronisasi</p>
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight">Kirim & Unduh</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold">Sinkronisasi</p>
+                <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight">Kirim & Unduh</h2>
               </div>
               <button 
                 onClick={handleRefreshServer}
                 disabled={isLoading}
-                className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center border-0 cursor-pointer hover:bg-blue-100 transition-all disabled:opacity-50"
+                className="w-10 h-10 bg-white hover:bg-slate-50 border border-solid border-slate-200/60 text-slate-500 hover:text-blue-600 rounded-xl flex items-center justify-center cursor-pointer transition-all active:scale-95 shadow-sm disabled:opacity-50"
               >
-                <RefreshCcw size={18} className={isLoading ? "animate-spin" : ""} />
+                <RefreshCcw size={16} className={isLoading ? "animate-spin text-blue-600" : ""} />
               </button>
             </div>
           </div>
@@ -836,47 +1025,47 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column */}
               <div className="lg:col-span-4 space-y-4">
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="bg-slate-50 p-4 rounded-xl text-center">
-                    <p className="mono text-xl font-bold text-blue-600">{antriKirim.length}</p>
-                    <p className="text-[9px] text-slate-400 mt-0.5 font-medium">Antri Kirim</p>
+                <div className="grid grid-cols-3 lg:grid-cols-1 gap-2.5 lg:gap-3">
+                  <div className="bg-gradient-to-br from-amber-500/10 to-amber-600/5 border border-solid border-amber-100/70 rounded-2xl p-4 lg:py-3 lg:px-4.5 flex flex-col lg:flex-row lg:items-center lg:justify-between text-center lg:text-left shadow-sm relative overflow-hidden transition-all duration-300 hover:scale-[1.02]">
+                    <p className="mono text-2xl lg:text-xl font-extrabold tracking-tight text-amber-700 order-1 lg:order-2">{antriKirim.length}</p>
+                    <p className="text-[10px] lg:text-xs font-bold text-amber-600 uppercase mt-1 lg:mt-0 tracking-wider order-2 lg:order-1">Antri Kirim</p>
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-xl text-center">
-                    <p className="mono text-xl font-bold text-emerald-600">{terkirim.length}</p>
-                    <p className="text-[9px] text-slate-400 mt-0.5 font-medium">Terkirim</p>
+                  <div className="bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border border-solid border-emerald-100/70 rounded-2xl p-4 lg:py-3 lg:px-4.5 flex flex-col lg:flex-row lg:items-center lg:justify-between text-center lg:text-left shadow-sm relative overflow-hidden transition-all duration-300 hover:scale-[1.02]">
+                    <p className="mono text-2xl lg:text-xl font-extrabold tracking-tight text-emerald-700 order-1 lg:order-2">{terkirim.length}</p>
+                    <p className="text-[10px] lg:text-xs font-bold text-emerald-600 uppercase mt-1 lg:mt-0 tracking-wider order-2 lg:order-1">Terkirim</p>
                   </div>
-                  <div className="bg-slate-50 p-4 rounded-xl text-center">
-                    <p className="mono text-xl font-bold text-red-500">{ditolak.length}</p>
-                    <p className="text-[9px] text-slate-400 mt-0.5 font-medium">Ditolak</p>
+                  <div className="bg-gradient-to-br from-rose-500/10 to-rose-600/5 border border-solid border-rose-100/70 rounded-2xl p-4 lg:py-3 lg:px-4.5 flex flex-col lg:flex-row lg:items-center lg:justify-between text-center lg:text-left shadow-sm relative overflow-hidden transition-all duration-300 hover:scale-[1.02]">
+                    <p className="mono text-2xl lg:text-xl font-extrabold tracking-tight text-rose-700 order-1 lg:order-2">{ditolak.length}</p>
+                    <p className="text-[10px] lg:text-xs font-bold text-rose-600 uppercase mt-1 lg:mt-0 tracking-wider order-2 lg:order-1">Ditolak</p>
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <button 
                     onClick={handleSyncAll}
                     disabled={antriKirim.length === 0 || syncingAll || isOffline}
-                    className={`w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 border-0 cursor-pointer transition-all ${
+                    className={`w-full py-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 border-0 cursor-pointer shadow-sm transition-all active:scale-[0.99] ${
                       antriKirim.length === 0 || syncingAll || isOffline
                         ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                        : "bg-blue-600 text-white hover:bg-blue-700 active:scale-[0.98]"
+                        : "bg-gradient-to-br from-blue-600 to-indigo-650 hover:from-blue-700 hover:to-indigo-700 text-white hover:shadow-lg hover:shadow-blue-500/20"
                     }`}
                   >
-                    <Upload size={16} /> {syncingAll ? "Mengirim..." : "Kirim Semua Data"}
+                    <Upload size={14} /> {syncingAll ? "Mengirim..." : "Kirim Semua Data"}
                   </button>
                   <button 
                     onClick={handleDownloadData}
                     disabled={syncingAll || isOffline}
-                    className="w-full py-3.5 bg-white text-slate-600 border border-solid border-slate-200 rounded-xl font-medium text-sm flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 transition-all disabled:opacity-50"
+                    className="w-full py-3.5 bg-white text-slate-600 border border-solid border-slate-200 hover:border-slate-350 rounded-xl font-bold text-xs flex items-center justify-center gap-2 cursor-pointer hover:bg-slate-50 transition-all disabled:opacity-50 active:scale-[0.99]"
                   >
-                    <Download size={16} /> Unduh Data Baru
+                    <Download size={14} /> Unduh Data Baru
                   </button>
                 </div>
 
-                <div className="bg-blue-50 rounded-xl p-4 flex items-start gap-3">
+                <div className="bg-blue-50/50 border border-solid border-blue-100/70 rounded-2xl p-4.5 flex items-start gap-3">
                   <AlertCircle size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-xs font-semibold text-blue-800">Informasi</p>
-                    <p className="text-xs text-blue-600 mt-0.5 leading-relaxed font-medium">
+                    <p className="text-xs font-bold text-blue-800">Informasi</p>
+                    <p className="text-[11px] text-blue-600/90 mt-1 leading-relaxed font-semibold">
                       {isOffline ? "Anda sedang offline. Hubungkan ke internet untuk melakukan sinkronisasi dengan server." : "Koneksi internet aktif. Anda siap melakukan kirim data hasil pencacahan."}
                     </p>
                   </div>
@@ -887,39 +1076,39 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
               <div className="lg:col-span-8">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-bold text-slate-900">Antrian Dokumen</h3>
-                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-lg">{queueItems.length} Total</span>
+                  <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-solid border-blue-100/50 px-2.5 py-1 rounded-lg">{queueItems.length} Total</span>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {queueItems.map(item => (
-                    <div key={item.kode} className="bg-white p-4 rounded-xl border border-solid border-slate-100 flex items-center gap-4 hover:border-slate-200 transition-all group">
-                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        item.status === 'terkirim' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
+                    <div key={item.kode} className="bg-white p-4.5 rounded-2xl border border-solid border-slate-100 flex items-center gap-4 hover:border-blue-200 hover:shadow-md hover:shadow-blue-500/5 transition-all group">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                        item.status === 'terkirim' ? 'bg-emerald-50 text-emerald-600 border border-solid border-emerald-100/50' : 'bg-amber-50 text-amber-600 border border-solid border-amber-100/50'
                       }`}>
-                        {item.status === 'terkirim' ? <CheckCircle size={18} /> : <Clock size={18} />}
+                        {item.status === 'terkirim' ? <CheckCircle size={16} /> : <Clock size={16} />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{item.kode} ({item.krt || "Nama KRT Kosong"})</p>
-                        <p className="text-xs text-slate-400 mt-0.5 font-medium">{item.alamat || "Alamat belum diisi"}</p>
+                        <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{item.kode} ({item.krt || "Nama KRT Kosong"})</p>
+                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">{item.alamat || "Alamat belum diisi"}</p>
                       </div>
                       <div className="flex-shrink-0">
                         {item.status === 'tersimpan' ? (
                           <button 
                             onClick={() => handleSyncItem(item)}
                             disabled={syncingAll || isOffline}
-                            className="px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-lg text-xs font-bold border-0 cursor-pointer transition-all disabled:opacity-50"
+                            className="px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-bold border border-solid border-blue-100/50 cursor-pointer transition-all disabled:opacity-50 active:scale-95"
                           >
                             Kirim
                           </button>
                         ) : (
-                          <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg">Terkirim</span>
+                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-solid border-emerald-100/50 px-3 py-1.5 rounded-lg">Terkirim</span>
                         )}
                       </div>
                     </div>
                   ))}
                   {queueItems.length === 0 && (
-                    <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl py-12 text-center">
-                      <p className="text-xs text-slate-400 font-semibold">Tidak ada dokumen di antrian.</p>
-                      <p className="text-[10px] text-slate-400 mt-1">Selesaikan kuesioner terlebih dahulu untuk mengirim data.</p>
+                    <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl py-12 text-center">
+                      <p className="text-xs text-slate-400 font-bold">Tidak ada dokumen di antrian.</p>
+                      <p className="text-[10px] text-slate-400 mt-1 font-semibold">Selesaikan kuesioner terlebih dahulu untuk mengirim data.</p>
                     </div>
                   )}
                 </div>
@@ -929,42 +1118,6 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         </div>
       </div>
 
-      {/* Generic Double-Confirmation Dialog */}
-      {confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white w-full max-w-sm rounded-2xl shadow-xl overflow-hidden" style={{ animation: "scaleUp 0.15s ease-out both" }}>
-            <style>{`
-              @keyframes scaleUp {
-                from { transform: scale(0.95); opacity: 0; }
-                to { transform: scale(1); opacity: 1; }
-              }
-            `}</style>
-            <div className="p-6 text-center space-y-4">
-              <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center mx-auto">
-                <AlertTriangle size={24} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-slate-900">{confirmDialog.title}</h4>
-                <p className="text-xs text-slate-500 mt-2 font-medium leading-relaxed">{confirmDialog.message}</p>
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex gap-2 justify-end">
-              <button 
-                onClick={() => setConfirmDialog(p => ({ ...p, isOpen: false }))}
-                className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
-              >
-                Batal
-              </button>
-              <button 
-                onClick={confirmDialog.onConfirm}
-                className="px-5.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm"
-              >
-                Yakin
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </PetugasLayout>
   );
 }

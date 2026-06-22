@@ -80,16 +80,17 @@ function PetugasSettings({ onNavigate, currentUser }) {
         <div className="min-h-screen bg-white slide-up pb-28">
           <div className="max-w-3xl mx-auto">
             {/* Subpage Header */}
-            <div className="px-6 pt-12 pb-6 border-b border-slate-100 flex items-center gap-4">
+            <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 bg-gradient-to-b from-blue-50/30 to-white overflow-hidden flex items-center gap-4">
+              <div className="absolute top-0 right-0 w-36 h-36 bg-blue-100/20 rounded-full blur-2xl pointer-events-none -mr-12 -mt-12" />
               <button 
                 onClick={() => setActiveSubPage(null)}
-                className="w-10 h-10 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 flex items-center justify-center text-slate-600 cursor-pointer transition-all active:scale-95"
+                className="w-10 h-10 rounded-xl bg-white hover:bg-slate-50 border border-solid border-slate-200/60 hover:border-slate-300 flex items-center justify-center text-slate-500 hover:text-slate-700 cursor-pointer transition-all active:scale-95 shadow-sm relative z-10"
               >
-                <ArrowLeft size={18} />
+                <ArrowLeft size={16} />
               </button>
-              <div>
-                <p className="text-xs text-slate-400 font-medium">Pengaturan</p>
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+              <div className="relative z-10">
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Pengaturan</p>
+                <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight">
                   {activeSubPage === "profile" && "Profil Saya"}
                   {activeSubPage === "security" && "Keamanan"}
                   {activeSubPage === "notifications" && "Notifikasi & Pengingat"}
@@ -174,48 +175,52 @@ function PetugasSettings({ onNavigate, currentUser }) {
                 {activeSubPage === "notifications" && (
                   <div className="space-y-6">
                     {/* Toggles Group */}
-                    <div className="space-y-4 bg-slate-50/50 p-5 rounded-2xl border border-slate-100 text-xs font-medium">
-                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Preferensi Notifikasi</h4>
+                    <div className="space-y-3 bg-slate-50/50 p-5 rounded-2xl border border-slate-100 text-xs font-medium">
+                      <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">Preferensi Notifikasi</h4>
                       
-                      <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-slate-700">Pengingat Harian (Cacah Lapangan)</span>
-                        <input 
-                          type="checkbox" 
-                          checked={notifDaily} 
-                          onChange={e => handleToggle("pref_notif_daily", e.target.checked, setNotifDaily)}
-                          className="rounded text-blue-600 focus:ring-blue-500/20 w-4.5 h-4.5 cursor-pointer"
-                        />
-                      </label>
+                      <div className="flex items-center justify-between py-2 border-b border-solid border-slate-100/50">
+                        <span className="text-slate-700 font-semibold">Pengingat Harian (Cacah Lapangan)</span>
+                        <button 
+                          type="button"
+                          onClick={() => handleToggle("pref_notif_daily", !notifDaily, setNotifDaily)}
+                          className={`w-9 h-5 rounded-full transition-colors relative border-0 cursor-pointer ${notifDaily ? 'bg-blue-600' : 'bg-slate-200'}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${notifDaily ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
 
-                      <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-slate-700">Notifikasi Tugas Baru</span>
-                        <input 
-                          type="checkbox" 
-                          checked={notifNewTask} 
-                          onChange={e => handleToggle("pref_notif_new_task", e.target.checked, setNotifNewTask)}
-                          className="rounded text-blue-600 focus:ring-blue-500/20 w-4.5 h-4.5 cursor-pointer"
-                        />
-                      </label>
+                      <div className="flex items-center justify-between py-2 border-b border-solid border-slate-100/50">
+                        <span className="text-slate-700 font-semibold">Notifikasi Tugas Baru</span>
+                        <button 
+                          type="button"
+                          onClick={() => handleToggle("pref_notif_new_task", !notifNewTask, setNotifNewTask)}
+                          className={`w-9 h-5 rounded-full transition-colors relative border-0 cursor-pointer ${notifNewTask ? 'bg-blue-600' : 'bg-slate-200'}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${notifNewTask ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
 
-                      <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-slate-700">Pesan & Catatan Pemeriksaan PML</span>
-                        <input 
-                          type="checkbox" 
-                          checked={notifPmlMessage} 
-                          onChange={e => handleToggle("pref_notif_pml", e.target.checked, setNotifPmlMessage)}
-                          className="rounded text-blue-600 focus:ring-blue-500/20 w-4.5 h-4.5 cursor-pointer"
-                        />
-                      </label>
+                      <div className="flex items-center justify-between py-2 border-b border-solid border-slate-100/50">
+                        <span className="text-slate-700 font-semibold">Pesan & Catatan Pemeriksaan PML</span>
+                        <button 
+                          type="button"
+                          onClick={() => handleToggle("pref_notif_pml", !notifPmlMessage, setNotifPmlMessage)}
+                          className={`w-9 h-5 rounded-full transition-colors relative border-0 cursor-pointer ${notifPmlMessage ? 'bg-blue-600' : 'bg-slate-200'}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${notifPmlMessage ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
 
-                      <label className="flex items-center justify-between cursor-pointer py-1">
-                        <span className="text-slate-700">Konfirmasi Sinkronisasi Sukses</span>
-                        <input 
-                          type="checkbox" 
-                          checked={notifSync} 
-                          onChange={e => handleToggle("pref_notif_sync", e.target.checked, setNotifSync)}
-                          className="rounded text-blue-600 focus:ring-blue-500/20 w-4.5 h-4.5 cursor-pointer"
-                        />
-                      </label>
+                      <div className="flex items-center justify-between py-2">
+                        <span className="text-slate-700 font-semibold">Konfirmasi Sinkronisasi Sukses</span>
+                        <button 
+                          type="button"
+                          onClick={() => handleToggle("pref_notif_sync", !notifSync, setNotifSync)}
+                          className={`w-9 h-5 rounded-full transition-colors relative border-0 cursor-pointer ${notifSync ? 'bg-blue-600' : 'bg-slate-200'}`}
+                        >
+                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-all shadow-sm ${notifSync ? 'translate-x-4' : 'translate-x-0'}`} />
+                        </button>
+                      </div>
                     </div>
 
                     {/* Notification History Log */}
@@ -367,20 +372,22 @@ function PetugasSettings({ onNavigate, currentUser }) {
       <div className="min-h-screen bg-white slide-up pb-28">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="px-6 pt-12 pb-6 border-b border-slate-100">
-            <div className="flex items-center justify-between mb-6">
+          <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+            <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
+            <div className="flex items-center justify-between relative z-10 mb-6">
               <div>
-                <p className="text-xs text-slate-400 font-medium">Pengaturan</p>
-                <h2 className="text-xl font-bold text-slate-900 tracking-tight">Profil & Preferensi</h2>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold">Pengaturan</p>
+                <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight">Profil & Preferensi</h2>
               </div>
-              <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-white text-sm font-bold">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-650 flex items-center justify-center text-white text-base font-bold shadow-md shadow-blue-500/20">
                 {getInitials(currentUser?.name || "Budi Santoso")}
               </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-slate-900">{currentUser?.name || "Budi Santoso"}</h3>
-              <p className="text-xs text-slate-400 mt-0.5 font-medium">
-                Petugas Lapangan · {currentUser?.nik ? `NIK: ${currentUser.nik}` : `ID: ${currentUser?.id || "19780412"}`}
+            <div className="relative z-10">
+              <h3 className="text-base font-extrabold text-slate-900">{currentUser?.name || "Budi Santoso"}</h3>
+              <p className="text-xs text-slate-400 mt-1.5 font-medium flex items-center gap-1.5">
+                <User size={13} className="text-blue-500" />
+                <span>Petugas Lapangan · {currentUser?.nik ? `NIK: ${currentUser.nik}` : `ID: ${currentUser?.id || "19780412"}`}</span>
               </p>
             </div>
           </div>
@@ -389,22 +396,22 @@ function PetugasSettings({ onNavigate, currentUser }) {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {sections.map((section, idx) => (
                 <div key={idx} className={idx === 2 ? 'md:col-span-2 lg:col-span-1' : ''}>
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 ml-1">{section.title}</h3>
-                  <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
+                  <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3.5 ml-1">{section.title}</h3>
+                  <div className="bg-white rounded-2xl border border-solid border-slate-100 overflow-hidden shadow-sm">
                     {section.items.map((item, iIdx) => (
                       <button 
                         key={iIdx} 
                         onClick={() => setActiveSubPage(item.key)}
-                        className={`w-full flex items-center gap-3 p-4 text-left border-0 bg-transparent cursor-pointer hover:bg-slate-50 transition-all ${iIdx !== section.items.length - 1 ? 'border-b border-slate-50' : ''}`}
+                        className={`group w-full flex items-center gap-3.5 p-4 text-left border-0 bg-transparent cursor-pointer hover:bg-slate-50/50 transition-all ${iIdx !== section.items.length - 1 ? 'border-b border-solid border-slate-50' : ''}`}
                       >
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${item.bg} ${item.color}`}>
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105 ${item.bg} ${item.color}`}>
                           <item.icon size={16} />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-slate-800">{item.label}</p>
-                          <p className="text-xs text-slate-400 truncate mt-0.5">{item.desc}</p>
+                          <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{item.label}</p>
+                          <p className="text-[10px] text-slate-400 font-semibold truncate mt-0.5">{item.desc}</p>
                         </div>
-                        <ChevronRight size={14} className="text-slate-300" />
+                        <ChevronRight size={13} className="text-slate-300 transition-transform group-hover:translate-x-0.5" />
                       </button>
                     ))}
                   </div>
@@ -412,14 +419,14 @@ function PetugasSettings({ onNavigate, currentUser }) {
               ))}
             </div>
 
-            <div className="mt-10 flex flex-col items-center">
+            <div className="mt-12 flex flex-col items-center">
               <button 
                 onClick={() => setShowLogoutConfirm(true)}
-                className="w-full max-w-md flex items-center justify-center gap-2 p-3.5 rounded-xl border border-red-100 bg-red-50 text-red-600 font-semibold text-sm cursor-pointer hover:bg-red-100 transition-all"
+                className="w-full max-w-md flex items-center justify-center gap-2 p-3.5 rounded-xl border border-solid border-red-100 bg-red-50 text-red-600 hover:bg-red-100 active:scale-[0.99] font-bold text-xs cursor-pointer shadow-sm transition-all"
               >
-                <LogOut size={16} /> Keluar Akun
+                <LogOut size={14} /> Keluar Akun
               </button>
-              <p className="text-[10px] text-slate-300 mt-6 font-medium">
+              <p className="text-[9px] text-slate-300 mt-8 font-semibold uppercase tracking-wider">
                 Desa Cantik v2.1.0
               </p>
             </div>
