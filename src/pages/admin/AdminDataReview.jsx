@@ -378,8 +378,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   // Officers list
   const officersList = petugas || [];
-  const pcls = officersList.filter(o => o.projectRoles && o.projectRoles[selectedProject] === "PCL");
-  const pmls = officersList.filter(o => o.projectRoles && o.projectRoles[selectedProject] === "PML");
+  const pcls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PCL");
+  const pmls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PML");
 
   const uniqueSlsList = useMemo(() => {
     const slsSet = new Set();
@@ -428,57 +428,6 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       setIsAssigningSls(false);
     }
   };
-
-  // Check activity status to decide if prelist is editable
-  const activeActivity = activities?.find(a => a.name === selectedProject);
-  const status = activeActivity ? activeActivity.status : "draft";
-
-  // Village Stats & Dropdown
-  const [desaStats, setDesaStats] = useState([]);
-  const activeDesas = activeActivity
-    ? (typeof activeActivity.lokus === 'string'
-      ? (JSON.parse(activeActivity.lokus)?.desa || [])
-      : (activeActivity.lokus?.desa || []))
-    : [];
-  const villages = ["Semua Desa", ...(desaStats.length > 0 ? desaStats.map(d => `Desa ${d.name}`) : activeDesas.map(d => `Desa ${d}`))];
-  const villageDropdown = useDropdown("Semua Desa");
-
-  useEffect(() => {
-    if (!activeActivity) return;
-    const fetchDesa = async () => {
-      try {
-        const stats = await api.desa.getStats(activeActivity.id);
-        setDesaStats(stats);
-      } catch (err) {
-        console.error("Gagal mengambil target desa:", err);
-      }
-    };
-    fetchDesa();
-  }, [selectedProject, activeActivity]);
-
-  const getStatusConfig = () => {
-    switch (status) {
-      case "published":
-        return { dot: "bg-emerald-500", pulse: "bg-emerald-400", text: "text-emerald-600", bg: "bg-emerald-50", label: "Published" };
-      case "selesai":
-        return { dot: "bg-red-500", pulse: "bg-red-400", text: "text-red-600", bg: "bg-red-50", label: "Selesai" };
-      case "uji_coba":
-        return { dot: "bg-blue-500", pulse: "bg-blue-400", text: "text-blue-600", bg: "bg-blue-50", label: "Uji Coba" };
-      case "draft":
-      default:
-        return { dot: "bg-amber-500", pulse: "bg-amber-400", text: "text-amber-600", bg: "bg-amber-50", label: "Draft" };
-    }
-  };
-
-  const statusConfig = getStatusConfig();
-
-  const isDraft = activeActivity ? activeActivity.status === "draft" : false;
-  const canUploadPrelist = selectedProject && isDraft && !isKegiatanAdmin;
-
-  // Officers list
-  const officersList = petugas || [];
-  const pcls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PCL");
-  const pmls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PML");
 
   const fetchReviewDocuments = async () => {
     if (!activeActivity) return;
