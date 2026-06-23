@@ -42,9 +42,8 @@ const SignaturePad = ({ value, onChange, disabled, uploadUrl }) => {
       setError(null);
       
       // Get base64 representation of the canvas
-      // Note: react-signature-canvas stores the raw canvas size. 
-      // We'll let the backend or Supabase resize it if needed, or just keep it as is.
-      const base64Data = sigCanvas.current.getTrimmedCanvas().toDataURL('image/png');
+      // We use getCanvas() instead of getTrimmedCanvas() because trim-canvas has bundling issues in Vite production build
+      const base64Data = sigCanvas.current.getCanvas().toDataURL('image/png');
 
       // Upload to our backend API
       const response = await fetch(uploadUrl || '/api/upload/signature', {
