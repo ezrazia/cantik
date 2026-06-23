@@ -127,11 +127,10 @@ router.get('/petugas/:petugasId', async (req, res) => {
       where: {
         OR: [
           { petugas_id: pId },
-          ...(petugasName ? [{
-            assigned_pcls: {
-              array_contains: petugasName
-            }
-          }] : [])
+          ...(petugasName ? [
+            { assigned_pcls: { array_contains: petugasName } },
+            { assigned_pmls: { array_contains: petugasName } }
+          ] : [])
         ]
       },
       include: {

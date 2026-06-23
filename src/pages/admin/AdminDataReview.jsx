@@ -285,6 +285,8 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
 function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading, currentUser }) {
   const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
   const [filter, setFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("desc");
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState("");
   const [data, setData] = useState([]);
@@ -336,13 +338,6 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     return Array.from(slsSet).sort();
   }, [data]);
 
-  const filteredPcls = useMemo(() => {
-    return pcls.filter(p => p.name.toLowerCase().includes(pclSearch.toLowerCase()));
-  }, [pcls, pclSearch]);
-
-  const filteredPmls = useMemo(() => {
-    return pmls.filter(p => p.name.toLowerCase().includes(pmlSearch.toLowerCase()));
-  }, [pmls, pmlSearch]);
 
   const handleAssignSlsSubmit = async () => {
     if (!selectedSls) return;
@@ -433,6 +428,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const officersList = petugas || [];
   const pcls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PCL");
   const pmls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PML");
+
+  const filteredPcls = useMemo(() => {
+    return pcls.filter(p => p.name.toLowerCase().includes(pclSearch.toLowerCase()));
+  }, [pcls, pclSearch]);
+
+  const filteredPmls = useMemo(() => {
+    return pmls.filter(p => p.name.toLowerCase().includes(pmlSearch.toLowerCase()));
+  }, [pmls, pmlSearch]);
 
   const fetchReviewDocuments = async () => {
     if (!activeActivity) return;
@@ -576,10 +579,26 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const filtered = filter === "all" ? villageData : villageData.filter(r => r.status === filter);
   const count = s => villageData.filter(r => r.status === s).length;
 
-  const sortedFiltered = [...filtered].sort((a, b) => {
+  const filteredSearch = filtered.filter(r => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (r.id || "").toString().toLowerCase().includes(q) || 
+           (r.kode || "").toLowerCase().includes(q) || 
+           (r.krt || "").toLowerCase().includes(q) || 
+           (r.petugas_name || "").toLowerCase().includes(q) ||
+           (r.pengawas || "").toLowerCase().includes(q);
+  });
+
+  const sortedFiltered = [...filteredSearch].sort((a, b) => {
     if (a.isPrelist && !b.isPrelist) return -1;
     if (!a.isPrelist && b.isPrelist) return 1;
-    return b.id.localeCompare(a.id);
+    const valA = (a.id || a.kode || "").toString();
+    const valB = (b.id || b.kode || "").toString();
+    if (sortOrder === "desc") {
+      return valB.localeCompare(valA);
+    } else {
+      return valA.localeCompare(valB);
+    }
   });
 
   const handleOpenDetail = async (record) => {
@@ -1821,7 +1840,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               )}
               <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
                 <Search size={16} className="text-slate-400"/>
-                <input className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" placeholder="Cari ID atau nama..."/>
+                <input 
+                  className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" 
+                  placeholder="Cari ID, Nama KRT, atau Petugas..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
             </div>
           </div>
@@ -1848,8 +1872,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               ))}
             </div>
             
-            <button className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all cursor-pointer">
-              <Filter size={13}/> Urutkan
+            <button 
+              onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all cursor-pointer"
+            >
+              <Filter size={13}/> Urutkan {sortOrder === "desc" ? "(Baru-Lama)" : "(Lama-Baru)"}
             </button>
           </div>
 

@@ -63,26 +63,42 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       let dedupedDocs = deduplicateDocs(docs);
 
       // Pertahankan draft lokal agar tidak tertimpa oleh versi server
-      const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
-      if (cached) {
-        try {
-          const localList = JSON.parse(cached);
-          const localDrafts = localList.filter(d => d.sync === false);
-          
-          localDrafts.forEach(draft => {
-            const idx = dedupedDocs.findIndex(d => d.kode === draft.kode);
-            if (idx > -1) {
-              // Ganti versi server dengan draft lokal yang belum tersinkronisasi
-              dedupedDocs[idx] = draft;
-            } else {
-              // Dokumen dibuat secara lokal dan belum pernah dikirim ke server
-              dedupedDocs.push(draft);
-            }
-          });
-        } catch (e) {
-          console.error("Gagal mem-parsing draft lokal:", e);
-        }
+      const storageKey = `offline_docs_${currentUser.id}`;
+      let localDocs = [];
+      try {
+        const cached = localStorage.getItem(storageKey);
+        if (cached) localDocs = JSON.parse(cached);
+      } catch (e) {
+        console.error("Gagal mem-parsing draft lokal:", e);
       }
+
+      if (localDocs.length === 0 && offlineDB.isAvailable()) {
+        try {
+          const idbDocs = await offlineDB.getAllDokumen();
+          if (idbDocs && idbDocs.length > 0) localDocs = idbDocs;
+        } catch (e) {}
+      }
+
+      localDocs.forEach(localDoc => {
+        const apiIdx = dedupedDocs.findIndex(d => 
+          (d.id && localDoc.id && d.id === localDoc.id) || 
+          (d.kode && d.kode === localDoc.kode)
+        );
+
+        if (apiIdx >= 0) {
+          const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
+          const apiTime = new Date(dedupedDocs[apiIdx].updated_at || dedupedDocs[apiIdx].created_at || 0).getTime();
+          if (localTime > apiTime && localDoc.sync === false) {
+            dedupedDocs[apiIdx] = localDoc;
+          } else {
+            dedupedDocs[apiIdx] = { ...localDoc, ...dedupedDocs[apiIdx] };
+          }
+        } else if (localDoc.sync === false) {
+          dedupedDocs.push(localDoc);
+        }
+      });
+      
+      dedupedDocs = deduplicateDocs(dedupedDocs);
 
       setDocuments(dedupedDocs);
       localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
@@ -161,10 +177,46 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       setLocalLoading(true);
       try {
         const docs = await api.dokumen.getByPetugas(currentUser.id);
-        const dedupedDocs = deduplicateDocs(docs);
+
+        // Merge with local unsynced docs to prevent data loss
+        const storageKey = `offline_docs_${currentUser.id}`;
+        let localDocs = [];
+        try {
+          const cached = localStorage.getItem(storageKey);
+          if (cached) localDocs = JSON.parse(cached);
+        } catch (e) {}
+
+        if (localDocs.length === 0 && offlineDB.isAvailable()) {
+          try {
+            const idbDocs = await offlineDB.getAllDokumen();
+            if (idbDocs && idbDocs.length > 0) localDocs = idbDocs;
+          } catch (e) {}
+        }
+
+        const mergedDocs = [...docs];
+        localDocs.forEach(localDoc => {
+          const apiIdx = mergedDocs.findIndex(d => 
+            (d.id && localDoc.id && d.id === localDoc.id) || 
+            (d.kode && d.kode === localDoc.kode)
+          );
+
+          if (apiIdx >= 0) {
+            const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
+            const apiTime = new Date(mergedDocs[apiIdx].updated_at || mergedDocs[apiIdx].created_at || 0).getTime();
+            if (localTime > apiTime && localDoc.sync === false) {
+              mergedDocs[apiIdx] = localDoc;
+            } else {
+              mergedDocs[apiIdx] = { ...localDoc, ...mergedDocs[apiIdx] };
+            }
+          } else if (localDoc.sync === false) {
+            mergedDocs.push(localDoc);
+          }
+        });
+
+        const dedupedDocs = deduplicateDocs(mergedDocs);
         setDocuments(dedupedDocs);
         // Sync cache ke localStorage dan IndexedDB
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
+        localStorage.setItem(storageKey, JSON.stringify(dedupedDocs));
         if (offlineDB.isAvailable()) {
           for (const doc of dedupedDocs) {
             await offlineDB.saveDokumen({
