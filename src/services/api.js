@@ -96,7 +96,7 @@ export const api = {
 
   // ─── FORM BUILDER (BLOK & QUESTIONS) ──────────────────
   form: {
-    getStructure: (kegiatanId) => request(`/form/${kegiatanId}`),
+    getStructure: (kegiatanId) => request(`/form/${kegiatanId}?_t=${Date.now()}`),
     createBlock: (data) => request('/form/blok', { method: 'POST', body: data }),
     updateBlock: (id, data) => request(`/form/blok/${id}`, { method: 'PUT', body: data }),
     deleteBlock: (id) => request(`/form/blok/${id}`, { method: 'DELETE' }),
