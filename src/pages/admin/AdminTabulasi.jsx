@@ -551,9 +551,9 @@ export default function AdminTabulasi({
         ) : cleanData.length === 0 ? (
           <div className="flex flex-col items-center justify-center min-h-[400px] bg-white rounded-xl border border-solid border-slate-100 shadow-sm p-8 text-center">
             <Database size={40} className="text-slate-300 mb-4" />
-            <p className="text-sm font-semibold text-slate-700">Tidak Ada Data Bersih</p>
+            <p className="text-sm font-semibold text-slate-700">Tidak Ada Data</p>
             <p className="text-xs text-slate-400 mt-1 max-w-sm">
-              Belum ada kuesioner yang disetujui (approved) untuk kegiatan "{selectedProject}". Data tabulasi hanya menghitung kuesioner dengan status "approved".
+              Belum ada data kuesioner yang tersimpan untuk kegiatan "{selectedProject}".
             </p>
           </div>
         ) : (
@@ -723,7 +723,7 @@ export default function AdminTabulasi({
                     </p>
                   </div>
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700">
-                    <CheckCircle size={10} /> Data Bersih (Approved)
+                    <CheckCircle size={10} /> Data Tabulasi
                   </span>
                 </div>
 

@@ -207,7 +207,7 @@ model Dokumen {
   id              Int            @id @default(autoincrement())
   kode              String         @unique @db.VarChar(50)
   kegiatan_id     Int
-  petugas_id      Int
+  petugas_id      Int?
   krt             String?        @db.VarChar(100)
   alamat          String?        @db.VarChar(200)
   kecamatan       String?        @db.VarChar(100)
@@ -233,7 +233,7 @@ model Dokumen {
   dokumen_log     DokumenLog[]
 
   kegiatan Kegiatan @relation(fields: [kegiatan_id], references: [id], onDelete: Cascade)
-  petugas  Petugas  @relation(fields: [petugas_id], references: [id], onDelete: Cascade)
+  petugas  Petugas? @relation(fields: [petugas_id], references: [id], onDelete: SetNull)
 
   @@map("dokumen")
 }

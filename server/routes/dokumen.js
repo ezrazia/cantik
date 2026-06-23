@@ -684,6 +684,7 @@ router.post('/sync', async (req, res) => {
               sub_sls: sub_sls || null,
               status: status || 'draft',
               is_prelist: isPrelistVal,
+              petugas_id: petugasIdInt,
               sync: true,
               last_sent_data: lastSentDataJson,
               review_status: 'draft',
@@ -1001,10 +1002,17 @@ router.post('/prelist/import', async (req, res) => {
     });
 
     // 5. Group rows by No. KK untuk buat 1 dokumen per keluarga
+    const firstRowKeys = Object.keys(rows[0] || {});
+    const noKkColHeuristic = firstRowKeys.find(c => ['no_kk', 'nokk', 'nomor_kk', 'no kk', 'nomor kk', 'kartu_keluarga'].includes(c.toLowerCase())) || firstRowKeys.find(c => c.toLowerCase().includes('kk') && !c.toLowerCase().includes('nik'));
+
     const familyGroups = {};
-    rows.forEach(row => {
-      const noKk = mapping?.no_kk ? String(row[mapping.no_kk] || '').trim() : '';
-      if (!noKk) return; // Skip if no KK
+    rows.forEach((row, index) => {
+      const noKkColName = mapping?.no_kk || noKkColHeuristic;
+      let noKk = noKkColName ? String(row[noKkColName] || '').trim() : '';
+      
+      if (!noKk) {
+        noKk = `AUTO-${index}-${Math.random().toString(36).substr(2, 6)}`; // Fallback if still no KK
+      }
 
       if (!familyGroups[noKk]) {
         familyGroups[noKk] = [];
@@ -1018,15 +1026,23 @@ router.post('/prelist/import', async (req, res) => {
 
     await prisma.$transaction(async (tx) => {
       for (const [noKk, familyMembers] of Object.entries(familyGroups)) {
-        maxSeq++;
-        const kode = `${codeArea}-${kegiatanInitials}-PL-${maxSeq}`;
+        // Find column names heuristically from the first row's keys
+        const keys = Object.keys(familyMembers[0]);
+        const nikCol = keys.find(c => ['nik', 'no_nik', 'nomor_nik'].includes(c.toLowerCase())) || keys.find(c => c.toLowerCase().includes('nik'));
+        const namaCol = keys.find(c => ['nama_krt', 'krt', 'nama', 'kepala_keluarga'].includes(c.toLowerCase())) || keys.find(c => c.toLowerCase().includes('nama'));
+        const alamatCol = keys.find(c => c.toLowerCase().includes('alamat'));
+        const desaCol = keys.find(c => c.toLowerCase().includes('desa') || c.toLowerCase().includes('kelurahan'));
+        const kecamatanCol = keys.find(c => c.toLowerCase().includes('kec') || c.toLowerCase().includes('kecamatan'));
+        const slsCol = keys.find(c => c.toLowerCase().includes('sls') || c.toLowerCase().includes('rt'));
+        const subSlsCol = keys.find(c => c.toLowerCase().includes('sub_sls') || c.toLowerCase().includes('sub sls') || c.toLowerCase().includes('rw'));
+        const hubCol = keys.find(c => c.toLowerCase().includes('hub') || c.toLowerCase().includes('kedudukan'));
 
         // Tentukan kepala keluarga (yang HUB nya "Kepala" atau urutan pertama)
         let kepalaKeluarga = null;
         let anggotaKeluarga = familyMembers;
 
         familyMembers.forEach((member, idx) => {
-          const hub = mapping?.hub_keluarga ? String(member[mapping.hub_keluarga] || '').toLowerCase() : '';
+          const hub = hubCol ? String(member[hubCol] || '').toLowerCase() : '';
           if (hub.includes('kepala') || hub === '1') {
             kepalaKeluarga = member;
           }
@@ -1035,8 +1051,17 @@ router.post('/prelist/import', async (req, res) => {
         // Jika tidak ada yang ditandai sebagai kepala, gunakan yang pertama
         if (!kepalaKeluarga) {
           kepalaKeluarga = familyMembers[0];
-          anggotaKeluarga = familyMembers.slice(1);
+          anggotaKeluarga = familyMembers;
         }
+
+        // Format ID: PL-[NIK Kepala keluarga]-[NoRT]
+        const nikKK = nikCol ? String(kepalaKeluarga[nikCol] || '').trim() : '';
+        const rtKK = slsCol ? String(kepalaKeluarga[slsCol] || '').trim() : '';
+
+        maxSeq++;
+        const safeNik = nikKK || maxSeq;
+        const safeRt = rtKK || '00';
+        const kode = `PL-${safeNik}-${safeRt}`;
 
         // Build values untuk auto-fill
         const values = {};
@@ -1047,8 +1072,8 @@ router.post('/prelist/import', async (req, res) => {
 
           const qId = String(questionId).replace(/^R?\.?/, ''); // Hapus prefix R atau .
 
-          // Untuk kepala keluarga
-          if (kepalaKeluarga && excelCol !== mapping?.no_kk) {
+          // Untuk kepala keluarga (digunakan sbg initial value)
+          if (kepalaKeluarga) {
             const val = kepalaKeluarga[excelCol];
             if (val !== undefined && val !== null && val !== '') {
               values[qId] = String(val);
@@ -1056,38 +1081,45 @@ router.post('/prelist/import', async (req, res) => {
           }
         }
 
-        // Tambah counter anggota keluarga untuk loop
-        const anggotaCountKey = mapping?.nama ? String(mapping.nama).replace(/^R?\.?/, '') : null;
-        if (anggotaCountKey) {
-          values[`${anggotaCountKey}_loop_count`] = String(anggotaKeluarga.length);
-        }
-
         // Map data anggota keluarga ke dalam array untuk loop
-        if (anggotaCountKey && anggotaKeluarga.length > 0) {
-          anggotaKeluarga.forEach((anggota, idx) => {
+        if (familyMembers.length > 0) {
+          familyMembers.forEach((anggota, idx) => {
             for (const [excelCol, questionId] of Object.entries(mapping || {})) {
               if (!questionId || questionId === '') continue;
               const qId = String(questionId).replace(/^R?\.?/, '');
 
-              // Skip fields yang sudah diassign ke kepala
-              if (mapping?.nama && excelCol === mapping.nama) continue;
-              if (mapping?.no_kk && excelCol === mapping.no_kk) continue;
+              // Skip household level fields (biarkan sebagai string tunggal)
+              const isHouseholdField = 
+                excelCol === mapping?.no_kk || 
+                excelCol === mapping?.alamat || 
+                excelCol === mapping?.kecamatan || 
+                excelCol === mapping?.desa || 
+                excelCol === mapping?.sls || 
+                excelCol === mapping?.sub_sls;
+                
+              if (isHouseholdField) continue;
 
               const val = anggota[excelCol];
               if (val !== undefined && val !== null && val !== '') {
                 const existingVal = values[qId];
-                if (existingVal) {
+                if (existingVal !== undefined) {
                   // Convert to array if needed
                   let arr = [];
                   if (typeof existingVal === 'string' && existingVal.startsWith('[')) {
                     try { arr = JSON.parse(existingVal); } catch { arr = [existingVal]; }
                   } else {
-                    arr = [existingVal];
+                    // existingVal adalah string milik kepalaKeluarga
+                    arr = Array(familyMembers.length).fill('');
+                    const kepalaIdx = familyMembers.indexOf(kepalaKeluarga);
+                    if (kepalaIdx !== -1) arr[kepalaIdx] = existingVal;
                   }
                   arr[idx] = String(val);
                   values[qId] = JSON.stringify(arr);
                 } else {
-                  values[qId] = JSON.stringify([String(val)]);
+                  // If it doesn't exist yet, create array with empty strings for previous members
+                  const arr = Array(familyMembers.length).fill('');
+                  arr[idx] = String(val);
+                  values[qId] = JSON.stringify(arr);
                 }
               }
             }
@@ -1099,19 +1131,19 @@ router.post('/prelist/import', async (req, res) => {
           data: {
             kode,
             kegiatan_id: parseInt(kegiatan_id, 10),
-            petugas_id: 0, // Belum ditugaskan
-            krt: kepalaKeluarga ? (mapping?.nama ? String(kepalaKeluarga[mapping.nama] || '') : '') : 'Tanpa Nama',
-            alamat: kepalaKeluarga ? (mapping?.alamat ? String(kepalaKeluarga[mapping.alamat] || '') : '') : null,
-            kecamatan: kepalaKeluarga ? (mapping?.kecamatan ? String(kepalaKeluarga[mapping.kecamatan] || '') : '') : null,
-            desa: kepalaKeluarga ? (mapping?.desa ? String(kepalaKeluarga[mapping.desa] || '') : '') : null,
-            sls: kepalaKeluarga ? (mapping?.sls ? String(kepalaKeluarga[mapping.sls] || '') : '') : null,
-            sub_sls: kepalaKeluarga ? (mapping?.sub_sls ? String(kepalaKeluarga[mapping.sub_sls] || '') : '') : null,
+            petugas_id: null, // Belum ditugaskan
+            krt: kepalaKeluarga && namaCol ? String(kepalaKeluarga[namaCol] || '').trim() : 'Tanpa Nama',
+            alamat: kepalaKeluarga && alamatCol ? String(kepalaKeluarga[alamatCol] || '').trim() : null,
+            kecamatan: kepalaKeluarga && kecamatanCol ? String(kepalaKeluarga[kecamatanCol] || '').trim() : null,
+            desa: kepalaKeluarga && desaCol ? String(kepalaKeluarga[desaCol] || '').trim() : null,
+            sls: kepalaKeluarga && slsCol ? String(kepalaKeluarga[slsCol] || '').trim() : null,
+            sub_sls: kepalaKeluarga && subSlsCol ? String(kepalaKeluarga[subSlsCol] || '').trim() : null,
             status: 'draft',
             review_status: 'draft',
             is_prelist: true,
             sync: false,
             no_kk: noKk,
-            nik: kepalaKeluarga && mapping?.nik ? String(kepalaKeluarga[mapping.nik] || '') : null,
+            nik: nikKK || null,
             hub_keluarga: 'Kepala',
           }
         });
@@ -1148,6 +1180,8 @@ router.post('/prelist/import', async (req, res) => {
       timeout: 10000
     });
 
+    require('fs').appendFileSync('prelist_debug.log', `[${new Date().toISOString()}] Imported: ${imported}, Skipped: ${skipped}, rows: ${rows.length}, groups: ${Object.keys(familyGroups).length}\n`);
+
     return res.json({
       success: true,
       message: `Import berhasil: ${imported} keluarga diimpor`,
@@ -1157,6 +1191,7 @@ router.post('/prelist/import', async (req, res) => {
 
   } catch (error) {
     console.error('Error importing prelist:', error);
+    require('fs').appendFileSync('prelist_debug.log', `[${new Date().toISOString()}] ERROR: ${error.message}\n${error.stack}\n`);
     return res.status(500).json({
       success: false,
       message: 'Gagal import prelist: ' + error.message
@@ -1208,7 +1243,10 @@ router.post('/batch-prelist', async (req, res) => {
           kegiatan_id: parseInt(kegiatan_id, 10),
           petugas_id: null,
           kecamatan: doc.kecamatan || doc.answers?.find(a => a.question_label?.toLowerCase().includes('kecamatan'))?.value || '',
-          desa: doc.desa || doc.answers?.find(a => a.question_label?.toLowerCase().includes('desa') || a.question_label?.toLowerCase().includes('kelurahan'))?.value || '',
+          desa: doc.desa || doc.answers?.find(a => {
+            const l = a.question_label?.toLowerCase() || '';
+            return (l.includes('desa') || l.includes('kelurahan')) && !l.includes('klasifikasi') && !l.includes('status');
+          })?.value || '',
         };
 
         const finalKode = await getFormattedKode(tx, tempDocInfo);
@@ -1290,7 +1328,7 @@ router.post('/assign-multiple', async (req, res) => {
         primaryPetugasId = p.id;
       }
     } else {
-      primaryPetugasId = 0; // Belum ditugaskan
+      primaryPetugasId = null; // Belum ditugaskan
     }
 
     await prisma.dokumen.update({
@@ -1312,6 +1350,151 @@ router.post('/assign-multiple', async (req, res) => {
       success: false,
       message: 'Gagal menyimpan penugasan petugas: ' + error.message
     });
+  }
+});
+
+/**
+ * POST /api/dokumen/auto-assign-lokus
+ * Menetapkan PCL & PML secara otomatis berdasarkan pemetaan PetugasKegiatan (sls_assignments)
+ */
+router.post('/auto-assign-lokus', async (req, res) => {
+  const { kegiatan_id } = req.body;
+  try {
+    const kegId = parseInt(kegiatan_id, 10);
+    if (isNaN(kegId)) return res.status(400).json({ success: false, message: 'ID kegiatan tidak valid' });
+
+    // Helper untuk menyamakan format string secara umum
+    const normalizeString = (str) => String(str || '').trim().toLowerCase();
+
+    // Helper untuk menyamakan format SLS (RT 001, 01, 1 -> 1)
+    const normalizeSls = (sls) => {
+      if (!sls) return '';
+      const str = normalizeString(sls);
+      const match = str.match(/\d+/);
+      if (match) {
+        return parseInt(match[0], 10).toString();
+      }
+      return str;
+    };
+
+    const parseAssignment = (asn) => {
+      let subSls = '', sls = '', desa = '';
+      const asnStr = String(asn).trim().toLowerCase();
+      
+      if (asnStr.includes(' [')) {
+        const parts = asnStr.split(' [');
+        const prefix = parts[0];
+        const suffix = parts[1].replace(']', '');
+        
+        if (suffix.includes(' - ')) {
+          const suffixParts = suffix.split(' - ');
+          subSls = prefix;
+          sls = suffixParts[0];
+          desa = suffixParts[1];
+        } else {
+          sls = prefix;
+          desa = suffix;
+        }
+      } else {
+        desa = asnStr;
+      }
+      return { desa, sls, subSls };
+    };
+
+    // 1. Ambil semua petugas untuk kegiatan ini
+    const petugasKegiatan = await prisma.petugasKegiatan.findMany({
+      where: { kegiatan_id: kegId },
+      include: { petugas: true }
+    });
+
+    if (petugasKegiatan.length === 0) {
+      return res.status(400).json({ success: false, message: 'Tidak ada petugas di kegiatan ini' });
+    }
+
+    // 2. Kita simpan daftar tugas per PCL & PML
+    const petugasAssignments = [];
+    for (const pk of petugasKegiatan) {
+      petugasAssignments.push({
+        pName: pk.petugas.name,
+        assignments: pk.sls_assignments || [],
+        pmls: pk.pengawas || []
+      });
+    }
+
+    // 3. Ambil semua dokumen prelist
+    const docs = await prisma.dokumen.findMany({
+      where: { kegiatan_id: kegId, is_prelist: true },
+      select: { id: true, sls: true, sub_sls: true, desa: true }
+    });
+
+    // 4. Update masing-masing dokumen secara batch
+    let updatedCount = 0;
+    
+    await prisma.$transaction(async (tx) => {
+      for (const doc of docs) {
+        const docDesaNorm = normalizeString(doc.desa);
+        const docSlsNorm = normalizeSls(doc.sls);
+
+        const assignedPcls = [];
+        const assignedPmls = new Set();
+
+        for (const pa of petugasAssignments) {
+          // Cek apakah ada assignment yang cocok dengan desa ATAU sls dokumen ini
+          let isMatch = false;
+          for (const asn of pa.assignments) {
+            const parsed = parseAssignment(asn);
+            
+            if (parsed.subSls) {
+              if (normalizeSls(parsed.subSls) === normalizeSls(doc.sub_sls) &&
+                  normalizeSls(parsed.sls) === docSlsNorm &&
+                  parsed.desa === docDesaNorm) {
+                isMatch = true;
+                break;
+              }
+            } else if (parsed.sls) {
+              if (normalizeSls(parsed.sls) === docSlsNorm &&
+                  parsed.desa === docDesaNorm) {
+                isMatch = true;
+                break;
+              }
+            } else if (parsed.desa) {
+              if (parsed.desa === docDesaNorm) {
+                isMatch = true;
+                break;
+              }
+            }
+          }
+
+          if (isMatch) {
+            assignedPcls.push(pa.pName);
+            pa.pmls.forEach(pml => assignedPmls.add(pml));
+          }
+        }
+
+        if (assignedPcls.length > 0 || assignedPmls.size > 0) {
+          let primaryPetugasId = 0;
+          if (assignedPcls.length > 0) {
+            const p = await tx.petugas.findFirst({ where: { name: assignedPcls[0] } });
+            if (p) primaryPetugasId = p.id;
+          }
+
+          await tx.dokumen.update({
+            where: { id: doc.id },
+            data: {
+              assigned_pcls: assignedPcls,
+              assigned_pmls: Array.from(assignedPmls),
+              petugas_id: primaryPetugasId
+            }
+          });
+          updatedCount++;
+        }
+      }
+    });
+
+    return res.json({ success: true, message: `Berhasil meng-assign ${updatedCount} dokumen berdasarkan lokus` });
+  } catch (error) {
+    console.error('Error auto-assign lokus:', error);
+    return res.status(500).json({ success: false, message: 'Gagal auto-assign lokus' });
   }
 });
 

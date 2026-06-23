@@ -8,7 +8,9 @@ import useDropdown from "../../hooks/useDropdown";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import { 
   Search, Eye, Check, X, AlertTriangle, Filter, Upload, 
-  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus
+  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus,
+  ExternalLink, ArrowRight, Save, Layout, SlidersHorizontal, Copy,
+  ArrowDownCircle, Lock, LayoutTemplate, Activity, ShieldCheck, Users
 } from "lucide-react";
 
 const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, allowedPattern, isNumberFormat = false, ...props }) => {
@@ -254,7 +256,7 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
             const optId = `${idPrefix || 'opt'}-${idx}-${o.name.replace(/\s+/g, '-').toLowerCase()}`;
             return (
               <div 
-                key={o.name}
+                key={optId}
                 className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-[11px] font-semibold text-slate-600 transition-all select-none"
               >
                 <input 
@@ -1004,60 +1006,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     
     setIsUploading(true);
     try {
-      // Identify columns
-      const kkCol = detectedColumns.find(c => ['no_kk', 'nokk', 'kk', 'id_keluarga', 'nomor_kk'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('kk'));
-      const namaCol = detectedColumns.find(c => ['nama_krt', 'krt', 'nama', 'kepala_keluarga'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('nama'));
-      const alamatCol = detectedColumns.find(c => c.toLowerCase().includes('alamat'));
-      const desaCol = detectedColumns.find(c => c.toLowerCase().includes('desa') || c.toLowerCase().includes('kelurahan'));
-      const slsCol = detectedColumns.find(c => c.toLowerCase().includes('sls') || c.toLowerCase().includes('rt'));
-      const nikCol = detectedColumns.find(c => ['nik', 'no_nik', 'nomor_nik'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('nik'));
-      
-      const groups = {};
-      if (kkCol) {
-        parsedExcelData.forEach(row => {
-          const kkVal = row[kkCol];
-          if (!kkVal) return;
-          if (!groups[kkVal]) groups[kkVal] = [];
-          groups[kkVal].push(row);
-        });
-      } else {
-        parsedExcelData.forEach((row, idx) => {
-          groups[`row_${idx}`] = [row];
-        });
-      }
-      
-      const documents = Object.values(groups).map((family, idx) => {
-        const head = family[0]; // first row is KRT
-        
-        // Helper to safely cast to string
-        const safeString = (val) => (val !== undefined && val !== null ? String(val).trim() : "");
-        
-        const headNik = nikCol && head[nikCol] ? safeString(head[nikCol]) : `NONIK${idx}`;
-        const headRt = slsCol && head[slsCol] ? safeString(head[slsCol]) : `NORT${idx}`;
-        
-        return {
-          kode: head.id || head.kode || `PL-${headNik}-${headRt}`,
-          kegiatan_id: activeActivity?.id,
-          krt: namaCol && head[namaCol] ? safeString(head[namaCol]) : "Tanpa Nama",
-          alamat: alamatCol ? safeString(head[alamatCol]) : "",
-          desa: desaCol ? safeString(head[desaCol]) : "",
-          sls: slsCol ? safeString(head[slsCol]) : "",
-          sub_sls: safeString(head.sub_sls || head.subsls),
-          status: 'draft',
-          is_prelist: true,
-          values: {} // future: populate family loops if needed
-        };
+      // Create clean mapping by removing empty/ignored columns
+      const cleanMapping = {};
+      Object.entries(columnMapping).forEach(([col, val]) => {
+        if (val) cleanMapping[col] = val;
       });
-      
-      const defaultPetugas = petugas && petugas.length > 0 ? petugas[0].id : 1;
-      
-      // Chunk documents to avoid transaction timeout
-      // Reduced to 5 to fit well within Prisma Accelerate 15000ms max timeout
-      const chunkSize = 5;
-      for (let i = 0; i < documents.length; i += chunkSize) {
-        const chunk = documents.slice(i, i + chunkSize);
-        await api.dokumen.sync(defaultPetugas, chunk);
-      }
+
+      // Panggil API khusus import prelist yang akan mengelola looping, auto-assign dan pembuatan dokumen
+      await api.dokumen.importPrelist(activeActivity?.id, cleanMapping, parsedExcelData);
 
       setIsSuccess(true);
       setTimeout(() => {
@@ -1066,11 +1022,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         setDetectedColumns([]);
         setPreviewRows([]);
         setParsedExcelData([]);
+        setColumnMapping({});
+        setMappingStep(1);
         setIsSuccess(false);
         fetchReviewDocuments(); // Reload review data after successful import
       }, 1500);
     } catch (err) {
-      alert("Gagal mengimpor prelist: " + (err.message || "Timeout transaksi"));
+      alert("Gagal mengimpor prelist: " + (err.message || "Terjadi kesalahan pada server"));
     } finally {
       setIsUploading(false);
     }
@@ -1820,23 +1778,60 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 <span>Unggah Prelist</span>
               </button>
               {isDraft && (
-                <button 
-                  disabled={!selectedProject || isKegiatanAdmin}
-                  onClick={() => setIsAssignSlsModalOpen(true)}
-                  className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
-                    selectedProject && !isKegiatanAdmin
-                      ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
-                      : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                  }`}
-                  title={
-                    !selectedProject 
-                      ? "Pilih kegiatan terlebih dahulu" 
-                      : "Tugaskan petugas per SLS"
-                  }
-                >
-                  <Edit3 size={14}/>
-                  <span>Tugaskan SLS</span>
-                </button>
+                <>
+                  <button 
+                    disabled={!selectedProject || isKegiatanAdmin || isAssigningSls}
+                    onClick={async () => {
+                      if(!selectedProject) return;
+                      if(confirm('Apakah Anda yakin ingin melakukan auto-assign berdasarkan lokus petugas? Dokumen draft di masing-masing SLS akan disesuaikan petugasnya secara otomatis.')) {
+                        setIsAssigningSls(true);
+                        try {
+                          const res = await api.dokumen.autoAssignLokus(activeActivity.id);
+                          if(res.success) {
+                            toast.success(res.message);
+                            fetchDocuments(activeActivity.id);
+                          } else {
+                            toast.error(res.message);
+                          }
+                        } catch(err) {
+                          toast.error('Gagal melakukan auto-assign');
+                        } finally {
+                          setIsAssigningSls(false);
+                        }
+                      }
+                    }}
+                    className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
+                      selectedProject && !isKegiatanAdmin
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                    }`}
+                    title={
+                      !selectedProject 
+                        ? "Pilih kegiatan terlebih dahulu" 
+                        : "Auto Assign Petugas Berdasarkan Lokus"
+                    }
+                  >
+                    <Users size={14}/>
+                    <span>Auto-Assign Lokus</span>
+                  </button>
+                  <button 
+                    disabled={!selectedProject || isKegiatanAdmin}
+                    onClick={() => setIsAssignSlsModalOpen(true)}
+                    className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
+                      selectedProject && !isKegiatanAdmin
+                        ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                    }`}
+                    title={
+                      !selectedProject 
+                        ? "Pilih kegiatan terlebih dahulu" 
+                        : "Tugaskan petugas per SLS"
+                    }
+                  >
+                    <Edit3 size={14}/>
+                    <span>Tugaskan SLS</span>
+                  </button>
+                </>
               )}
               <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
                 <Search size={16} className="text-slate-400"/>
@@ -2380,7 +2375,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     {filteredPcls.map(p => {
                       const isChecked = selectedSlsPcls.includes(p.name);
                       return (
-                        <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
+                        <label key={p.id || p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
                           <input 
                             type="checkbox"
                             checked={isChecked}
@@ -2423,7 +2418,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     {filteredPmls.map(p => {
                       const isChecked = selectedSlsPmls.includes(p.name);
                       return (
-                        <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
+                        <label key={p.id || p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
                           <input 
                             type="checkbox"
                             checked={isChecked}

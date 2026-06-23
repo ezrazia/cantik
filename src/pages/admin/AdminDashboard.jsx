@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layouts/AdminLayout';
 import { api } from '../../services/api';
 import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer } from 'recharts';
-import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown } from "lucide-react";
+import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, PlusCircle, Target } from "lucide-react";
 import useDropdown from '../../hooks/useDropdown';
 
 /**
@@ -145,11 +145,23 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     ? dashboardStats.summary.rejected
     : Math.round(selesaiTotal * 0.1);
 
+  const lokusProgress = dashboardStats?.summary?.lokusProgress || [];
+
+  const tambahan = (villageDropdown.selected === "Semua Desa" && dashboardStats)
+    ? dashboardStats.summary.tambahan || 0
+    : 0;
+
+  const totalAssignment = (villageDropdown.selected === "Semua Desa" && dashboardStats)
+    ? dashboardStats.summary.totalAssignment || 0
+    : total;
+
   const stats = [
+    { icon: Target, l: "Total Assignment", v: totalAssignment, color: "text-indigo-600", bg: "bg-indigo-50", ic: "text-indigo-500" },
     { icon: FileText, l: "Draft", v: draft, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
-    { icon: CheckCircle, l: "Selesai", v: selesaiTotal, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
     { icon: Clock, l: "Review", v: review, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500" },
     { icon: XCircle, l: "Ditolak", v: ditolak, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500" },
+    { icon: CheckCircle, l: "Selesai", v: selesaiTotal, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
+    { icon: PlusCircle, l: "Tambahan", v: tambahan, color: "text-purple-600", bg: "bg-purple-50", ic: "text-purple-500" },
   ];
 
   const PIE_DATA = [
@@ -184,8 +196,8 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
           </div>
 
           {/* Stat Cards Skeleton */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
-            {[1, 2, 3, 4].map((n) => (
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-8">
+            {[1, 2, 3, 4, 5, 6].map((n) => (
               <div key={n} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4">
                 <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0"></div>
                 <div className="space-y-1.5 flex-1">
@@ -327,7 +339,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
           <>
 
         {/* Stat cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-8">
           {stats.map(c => (
             <div key={c.l} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4">
               <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${c.bg}`}>
@@ -344,25 +356,51 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
         {/* Charts Row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
           
-          {/* Progress per Desa */}
+          {/* Progress per Lokus */}
           {villageDropdown.selected === "Semua Desa" && (
-            <div className="bg-white rounded-xl p-6 border border-slate-100">
-              <h3 className="text-sm font-bold text-slate-900 mb-5 flex items-center gap-2">
-                <div className="w-1 h-5 bg-blue-600 rounded-full"/>
-                Progress per Desa
+            <div className="bg-white rounded-xl p-6 border border-slate-100 flex flex-col">
+              <h3 className="text-sm font-bold text-slate-900 mb-5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-5 bg-blue-600 rounded-full"/>
+                  Progress per Lokus
+                </div>
               </h3>
-              <div className="space-y-4">
-                {filteredDesa.map(d => {
-                  // Safe division to avoid Infinity/NaN
-                  const pct = d.target > 0 ? Math.round((d.selesai / d.target) * 100) : 0;
+              
+              {/* Legend */}
+              <div className="flex flex-wrap gap-x-3 gap-y-2 text-[10px] font-medium text-slate-500 mb-4">
+                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-500"/> Review</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"/> Ditolak</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500"/> Tambahan</span>
+                <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"/> Draft</span>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto pr-2" style={{ maxHeight: '300px' }}>
+                {lokusProgress.length === 0 && (
+                  <div className="text-center text-sm text-slate-500 py-8">Memuat data lokus...</div>
+                )}
+                {lokusProgress.map(d => {
+                  const max = Math.max(d.Total, 1);
+                  const pctSelesai = (d.Selesai / max) * 100;
+                  const pctReview = (d.Review / max) * 100;
+                  const pctDitolak = (d.Ditolak / max) * 100;
+                  const pctTambahan = (d.Tambahan / max) * 100;
+                  const pctDraft = (d.Draft / max) * 100;
+
+                  const tooltipText = `Total: ${d.Total}\nSelesai: ${d.Selesai}\nReview: ${d.Review}\nDitolak: ${d.Ditolak}\nTambahan: ${d.Tambahan}\nDraft: ${d.Draft}`;
+
                   return (
                     <div key={d.name}>
                       <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-medium text-slate-600">{d.name}</span>
-                        <span className="mono text-xs font-semibold text-slate-500">{pct}%</span>
+                        <span className="text-xs font-medium text-slate-700 truncate pr-4" title={d.name}>{d.name}</span>
+                        <span className="mono text-[10px] font-semibold text-slate-400">{d.Total} Dokumen</span>
                       </div>
-                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: d.color }}/>
+                      <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex w-full cursor-help" title={tooltipText}>
+                        {d.Selesai > 0 && <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pctSelesai}%` }} />}
+                        {d.Review > 0 && <div className="h-full bg-amber-500 transition-all" style={{ width: `${pctReview}%` }} />}
+                        {d.Ditolak > 0 && <div className="h-full bg-red-500 transition-all" style={{ width: `${pctDitolak}%` }} />}
+                        {d.Tambahan > 0 && <div className="h-full bg-purple-500 transition-all" style={{ width: `${pctTambahan}%` }} />}
+                        {d.Draft > 0 && <div className="h-full bg-slate-300 transition-all" style={{ width: `${pctDraft}%` }} />}
                       </div>
                     </div>
                   );
@@ -378,17 +416,17 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                 Status Dokumen
               </h3>
               <div className="flex-1 flex flex-col justify-center items-center py-4">
-                <div className="relative w-32 h-32 mb-4">
+                <div className="relative w-48 h-48 mb-4">
                   <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
                     <circle cx="60" cy="60" r="50" fill="none" stroke="#f1f5f9" strokeWidth="12"/>
                     <circle cx="60" cy="60" r="50" fill="none" stroke="#2563eb" strokeWidth="12"
                       strokeDasharray={`${completionPercent * 3.14} 314`} strokeLinecap="round"/>
                   </svg>
                   <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className="mono text-2xl font-bold text-slate-900">{completionPercent}%</span>
+                    <span className="mono text-3xl font-bold text-slate-900">{completionPercent}%</span>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 font-medium">{selesaiTotal} dari {total} selesai</p>
+                <p className="text-sm text-slate-500 font-medium">{selesaiTotal} dari {total} selesai</p>
               </div>
             </div>
           )}
@@ -425,13 +463,35 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                 <div className="w-1 h-5 bg-emerald-500 rounded-full"/>
                 Status Dokumen
               </h3>
-              <ResponsiveContainer width="100%" height={180}>
+              <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
-                  <Pie data={PIE_DATA} cx="50%" cy="50%" innerRadius={50} outerRadius={70}
+                  <Pie data={PIE_DATA} cx="50%" cy="50%" innerRadius={70} outerRadius={95}
                     paddingAngle={3} dataKey="value" stroke="none">
                     {PIE_DATA.map(e => <Cell key={e.name} fill={e.color}/>)}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }}/>
+                  <Tooltip
+                    content={({ active }) => {
+                      if (active) {
+                        return (
+                          <div className="bg-white p-3 border border-slate-200 shadow-xl rounded-lg min-w-[150px]">
+                            <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-2 pb-2 border-b border-slate-100">Semua Status</p>
+                            <div className="space-y-1.5">
+                              {PIE_DATA.map(d => (
+                                <div key={d.name} className="flex justify-between items-center text-xs">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 rounded-full" style={{ background: d.color }}/>
+                                    <span className="text-slate-600 font-medium">{d.name}</span>
+                                  </div>
+                                  <span className="font-bold text-slate-800">{d.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-3 mt-3 justify-center">
@@ -445,8 +505,8 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
             </div>
           )}
 
-          {/* Petugas table */}
-          <div className={`${villageDropdown.selected === "Semua Desa" ? "lg:col-span-2" : "lg:col-span-3"} bg-white rounded-xl border border-slate-100 overflow-hidden`}>
+          {/* Petugas List */}
+          <div className={`${villageDropdown.selected === "Semua Desa" ? "lg:col-span-2" : "lg:col-span-3"} bg-white rounded-xl border border-slate-100 flex flex-col`}>
             <div className="px-6 py-4 border-b border-slate-50 flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <div className="w-1 h-5 bg-amber-400 rounded-full"/>
@@ -454,52 +514,52 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
               </h3>
               <span className="text-xs text-slate-400 font-medium">{filteredPetugas.length} petugas</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full border-separate border-spacing-0 min-w-[600px]">
-                <thead>
-                  <tr className="bg-slate-50/50">
-                    {["Nama", "Desa", "Progress", "Sync", "Status"].map(h => (
-                      <th key={h} className="px-6 py-3 text-left text-[11px] text-slate-400 font-medium">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPetugas.map(p => {
-                    // Try different assignment key formats
-                    const assignment = p.assignments?.[selectedProject]
-                      || p.assignments?.[p.projects?.[0]];
-                    const petugasSelesai = assignment?.selesai || p.selesai || 0;
-                    const petugasDraft = assignment?.draft || p.draft || 0;
+            
+            {/* Legend */}
+            <div className="px-6 pt-4 pb-2 flex gap-x-3 text-[10px] font-medium text-slate-500">
+              <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"/> Draft</span>
+            </div>
+
+            {/* List with 5 visible items max height */}
+            <div className="px-6 pb-6 overflow-y-auto" style={{ maxHeight: '280px' }}>
+              <div className="space-y-5">
+                {[...filteredPetugas]
+                  .sort((a, b) => {
+                    const aSelesai = a.assignments?.[selectedProject]?.selesai || a.selesai || 0;
+                    const bSelesai = b.assignments?.[selectedProject]?.selesai || b.selesai || 0;
+                    return bSelesai - aSelesai;
+                  })
+                  .map(p => {
+                    const assignment = p.assignments?.[selectedProject] || p.assignments?.[p.projects?.[0]];
+                    const pSelesai = assignment?.selesai || p.selesai || 0;
+                    const pDraft = assignment?.draft || p.draft || 0;
+                    const max = Math.max(pSelesai + pDraft, 1);
+                    const pctSelesai = (pSelesai / max) * 100;
+                    const pctDraft = (pDraft / max) * 100;
+                    
+                    const tooltipText = `Petugas: ${p.name}\nTotal: ${pSelesai + pDraft}\nSelesai: ${pSelesai}\nDraft: ${pDraft}`;
+
                     return (
-                      <tr key={p.name} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-[10px] font-semibold text-blue-600">
+                      <div key={p.name} className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-md bg-blue-50 flex items-center justify-center text-[9px] font-bold text-blue-600">
                               {p.name?.split(' ').map(n=>n[0]).join('') || p.name?.[0]}
                             </div>
-                            <span className="text-sm font-medium text-slate-700">{p.name}</span>
+                            <span className="text-xs font-semibold text-slate-700 truncate max-w-[120px]" title={p.name}>{p.name}</span>
+                            <span className="text-[10px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded truncate max-w-[100px]">{p.desa}</span>
                           </div>
-                        </td>
-                        <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500">{p.desa}</td>
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-semibold text-slate-700">{petugasSelesai} Selesai</span>
-                            {petugasDraft > 0 && (
-                              <span className="text-[10px] text-slate-400 font-medium">{petugasDraft} Draft</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-400">{p.sync}</td>
-                        <td className="px-6 py-3.5 border-t border-slate-50">
-                          <span className={`text-[10px] font-medium px-2 py-1 rounded-md ${
-                            p.status === "done" ? "bg-emerald-50 text-emerald-600" : "bg-blue-50 text-blue-600"
-                          }`}>{p.status === "done" ? "Selesai" : "Aktif"}</span>
-                        </td>
-                      </tr>
+                          <span className="mono text-[10px] font-semibold text-slate-400">{pSelesai + pDraft} Dokumen</span>
+                        </div>
+                        <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex w-full cursor-help" title={tooltipText}>
+                          {pSelesai > 0 && <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pctSelesai}%` }} />}
+                          {pDraft > 0 && <div className="h-full bg-slate-300 transition-all" style={{ width: `${pctDraft}%` }} />}
+                        </div>
+                      </div>
                     );
                   })}
-                </tbody>
-              </table>
+              </div>
             </div>
           </div>
         </div>

@@ -22,20 +22,73 @@ router.get('/stats', async (req, res) => {
     });
     const totalDesa = distinctDesa.length;
 
-    // 4. Hitung dokumen per status review
+    // 4. Hitung dokumen per status review & Progress per Lokus
     const whereClause = kegiatan_id ? { kegiatan_id: parseInt(kegiatan_id, 10) } : {};
     
-    const totalDokumen = await prisma.dokumen.count({ where: whereClause });
-    const approved = await prisma.dokumen.count({ where: { ...whereClause, review_status: 'approved' } });
-    const rejected = await prisma.dokumen.count({ where: { ...whereClause, review_status: 'rejected' } });
-    const pending = await prisma.dokumen.count({
-      where: {
-        ...whereClause,
-        review_status: 'draft',
-        status: { in: ['tersimpan', 'terkirim'] }
+    // Cari level lokus terdalam dari kegiatan
+    let lokusLevel = 'desa';
+    if (kegiatan_id) {
+      const kegiatanObj = await prisma.kegiatan.findUnique({ where: { id: parseInt(kegiatan_id, 10) } });
+      if (kegiatanObj && kegiatanObj.lokus) {
+        let lObj = kegiatanObj.lokus;
+        if (typeof lObj === 'string') {
+          try { lObj = JSON.parse(lObj); } catch(e) { lObj = {}; }
+        }
+        if (lObj.subSls && lObj.subSls.length > 0) lokusLevel = 'sub_sls';
+        else if (lObj.sls && lObj.sls.length > 0) lokusLevel = 'sls';
+        else if (lObj.desa && lObj.desa.length > 0) lokusLevel = 'desa';
+        else if (lObj.kecamatan && lObj.kecamatan.length > 0) lokusLevel = 'kecamatan';
+      }
+    }
+
+    const allDocs = await prisma.dokumen.findMany({
+      where: whereClause,
+      select: {
+        review_status: true,
+        status: true,
+        is_prelist: true,
+        kecamatan: true,
+        desa: true,
+        sls: true,
+        sub_sls: true
       }
     });
-    const draft = await prisma.dokumen.count({ where: { ...whereClause, status: 'draft' } });
+
+    let totalDokumen = 0, approved = 0, rejected = 0, pending = 0, draft = 0, tambahan = 0;
+    const lokusMap = {};
+
+    allDocs.forEach(d => {
+      totalDokumen++;
+      const isPending = d.review_status === 'draft' && ['tersimpan', 'terkirim'].includes(d.status);
+      const isDraft = d.review_status === 'draft' && d.status === 'draft' && d.is_prelist;
+      const isTambahan = !d.is_prelist;
+
+      if (d.review_status === 'approved') approved++;
+      if (d.review_status === 'rejected') rejected++;
+      if (isPending) pending++;
+      if (isDraft) draft++;
+      if (isTambahan) tambahan++;
+
+      let lokusKey = d[lokusLevel] || d.desa || 'Unknown';
+      if (lokusLevel === 'sls' && d.sls) {
+        lokusKey = `${d.desa} - SLS ${d.sls}`;
+      } else if (lokusLevel === 'sub_sls' && d.sub_sls) {
+        lokusKey = `${d.desa} - SLS ${d.sls} - Sub ${d.sub_sls}`;
+      }
+      if (!lokusMap[lokusKey]) {
+        lokusMap[lokusKey] = { name: lokusKey, Selesai: 0, Review: 0, Ditolak: 0, Draft: 0, Tambahan: 0, Total: 0 };
+      }
+      
+      lokusMap[lokusKey].Total++;
+      if (d.review_status === 'approved') lokusMap[lokusKey].Selesai++;
+      if (d.review_status === 'rejected') lokusMap[lokusKey].Ditolak++;
+      if (isPending) lokusMap[lokusKey].Review++;
+      if (isDraft) lokusMap[lokusKey].Draft++;
+      if (isTambahan) lokusMap[lokusKey].Tambahan++;
+    });
+
+    const totalAssignment = totalDokumen;
+    const lokusProgress = Object.values(lokusMap).sort((a, b) => a.name.localeCompare(b.name));
 
     // 5. Data Chart Harian (7 hari terakhir)
     const sevenDaysAgo = new Date();
@@ -45,11 +98,19 @@ router.get('/stats', async (req, res) => {
     const documents = await prisma.dokumen.findMany({
       where: {
         created_at: { gte: sevenDaysAgo },
+        NOT: {
+          AND: [
+            { is_prelist: true },
+            { status: 'draft' }
+          ]
+        },
         ...whereClause
       },
       select: {
         created_at: true,
-        review_status: true
+        updated_at: true,
+        review_status: true,
+        is_prelist: true
       },
       orderBy: {
         created_at: 'asc'
@@ -59,8 +120,10 @@ router.get('/stats', async (req, res) => {
     // Group documents by date in memory (database-agnostic)
     const groups = {};
     documents.forEach(doc => {
-      // Get date string in YYYY-MM-DD
-      const dateStr = doc.created_at.toISOString().split('T')[0];
+      // Use updated_at for prelist documents to reflect when they were actually submitted, 
+      // otherwise use created_at (for new tambahan)
+      const targetDate = doc.is_prelist ? doc.updated_at : doc.created_at;
+      const dateStr = targetDate.toISOString().split('T')[0];
       if (!groups[dateStr]) {
         groups[dateStr] = { date: dateStr, count: 0, rejected: 0 };
       }
@@ -114,7 +177,10 @@ router.get('/stats', async (req, res) => {
         approved,
         rejected,
         pending,
-        draft
+        draft,
+        tambahan,
+        totalAssignment,
+        lokusProgress
       },
       chartData: formattedChartData,
       recentLogs: recentLogs.map(l => ({
