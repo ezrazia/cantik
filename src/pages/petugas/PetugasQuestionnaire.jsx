@@ -318,6 +318,433 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const isLoading = loading || loadingForm;
 
+  // Optimized Lookup Maps & Memoized Caches to prevent render lag
+  const questionCodesMap = useMemo(() => {
+    const cache = new Map();
+    const getCode = (q) => {
+      if (!q) return "";
+      const cacheKey = String(q.id);
+      if (cache.has(cacheKey)) return cache.get(cacheKey);
+
+      const valStr = q.validation || q.val;
+      if (valStr && valStr.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(valStr);
+          if (parsed.custom_code || parsed.customCode) {
+            const code = String(parsed.custom_code || parsed.customCode);
+            cache.set(cacheKey, code);
+            return code;
+          }
+        } catch (e) {}
+      }
+
+      const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+      let blockIdx = 0;
+      if (block) {
+        const romanToDecimal = (roman) => {
+          const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+          let dec = 0;
+          const str = roman.toLowerCase();
+          for (let i = 0; i < str.length; i++) {
+            const current = map[str[i]];
+            const next = map[str[i + 1]];
+            if (next && current < next) {
+              dec += next - current;
+              i++;
+            } else {
+              dec += current;
+            }
+          }
+          return dec || 0;
+        };
+        const kodeStr = String(block.kode || block.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          blockIdx = romanToDecimal(match[1]);
+        }
+      }
+
+      if (!blockIdx) {
+        const standardBlocks = blocks.filter(b => {
+          const idStr = String(b.kode || b.id || "");
+          return idStr.startsWith("Blok ");
+        });
+        blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
+      }
+      if (blockIdx === 0) {
+        cache.set(cacheKey, "");
+        return "";
+      }
+      
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (!parent) {
+          cache.set(cacheKey, "");
+          return "";
+        }
+        const parentCode = getCode(parent);
+        
+        const siblings = questions.filter(s => s.blok_id === q.blok_id && (s.parent_id === parentId || s.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const sibIdx = siblings.findIndex(s => s.id === q.id);
+        
+        if (parent.parent_id || parent.parentId) {
+          const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+          const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
+          const code = `${parentCode}.${suffix}`;
+          cache.set(cacheKey, code);
+          return code;
+        } else {
+          const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0));
+          const code = `${parentCode}${letter}`;
+          cache.set(cacheKey, code);
+          return code;
+        }
+      } else {
+        const mainQs = questions.filter(s => s.blok_id === q.blok_id && !s.parent_id && !s.parentId && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        
+        let startIndex = 1;
+        const firstQ = mainQs[0];
+        if (firstQ) {
+          const firstValStr = firstQ.validation || firstQ.val;
+          if (firstValStr && firstValStr.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(firstValStr);
+              const custom = parsed.custom_code || parsed.customCode || "";
+              if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
+                startIndex = 0;
+              }
+            } catch (e) {}
+          }
+        }
+
+        const qIdx = mainQs.findIndex(s => s.id === q.id) + startIndex;
+        const padded = qIdx.toString().padStart(2, '0');
+        const code = `${blockIdx}${padded}`;
+        cache.set(cacheKey, code);
+        return code;
+      }
+    };
+
+    questions.forEach(q => {
+      getCode(q);
+    });
+
+    return cache;
+  }, [questions, blocks]);
+
+  const getQuestionCode = useCallback((q) => {
+    if (!q) return "";
+    return questionCodesMap.get(String(q.id)) || "";
+  }, [questionCodesMap]);
+
+  const questionMapById = useMemo(() => {
+    const map = new Map();
+    questions.forEach(q => {
+      map.set(String(q.id), q);
+    });
+    return map;
+  }, [questions]);
+
+  const questionMapByCode = useMemo(() => {
+    const map = new Map();
+    questions.forEach(q => {
+      const qCode = getQuestionCode(q);
+      if (qCode) {
+        const normalized = qCode.toLowerCase().replace(/\s/g, "");
+        map.set(normalized, q);
+      }
+    });
+    return map;
+  }, [questions, getQuestionCode]);
+
+  const findQuestionByCode = useCallback((codeStr) => {
+    if (!codeStr) return null;
+    const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+    return questionMapByCode.get(normalizedCode) || null;
+  }, [questionMapByCode]);
+
+  const blockMap = useMemo(() => {
+    const map = new Map();
+    blocks.forEach(b => {
+      map.set(String(b.id), b);
+      map.set(String(b.kode), b);
+    });
+    return map;
+  }, [blocks]);
+
+  const questionsByBlockMap = useMemo(() => {
+    const map = new Map();
+    questions.forEach(q => {
+      const key1 = String(q.blok_id);
+      if (!map.has(key1)) map.set(key1, []);
+      map.get(key1).push(q);
+    });
+    return map;
+  }, [questions]);
+
+  const loopGroupsMap = useMemo(() => {
+    const nameToQs = new Map();
+    questions.forEach(q => {
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          if (parsed && parsed.loop_group) {
+            const groupName = parsed.loop_group;
+            if (!nameToQs.has(groupName)) {
+              nameToQs.set(groupName, []);
+            }
+            nameToQs.get(groupName).push(q);
+          }
+        } catch (e) {}
+      }
+    });
+
+    const masterMap = new Map();
+    const hasManualMap = new Map();
+    const manualMasterMap = new Map();
+
+    nameToQs.forEach((groupQs, groupName) => {
+      const masterQ = groupQs.find(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop;
+        } catch (e) {
+          return false;
+        }
+      }) || groupQs[0];
+      masterMap.set(groupName, masterQ);
+
+      const hasManual = groupQs.some(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
+        }
+      });
+      hasManualMap.set(groupName, hasManual);
+
+      const manualMasterQ = groupQs.find(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
+        }
+      }) || groupQs[0];
+      manualMasterMap.set(groupName, manualMasterQ);
+    });
+
+    return {
+      groupQs: nameToQs,
+      masterQs: masterMap,
+      hasManual: hasManualMap,
+      manualMasterQs: manualMasterMap
+    };
+  }, [questions]);
+
+  const allOrderedQuestions = useMemo(() => {
+    const allOrdered = [];
+    blocks.forEach(b => {
+      const blockQs = questionsByBlockMap.get(String(b.id)) || questionsByBlockMap.get(String(b.kode)) || [];
+      const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId);
+      const addChildrenRecursive = (parentId) => {
+        const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId))
+          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        children.forEach(child => {
+          allOrdered.push(child);
+          addChildrenRecursive(child.id);
+        });
+      };
+      mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      mainQs.forEach(parent => {
+        allOrdered.push(parent);
+        addChildrenRecursive(parent.id);
+      });
+    });
+    return allOrdered;
+  }, [blocks, questionsByBlockMap]);
+
+  const questionIndexMap = useMemo(() => {
+    const map = new Map();
+    allOrderedQuestions.forEach((q, idx) => {
+      map.set(String(q.id), idx);
+    });
+    return map;
+  }, [allOrderedQuestions]);
+
+  const allSkippers = useMemo(() => {
+    return questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
+  }, [questions]);
+
+  const activeSkipsMemo = useMemo(() => {
+    const activeSkips = [];
+    questions.forEach(q => {
+      if (!q.skip_target || !q.skip_logic) return;
+      let matchesTrigger = false;
+      const qVal = ans.values[q.id];
+      try {
+        const parsed = JSON.parse(q.skip_logic);
+        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
+          const operator = parsed.operator || "AND";
+          const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
+          matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
+        }
+      } catch (e) {
+        const triggerOptions = String(q.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+        matchesTrigger = checkOptionTrigger(qVal, triggerOptions);
+      }
+      if (matchesTrigger) {
+        activeSkips.push({
+          questionId: q.id,
+          questionCode: getQuestionCode(q),
+          skipTargetId: q.skip_target
+        });
+      }
+    });
+    return activeSkips;
+  }, [questions, ans.values, getQuestionCode]);
+
+  const getActiveSkips = useCallback(() => activeSkipsMemo, [activeSkipsMemo]);
+
+  const blocksToHideBySkip = useMemo(() => {
+    const blocksToHide = new Set();
+    if (activeSkipsMemo.length === 0) return blocksToHide;
+
+    const getBlockOrder = (b) => {
+      const kodeStr = String(b.kode || b.id || "");
+      const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+      if (match) {
+        const romanToDecimal = (roman) => {
+          const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+          let dec = 0;
+          const str = roman.toLowerCase();
+          for (let i = 0; i < str.length; i++) {
+            const current = map[str[i]];
+            const next = map[str[i + 1]];
+            if (next && current < next) { dec += next - current; i++; } else { dec += current; }
+          }
+          return dec || 0;
+        };
+        return romanToDecimal(match[1]);
+      }
+      if (kodeStr.toLowerCase() === "pengantar") return 0;
+      return 999;
+    };
+
+    const sortedBlocks = [...blocks].sort((a, b) => {
+      const orderA = getBlockOrder(a);
+      const orderB = getBlockOrder(b);
+      return orderA - orderB;
+    });
+
+    activeSkipsMemo.forEach(skip => {
+      const skipperQ = questionMapById.get(String(skip.questionId));
+      if (!skipperQ) return;
+      const skipperBlock = blockMap.get(String(skipperQ.blok_id));
+      const targetQ = questionMapById.get(String(skip.skipTargetId));
+      const targetBlock = targetQ ? blockMap.get(String(targetQ.blok_id)) : null;
+      if (!skipperBlock || !targetBlock) return;
+
+      const skipperBlockIdx = sortedBlocks.findIndex(b => b.id === skipperBlock.id || b.kode === skipperBlock.kode);
+      const targetBlockIdx = sortedBlocks.findIndex(b => b.id === targetBlock.id || b.kode === targetBlock.kode);
+      if (skipperBlockIdx === -1 || targetBlockIdx === -1 || targetBlockIdx <= skipperBlockIdx) return;
+
+      for (let i = skipperBlockIdx + 1; i < targetBlockIdx; i++) {
+        blocksToHide.add(sortedBlocks[i].id);
+        blocksToHide.add(sortedBlocks[i].kode);
+      }
+    });
+
+    return blocksToHide;
+  }, [blocks, activeSkipsMemo, questionMapById, blockMap]);
+
+  const getBlocksToHideBySkip = useCallback(() => blocksToHideBySkip, [blocksToHideBySkip]);
+
+  const parseValidation = useCallback((str) => {
+    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null, subLabel: "" };
+    if (validationCache.has(str)) return validationCache.get(str);
+
+    const trimmed = str.trim();
+    let result;
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        let rangeText = "";
+        if (parsed.type === 'range') {
+          rangeText = `Rentang: ${parsed.min} - ${parsed.max}`;
+        } else if (parsed.type === 'min') {
+          rangeText = `Minimal: ${parsed.min}`;
+        } else if (parsed.type === 'gt') {
+          rangeText = `Lebih dari: ${parsed.min}`;
+        }
+        result = {
+          rangeText,
+          hintText: parsed.hint || "",
+          description: parsed.description || parsed.hint || "",
+          isLoop: !!parsed.is_loop,
+          loopType: parsed.loop_type || (parsed.loop_by_question_id ? "question" : "manual"),
+          loopByQuestionId: parsed.loop_by_question_id || null,
+          defaultVal: parsed.default_val || null,
+          isLookupKey: !!parsed.is_lookup_key,
+          copyOnKeyMatch: !!parsed.copy_on_key_match,
+          readOnly: !!parsed.read_only,
+          parentMode: parsed.parent_mode || "label",
+          subLabel: parsed.sub_label || "",
+          formula: parsed.formula || ""
+        };
+      } catch (e) {
+        result = { rangeText: "", hintText: "", description: str, isLoop: false, loopByQuestionId: null, subLabel: "" };
+      }
+    } else if (trimmed.startsWith('range:')) {
+      result = {
+        rangeText: `Rentang: ${trimmed.replace('range:', '').trim()}`,
+        hintText: "",
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false,
+        subLabel: ""
+      };
+    } else if (trimmed.startsWith('min:')) {
+      result = {
+        rangeText: `Minimal: ${trimmed.replace('min:', '').trim()}`,
+        hintText: "",
+        description: "",
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false,
+        subLabel: ""
+      };
+    } else {
+      result = {
+        rangeText: "",
+        hintText: "",
+        description: str,
+        isLoop: false,
+        loopType: "question",
+        loopByQuestionId: null,
+        defaultVal: null,
+        isLookupKey: false,
+        copyOnKeyMatch: false,
+        subLabel: ""
+      };
+    }
+
+    validationCache.set(str, result);
+    return result;
+  }, []);
+
   // Ref untuk mencegah infinite loop di formula evaluation
   const isEvaluatingRef = useRef(false);
   // Track formula questions untuk avoid recalculation
@@ -567,10 +994,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }));
   };
 
-  const getManualLoopCount = (q) => {
+  const getManualLoopCount = useCallback((q) => {
     if (!q) return null;
 
-    // Check if the question belongs to a loop group
     let loopGroupName = "";
     if (q.validation) {
       try {
@@ -582,45 +1008,19 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
 
     if (loopGroupName) {
-      const groupQs = questions.filter(x => {
-        if (!x.validation) return false;
-        try {
-          const parsed = JSON.parse(x.validation);
-          return parsed && parsed.loop_group === loopGroupName;
-        } catch (e) {
-          return false;
-        }
-      });
-
-      const hasManual = groupQs.some(x => {
-        if (!x.validation) return false;
-        try {
-          const parsed = JSON.parse(x.validation);
-          return parsed && parsed.is_loop && parsed.loop_type === "manual";
-        } catch (e) {
-          return false;
-        }
-      });
+      const groupQs = loopGroupsMap.groupQs.get(loopGroupName) || [];
+      const hasManual = loopGroupsMap.hasManual.get(loopGroupName);
 
       if (!hasManual) {
         return null;
       }
 
-      const masterQ = groupQs.find(x => {
-        if (!x.validation) return false;
-        try {
-          const parsed = JSON.parse(x.validation);
-          return parsed && parsed.is_loop && parsed.loop_type === "manual";
-        } catch (e) {
-          return false;
-        }
-      }) || groupQs[0];
+      const masterQ = loopGroupsMap.manualMasterQs.get(loopGroupName);
 
       if (masterQ && masterQ.id !== q.id) {
         return getManualLoopCount(masterQ);
       }
 
-      // Priority 1: Check if _loop_count is explicitly saved for any question in the group
       for (const gq of groupQs) {
         const savedCount = ans.values[`${gq.id}_loop_count`];
         if (savedCount) {
@@ -631,7 +1031,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
       }
 
-      // Priority 2: Calculate from actual stored data length across all questions in the group
       let maxArrayLength = 1;
       let maxFilledCount = 1;
       for (const gq of groupQs) {
@@ -648,18 +1047,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 maxFilledCount = filledCount;
               }
             }
-          } catch (e) {
-            // Not a JSON array, single value
-          }
+          } catch (e) {}
         }
       }
-      // Use the higher of array length or filled count, minimum 1
       return Math.max(maxArrayLength, maxFilledCount, 1);
     }
 
     const { isLoop, loopType } = parseValidation(q.validation);
     if (isLoop && loopType === "manual") {
-      // Priority 1: Check if _loop_count is explicitly saved
       const savedCount = ans.values[`${q.id}_loop_count`];
       if (savedCount) {
         const parsed = parseInt(savedCount, 10);
@@ -668,55 +1063,47 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
       }
 
-      // Priority 2: Calculate from actual stored data length (for data recovery on reload)
       const raw = ans.values[q.id];
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
-            // Find the actual count of filled entries (non-empty strings)
             const filledCount = parsed.filter(v => v !== undefined && v !== null && v !== "" && v !== 0).length;
             if (filledCount > 1) {
               return filledCount;
             }
-            // If only 1 filled entry but data is array, return array length (for pre-filled defaults)
             if (parsed.length > 1) {
               return parsed.length;
             }
           }
-        } catch (e) {
-          // Not a JSON array, single value
-        }
+        } catch (e) {}
       }
 
-      // Default: 1 instance
       return 1;
     }
 
     const parentId = q.parent_id || q.parentId;
     if (parentId) {
-      const parent = questions.find(p => p.id === parentId);
+      const parent = questionMapById.get(String(parentId));
       if (parent) {
         return getManualLoopCount(parent);
       }
     }
 
     return null;
-  };
+  }, [loopGroupsMap, ans.values, questionMapById, parseValidation]);
 
-  const getQuestionLoopCount = (q) => {
+  const getQuestionLoopCount = useCallback((q) => {
     if (!q) return 1;
 
-    // 1. Parent relationship
     const parentId = q.parent_id || q.parentId;
     if (parentId) {
-      const parent = questions.find(p => p.id === parentId);
+      const parent = questionMapById.get(String(parentId));
       if (parent) {
         return getQuestionLoopCount(parent);
       }
     }
 
-    // 2. Loop Group relationship
     let loopGroupName = "";
     if (q.validation) {
       try {
@@ -728,32 +1115,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
 
     if (loopGroupName) {
-      const groupQs = questions.filter(x => {
-        if (!x.validation) return false;
-        try {
-          const parsed = JSON.parse(x.validation);
-          return parsed && parsed.loop_group === loopGroupName;
-        } catch (e) {
-          return false;
-        }
-      });
-      // Find the master loop question in the group
-      const masterQ = groupQs.find(x => {
-        if (!x.validation) return false;
-        try {
-          const parsed = JSON.parse(x.validation);
-          return parsed && parsed.is_loop;
-        } catch (e) {
-          return false;
-        }
-      }) || groupQs[0];
-
+      const masterQ = loopGroupsMap.masterQs.get(loopGroupName);
       if (masterQ && masterQ.id !== q.id) {
         return getQuestionLoopCount(masterQ);
       }
     }
 
-    // 3. Direct loop configuration
     const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
     if (isLoop) {
       if (loopByQuestionId) {
@@ -768,7 +1135,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
 
     return 1;
-  };
+  }, [questionMapById, loopGroupsMap, ans.values, parseValidation, getManualLoopCount]);
 
   const handleAddManualLoop = (qId) => {
     const currentCount = ans.values[`${qId}_loop_count`] ? parseInt(ans.values[`${qId}_loop_count`], 10) : 1;
@@ -1039,183 +1406,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
 
-  const getQuestionCode = (q, allQuestions, allBlocks) => {
-    if (!q) return "";
-    
-    // Support custom code set in validation JSON
-    const valStr = q.validation || q.val;
-    if (valStr && valStr.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(valStr);
-        if (parsed.custom_code || parsed.customCode) {
-          return parsed.custom_code || parsed.customCode;
-        }
-      } catch (e) {}
-    }
-
-    const block = allBlocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
-    let blockIdx = 0;
-    if (block) {
-      const romanToDecimal = (roman) => {
-        const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
-        let dec = 0;
-        const str = roman.toLowerCase();
-        for (let i = 0; i < str.length; i++) {
-          const current = map[str[i]];
-          const next = map[str[i + 1]];
-          if (next && current < next) {
-            dec += next - current;
-            i++;
-          } else {
-            dec += current;
-          }
-        }
-        return dec || 0;
-      };
-      const kodeStr = String(block.kode || block.id || "");
-      const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
-      if (match) {
-        blockIdx = romanToDecimal(match[1]);
-      }
-    }
-
-    if (!blockIdx) {
-      const standardBlocks = allBlocks.filter(b => {
-        const idStr = String(b.kode || b.id || "");
-        return idStr.startsWith("Blok ");
-      });
-      blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
-    }
-    if (blockIdx === 0) return "";
-    
-    if (q.parent_id) {
-      const parent = allQuestions.find(p => p.id === q.parent_id);
-      if (!parent) return "";
-      const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
-      
-      // Sibling sub-questions of same parent
-      const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      const sibIdx = siblings.findIndex(s => s.id === q.id);
-      
-      // Check if parent has parent_id (depth 2)
-      if (parent.parent_id) {
-        const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
-        const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
-        return `${parentCode}.${suffix}`;
-      } else {
-        const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0)); // a, b, c...
-        return `${parentCode}${letter}`;
-      }
-    } else {
-      // Index among main questions of the block
-      const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      
-      let startIndex = 1;
-      const firstQ = mainQs[0];
-      if (firstQ) {
-        const firstValStr = firstQ.validation || firstQ.val;
-        if (firstValStr && firstValStr.trim().startsWith('{')) {
-          try {
-            const parsed = JSON.parse(firstValStr);
-            const custom = parsed.custom_code || parsed.customCode || "";
-            if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
-              startIndex = 0;
-            }
-          } catch (e) {}
-        }
-      }
-
-      const qIdx = mainQs.findIndex(s => s.id === q.id) + startIndex;
-      const padded = qIdx.toString().padStart(2, '0');
-      return `${blockIdx}${padded}`;
-    }
-  };
-
-  const parseValidation = (str) => {
-    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null, subLabel: "" };
-    const trimmed = str.trim();
-    if (trimmed.startsWith('{')) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        let rangeText = "";
-        if (parsed.type === 'range') {
-          rangeText = `Rentang: ${parsed.min} - ${parsed.max}`;
-        } else if (parsed.type === 'min') {
-          rangeText = `Minimal: ${parsed.min}`;
-        } else if (parsed.type === 'gt') {
-          rangeText = `Lebih dari: ${parsed.min}`;
-        }
-        return {
-          rangeText,
-          hintText: parsed.hint || "",
-          description: parsed.description || parsed.hint || "",
-          isLoop: !!parsed.is_loop,
-          loopType: parsed.loop_type || (parsed.loop_by_question_id ? "question" : "manual"),
-          loopByQuestionId: parsed.loop_by_question_id || null,
-          defaultVal: parsed.default_val || null,
-          isLookupKey: !!parsed.is_lookup_key,
-          readOnly: !!parsed.read_only,
-          parentMode: parsed.parent_mode || "label",
-          subLabel: parsed.sub_label || "",
-          formula: parsed.formula || ""
-        };
-      } catch (e) {}
-    }
-    
-    if (trimmed.startsWith('range:')) {
-      return {
-        rangeText: `Rentang: ${trimmed.replace('range:', '').trim()}`,
-        hintText: "",
-        description: "",
-        isLoop: false,
-        loopType: "question",
-        loopByQuestionId: null,
-        defaultVal: null,
-        isLookupKey: false,
-        copyOnKeyMatch: false,
-        subLabel: ""
-      };
-    } else if (trimmed.startsWith('min:')) {
-      return {
-        rangeText: `Minimal: ${trimmed.replace('min:', '').trim()}`,
-        hintText: "",
-        description: "",
-        isLoop: false,
-        loopType: "question",
-        loopByQuestionId: null,
-        defaultVal: null,
-        isLookupKey: false,
-        copyOnKeyMatch: false,
-        subLabel: ""
-      };
-    } else if (trimmed.startsWith('gt:')) {
-      return {
-        rangeText: `Lebih dari: ${trimmed.replace('gt:', '').trim()}`,
-        hintText: "",
-        description: "",
-        isLoop: false,
-        loopType: "question",
-        loopByQuestionId: null,
-        defaultVal: null,
-        isLookupKey: false,
-        copyOnKeyMatch: false,
-        subLabel: ""
-      };
-    }
-    
-    return {
-      rangeText: "",
-      hintText: "",
-      description: str,
-      isLoop: false,
-      loopType: "question",
-      loopByQuestionId: null,
-      defaultVal: null,
-      isLookupKey: false,
-      copyOnKeyMatch: false,
-      subLabel: ""
-    };
-  };
+  // getQuestionCode and parseValidation are removed and replaced by optimized cached versions declared above.
 
   const resolveDynamicOptions = (q) => {
     let qVal = null;
@@ -1389,15 +1580,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     });
   };
 
-  const findQuestionByCode = (codeStr) => {
-    if (!codeStr) return null;
-    const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
-    return questions.find(q => {
-      const qCode = getQuestionCode(q, questions, blocks);
-      const normalizedQCode = qCode.toLowerCase().replace(/\s/g, "");
-      return normalizedQCode === normalizedCode;
-    });
-  };
+  // findQuestionByCode is removed and replaced by optimized cached version declared above.
 
   const computeAggregation = (op, scopeOrCode, questionCode) => {
     let scope = "PCL";
@@ -2013,37 +2196,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     selectedRtItem?.review_status === "approved" || 
     ((selectedRtItem?.status === "tersimpan" || selectedRtItem?.status === "terkirim") && selectedRtItem?.review_status !== "rejected");
 
-  const isBlockVisible = (block) => {
-    if (!block) return false;
-    const blocksToHide = getBlocksToHideBySkip();
-    if (blocksToHide.has(block.id) || blocksToHide.has(block.kode)) {
-      return false;
-    }
-    if (block.hide_logic) {
-      try {
-        const parsed = JSON.parse(block.hide_logic);
-        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
-          const operator = parsed.operator || "AND";
-          const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
-          const met = operator === "OR" ? results.some(r => r) : results.every(r => r);
-          if (met) return false;
-        }
-      } catch (e) {}
-    }
-
-    // Check if all questions in this block are hidden by logic.
-    // If a block has questions, and ALL of them are invisible, the block itself should be hidden.
-    const blockQuestions = questions.filter(q => q.blok_id === block.id || q.blok_id === block.kode);
-    if (blockQuestions.length > 0) {
-      const hasAnyVisibleQuestion = blockQuestions.some(q => isQuestionVisibleIgnoreBlock(q));
-      if (!hasAnyVisibleQuestion) {
-        return false;
-      }
-    }
-
-    return true;
-  };
-
   const validateTextRule = (val, rule) => {
     if (!rule || val === undefined || val === null || val === '') return true;
     const trimmed = rule.trim();
@@ -2082,6 +2234,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
     return true;
   };
+
   const getResolvedValuesForIndex = (values, idx) => {
     if (idx === null) return values;
     const resolved = {};
@@ -2107,114 +2260,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return resolved;
   };
 
-  // ============================================================
-  // SKIP LOGIC HANDLING - Fungsi untuk blok lompatan
-  // ============================================================
+  // getActiveSkips and getSkipTargetBlock have been optimized and moved above to avoid render lags.
 
-  /**
-   * Mendapatkan semua active skip conditions berdasarkan jawaban saat ini.
-   */
-  const getActiveSkips = () => {
-    const activeSkips = [];
-    questions.forEach(q => {
-      if (!q.skip_target || !q.skip_logic) return;
-      let matchesTrigger = false;
-      const qVal = ans.values[q.id];
-      try {
-        const parsed = JSON.parse(q.skip_logic);
-        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
-          const operator = parsed.operator || "AND";
-          const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
-          matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
-        }
-      } catch (e) {
-        const triggerOptions = String(q.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
-        matchesTrigger = checkOptionTrigger(qVal, triggerOptions);
-      }
-      if (matchesTrigger) {
-        activeSkips.push({
-          questionId: q.id,
-          questionCode: getQuestionCode(q, questions, blocks),
-          skipTargetId: q.skip_target
-        });
-      }
-    });
-    return activeSkips;
-  };
-
-  /**
-   * Mendapatkan blok target dari skip logic yang aktif.
-   */
-  const getSkipTargetBlock = (skipTargetId) => {
-    const targetQ = questions.find(q => q.id === skipTargetId);
-    if (!targetQ) return null;
-    const targetBlock = blocks.find(b => b.id === targetQ.blok_id || b.kode === targetQ.blok_id);
-    return targetBlock;
-  };
-
-  /**
-   * Mendapatkan blok-blok yang harus di-hide karena skip aktif.
-   */
-  const getBlocksToHideBySkip = () => {
-    const activeSkips = getActiveSkips();
-    const blocksToHide = new Set();
-    if (activeSkips.length === 0) return blocksToHide;
-
-    // Hitung semua blok yang memiliki pertanyaan (tanpa filter isBlockVisible untuk menghindari circular dependency)
-    // Blok dengan pertanyaan di blok_id yang sesuai
-    const getBlockOrder = (b) => {
-      const kodeStr = String(b.kode || b.id || "");
-      const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
-      if (match) {
-        const romanToDecimal = (roman) => {
-          const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
-          let dec = 0;
-          const str = roman.toLowerCase();
-          for (let i = 0; i < str.length; i++) {
-            const current = map[str[i]];
-            const next = map[str[i + 1]];
-            if (next && current < next) { dec += next - current; i++; } else { dec += current; }
-          }
-          return dec || 0;
-        };
-        return romanToDecimal(match[1]);
-      }
-      if (kodeStr.toLowerCase() === "pengantar") return 0;
-      return 999;
-    };
-
-    // Urutkan blok berdasarkan kode untuk mendapatkan urutan
-    const sortedBlocks = [...blocks].sort((a, b) => {
-      const orderA = getBlockOrder(a);
-      const orderB = getBlockOrder(b);
-      return orderA - orderB;
-    });
-
-    activeSkips.forEach(skip => {
-      const skipperQ = questions.find(q => q.id === skip.questionId);
-      if (!skipperQ) return;
-      const skipperBlock = blocks.find(b => b.id === skipperQ.blok_id || b.kode === skipperQ.blok_id);
-      const targetBlock = getSkipTargetBlock(skip.skipTargetId);
-      if (!skipperBlock || !targetBlock) return;
-
-      const skipperBlockIdx = sortedBlocks.findIndex(b => b.id === skipperBlock.id || b.kode === skipperBlock.kode);
-      const targetBlockIdx = sortedBlocks.findIndex(b => b.id === targetBlock.id || b.kode === targetBlock.kode);
-      if (skipperBlockIdx === -1 || targetBlockIdx === -1 || targetBlockIdx <= skipperBlockIdx) return;
-
-      for (let i = skipperBlockIdx + 1; i < targetBlockIdx; i++) {
-        blocksToHide.add(sortedBlocks[i].id);
-        blocksToHide.add(sortedBlocks[i].kode);
-      }
-    });
-
-    return blocksToHide;
-  };
-
-  const isQuestionVisibleIgnoreBlock = (q, activeInstanceIdx = null) => {
-    // If parent is hidden, this question should also be hidden
+  const isQuestionVisibleIgnoreBlock = useCallback((q, activeInstanceIdx = null) => {
     const parentId = q.parent_id || q.parentId;
     if (parentId) {
-      const parent = questions.find(x => String(x.id) === String(parentId));
+      const parent = questionMapById.get(String(parentId));
       if (parent && !isQuestionVisibleIgnoreBlock(parent, activeInstanceIdx)) {
         return false;
       }
@@ -2251,52 +2302,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       }
     }
 
-    // ============================================================
-    // SKIP LOGIC: Check if question is in a skipped block
-    // ============================================================
-    const qBlock = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+    const qBlock = blockMap.get(String(q.blok_id));
     if (qBlock) {
       const blocksToHide = getBlocksToHideBySkip();
       if (blocksToHide.has(qBlock.id) || blocksToHide.has(qBlock.kode)) {
-        return false; // Pertanyaan di blok yang di-skip, hide
+        return false;
       }
     }
 
-    // Parent value check is bypassed because parents with sub-questions do not render inputs of their own.
-    // Conditional visibility is handled properly by show_if rules.
+    const currentIdx = questionIndexMap.get(String(q.id));
 
-    // ============================================================
-    // SKIP LOGIC: Check if question is in a skipped range
-    // Skip logic works as follows:
-    // - When skipper's condition matches, ALL questions between skipper and target (exclusive) are HIDDEN
-    // - The target question is always SHOWN when reached
-    // - When skipper's condition does NOT match, all questions including target are shown normally
-    // ============================================================
-
-    // Get all questions in order across all blocks
-    const allOrdered = [];
-    blocks.forEach(b => {
-      const blockQs = questions.filter(x => x.blok_id === b.id || x.blok_id === b.kode);
-      const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId);
-      const addChildrenRecursive = (parentId) => {
-        const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId))
-          .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-        children.forEach(child => {
-          allOrdered.push(child);
-          addChildrenRecursive(child.id);
-        });
-      };
-      mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      mainQs.forEach(parent => {
-        allOrdered.push(parent);
-        addChildrenRecursive(parent.id);
-      });
-    });
-
-    // Check all skippers
-    const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
-
-    for (const skipper of skippers) {
+    for (const skipper of allSkippers) {
       let matchesTrigger = false;
 
       try {
@@ -2312,43 +2328,68 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         matchesTrigger = checkOptionTrigger(skipperVal, triggerOptions);
       }
 
-      const skipperIdx = allOrdered.findIndex(x => x.id === skipper.id);
+      const skipperIdx = questionIndexMap.get(String(skipper.id));
 
-      // Find target question - support both direct ID reference and code reference
-      let targetQ = questions.find(x => String(x.id) === String(skipper.skip_target));
+      let targetQ = questionMapById.get(String(skipper.skip_target));
       if (!targetQ) {
         targetQ = findQuestionByCode(String(skipper.skip_target));
       }
 
-      const targetIdx = targetQ ? allOrdered.findIndex(x => x.id === targetQ.id) : -1;
-      const currentIdx = allOrdered.findIndex(x => x.id === q.id);
+      const targetIdx = targetQ ? questionIndexMap.get(String(targetQ.id)) : -1;
 
-      // Skipper question is always visible (unless hidden by other rules)
       if (q.id === skipper.id) {
-        // Continue checking other conditions
       }
-      // Target question is always visible when reached
       else if (targetQ && q.id === targetQ.id) {
-        // Target is always visible
       }
-      // Questions between skipper and target (exclusive) should be hidden when skip is triggered
-      else if (matchesTrigger && skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
+      else if (matchesTrigger && skipperIdx !== undefined && targetIdx !== -1 && currentIdx !== undefined) {
         if (currentIdx > skipperIdx && currentIdx < targetIdx) {
-          return false; // Hide questions in the skip range
+          return false;
         }
       }
     }
 
     return true;
-  };
+  }, [ans.values, questionMapById, questionMapByCode, blockMap, questionIndexMap, allSkippers, findQuestionByCode, checkOptionTrigger, getBlocksToHideBySkip]);
 
-  const isQuestionVisible = (q, activeInstanceIdx = null) => {
-    const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+  const isBlockVisible = useCallback((block) => {
+    if (!block) return false;
+    const blocksToHide = getBlocksToHideBySkip();
+    if (blocksToHide.has(block.id) || blocksToHide.has(block.kode)) {
+      return false;
+    }
+    if (block.hide_logic) {
+      try {
+        const parsed = JSON.parse(block.hide_logic);
+        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
+          const operator = parsed.operator || "AND";
+          const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
+          const met = operator === "OR" ? results.some(r => r) : results.every(r => r);
+          if (met) return false;
+        }
+      } catch (e) {}
+    }
+
+    const blockQuestions = [
+      ...(questionsByBlockMap.get(String(block.id)) || []),
+      ...(block.kode && block.kode !== block.id ? (questionsByBlockMap.get(String(block.kode)) || []) : [])
+    ];
+    if (blockQuestions.length > 0) {
+      const hasAnyVisibleQuestion = blockQuestions.some(q => isQuestionVisibleIgnoreBlock(q));
+      if (!hasAnyVisibleQuestion) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [getBlocksToHideBySkip, ans.values, questionsByBlockMap, isQuestionVisibleIgnoreBlock]);
+
+  const isQuestionVisible = useCallback((q, activeInstanceIdx = null) => {
+    const block = blockMap.get(String(q.blok_id));
     if (block && !isBlockVisible(block)) {
       return false;
     }
     return isQuestionVisibleIgnoreBlock(q, activeInstanceIdx);
-  };
+  }, [blockMap, isBlockVisible, isQuestionVisibleIgnoreBlock]);
 
   // Status mapping for visual tabs
   const validateBlock = (blockKode) => {
@@ -3200,8 +3241,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   // Memoize visibleBlocks to prevent expensive recalculation on every render
-  // depends on blocks AND ans.values (because isBlockVisible uses skip logic which depends on values)
-  const visibleBlocks = useMemo(() => blocks.filter(isBlockVisible), [blocks, ans.values]);
+  const visibleBlocks = useMemo(() => blocks.filter(isBlockVisible), [blocks, isBlockVisible]);
 
   // ============================================================
   // BEFOREUNLOAD HANDLER - Simpan data saat browser ditutup/refresh
