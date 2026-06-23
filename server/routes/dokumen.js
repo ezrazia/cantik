@@ -113,9 +113,26 @@ async function getFormattedKode(tx, docData) {
 router.get('/petugas/:petugasId', async (req, res) => {
   const { petugasId } = req.params;
   try {
+    const pId = parseInt(petugasId, 10);
+    if (isNaN(pId)) {
+      return res.status(400).json({ success: false, message: 'ID petugas tidak valid' });
+    }
+
+    const petugas = await prisma.petugas.findUnique({
+      where: { id: pId }
+    });
+    const petugasName = petugas ? petugas.name : '';
+
     const rows = await prisma.dokumen.findMany({
       where: {
-        petugas_id: parseInt(petugasId, 10),
+        OR: [
+          { petugas_id: pId },
+          ...(petugasName ? [{
+            assigned_pcls: {
+              array_contains: petugasName
+            }
+          }] : [])
+        ]
       },
       include: {
         kegiatan: {
@@ -183,15 +200,23 @@ router.get('/review/:kegiatanId', async (req, res) => {
       },
     });
 
-    const formatted = rows.map(doc => ({
-      ...doc,
-      activity_name: doc.kegiatan?.name || '',
-      petugas_name: doc.petugas?.name || '',
-      pengawas: doc.petugas?.petugas_kegiatan?.[0]?.pengawas || null,
-      logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
-      sync: !!doc.sync,
-      is_prelist: !!doc.is_prelist,
-    }));
+    const formatted = rows.map(doc => {
+      const pclsVal = doc.assigned_pcls;
+      const pmlsVal = doc.assigned_pmls;
+      const fallbackPcls = doc.petugas?.name && doc.petugas.name !== "Belum Ditugaskan" ? [doc.petugas.name] : [];
+      const fallbackPmls = doc.petugas?.petugas_kegiatan?.[0]?.pengawas ? [doc.petugas.petugas_kegiatan[0].pengawas] : [];
+      return {
+        ...doc,
+        activity_name: doc.kegiatan?.name || '',
+        petugas_name: doc.petugas?.name || '',
+        pengawas: doc.petugas?.petugas_kegiatan?.[0]?.pengawas || null,
+        assigned_pcls: Array.isArray(pclsVal) ? pclsVal : fallbackPcls,
+        assigned_pmls: Array.isArray(pmlsVal) ? pmlsVal : fallbackPmls,
+        logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
+        sync: !!doc.sync,
+        is_prelist: !!doc.is_prelist,
+      };
+    });
 
     return res.json(formatted);
   } catch (error) {
@@ -1232,6 +1257,113 @@ router.post('/batch-prelist', async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Gagal memproses batch prelist: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/dokumen/assign-multiple
+ * Menyimpan penugasan banyak petugas (PCL) dan pengawas (PML) untuk satu dokumen.
+ */
+router.post('/assign-multiple', async (req, res) => {
+  const { dbId, assigned_pcls, assigned_pmls } = req.body;
+  try {
+    const docId = parseInt(dbId, 10);
+    if (isNaN(docId)) {
+      return res.status(400).json({ success: false, message: 'ID dokumen tidak valid' });
+    }
+
+    const doc = await prisma.dokumen.findUnique({
+      where: { id: docId }
+    });
+    if (!doc) {
+      return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
+    }
+
+    // fallback/update petugas_id utama ke PCL pertama (jika ada) untuk kompabilitas offline sync
+    let primaryPetugasId = doc.petugas_id;
+    if (assigned_pcls && assigned_pcls.length > 0) {
+      const firstName = assigned_pcls[0];
+      const p = await prisma.petugas.findFirst({
+        where: { name: firstName }
+      });
+      if (p) {
+        primaryPetugasId = p.id;
+      }
+    } else {
+      primaryPetugasId = 0; // Belum ditugaskan
+    }
+
+    await prisma.dokumen.update({
+      where: { id: docId },
+      data: {
+        assigned_pcls: assigned_pcls || [],
+        assigned_pmls: assigned_pmls || [],
+        petugas_id: primaryPetugasId
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: 'Penugasan petugas berhasil disimpan'
+    });
+  } catch (error) {
+    console.error('Error assigning multiple officers:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menyimpan penugasan petugas: ' + error.message
+    });
+  }
+});
+
+/**
+ * POST /api/dokumen/assign-sls
+ * Menyimpan penugasan banyak petugas (PCL) dan pengawas (PML) untuk semua dokumen dalam satu SLS.
+ */
+router.post('/assign-sls', async (req, res) => {
+  const { kegiatan_id, sls, assigned_pcls, assigned_pmls } = req.body;
+  try {
+    const kegId = parseInt(kegiatan_id, 10);
+    if (isNaN(kegId)) {
+      return res.status(400).json({ success: false, message: 'ID kegiatan tidak valid' });
+    }
+    if (!sls) {
+      return res.status(400).json({ success: false, message: 'SLS wajib diisi' });
+    }
+
+    // fallback/update petugas_id utama ke PCL pertama (jika ada) untuk kompabilitas offline sync
+    let primaryPetugasId = 0;
+    if (assigned_pcls && assigned_pcls.length > 0) {
+      const firstName = assigned_pcls[0];
+      const p = await prisma.petugas.findFirst({
+        where: { name: firstName }
+      });
+      if (p) {
+        primaryPetugasId = p.id;
+      }
+    }
+
+    const result = await prisma.dokumen.updateMany({
+      where: {
+        kegiatan_id: kegId,
+        sls: sls,
+      },
+      data: {
+        assigned_pcls: assigned_pcls || [],
+        assigned_pmls: assigned_pmls || [],
+        petugas_id: primaryPetugasId
+      }
+    });
+
+    return res.json({
+      success: true,
+      message: `Berhasil menugaskan petugas untuk ${result.count} dokumen di SLS ${sls}`
+    });
+  } catch (error) {
+    console.error('Error assigning SLS officers:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Gagal menugaskan petugas per SLS: ' + error.message
     });
   }
 });

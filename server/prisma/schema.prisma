@@ -225,6 +225,8 @@ model Dokumen {
   nik              String?        @db.VarChar(50)   // NIK / No. KTP
   hub_keluarga    String?        @db.VarChar(50)   // Hubungan dengan kepala keluarga
   backup_at       DateTime?      // Timestamp backup otomatis - invisible ke petugas
+  assigned_pcls   Json?
+  assigned_pmls   Json?
   created_at      DateTime       @default(now())
   updated_at      DateTime       @updatedAt
   dokumen_jawaban DokumenJawaban[]

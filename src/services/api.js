@@ -116,6 +116,8 @@ export const api = {
     backup: (petugasId, documents) => request('/dokumen/backup', { method: 'POST', body: { petugas_id: petugasId, documents } }),
     review: (id, review_status, notes = '') => request(`/dokumen/review/${id}`, { method: 'POST', body: { review_status, notes } }),
     delete: (id) => request(`/dokumen/${id}`, { method: 'DELETE' }),
+    assignMultiple: (dbId, pcls, pmls) => request('/dokumen/assign-multiple', { method: 'POST', body: { dbId, assigned_pcls: pcls, assigned_pmls: pmls } }),
+    assignSls: (kegiatanId, sls, pcls, pmls) => request('/dokumen/assign-sls', { method: 'POST', body: { kegiatan_id: kegiatanId, sls, assigned_pcls: pcls, assigned_pmls: pmls } }),
     // Prelist import
     importPrelist: (kegiatanId, mapping, rows) => request('/dokumen/prelist/import', { method: 'POST', body: { kegiatan_id: kegiatanId, mapping, rows } }),
     getPrelistMapping: (kegiatanId) => request(`/dokumen/prelist/mapping/${kegiatanId}`),

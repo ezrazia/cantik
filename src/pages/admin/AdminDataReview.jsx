@@ -198,6 +198,90 @@ function ReviewQCard({ r, label, subLabel, required, hint, skipInfo, children })
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
+function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, placeholder, disabled }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (event.target && !event.target.isConnected) {
+        return; // Ignore clicks on elements that were unmounted during re-renders
+      }
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleToggle = (name) => {
+    let updated;
+    if (selectedNames.includes(name)) {
+      updated = selectedNames.filter(n => n !== name);
+    } else {
+      updated = [...selectedNames, name];
+    }
+    onChange(updated);
+  };
+
+  const displayText = selectedNames.length === 0 
+    ? placeholder 
+    : selectedNames.length === 1 
+      ? selectedNames[0] 
+      : `${selectedNames.length} Terpilih`;
+
+  return (
+    <div className="relative w-full max-w-[140px]" ref={dropdownRef}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        title={selectedNames.join(", ")}
+        className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full flex items-center justify-between gap-1 disabled:opacity-75 disabled:cursor-not-allowed"
+      >
+        <span className="truncate">{displayText}</span>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 mt-1 w-56 bg-white border border-slate-150 rounded-xl shadow-xl z-50 py-1.5 max-h-52 overflow-y-auto" style={{ animation: 'scaleIn 0.15s ease' }}>
+          <div className="px-3 py-1 border-b border-slate-50 text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+            Pilih Petugas (Multi-select)
+          </div>
+          {allOptions.map((o, idx) => {
+            const isChecked = selectedNames.includes(o.name);
+            const optId = `${idPrefix || 'opt'}-${idx}-${o.name.replace(/\s+/g, '-').toLowerCase()}`;
+            return (
+              <div 
+                key={o.name}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-[11px] font-semibold text-slate-600 transition-all select-none"
+              >
+                <input 
+                  type="checkbox"
+                  id={optId}
+                  checked={isChecked}
+                  onChange={() => handleToggle(o.name)}
+                  className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                />
+                <label 
+                  htmlFor={optId}
+                  className="truncate cursor-pointer flex-1 py-0.5"
+                >
+                  {o.name}
+                </label>
+              </div>
+            );
+          })}
+          {allOptions.length === 0 && (
+            <div className="px-3 py-2 text-[10px] text-slate-400 font-medium">Tidak ada petugas</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading, currentUser }) {
   const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
   const [filter, setFilter] = useState("all");
@@ -234,6 +318,70 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [mappingStep, setMappingStep] = useState(1); // 1: upload, 2: map, 3: preview
   
   const fileInputRef = useRef(null);
+
+  // States for Assign SLS Modal
+  const [isAssignSlsModalOpen, setIsAssignSlsModalOpen] = useState(false);
+  const [selectedSls, setSelectedSls] = useState("");
+  const [selectedSlsPcls, setSelectedSlsPcls] = useState([]);
+  const [selectedSlsPmls, setSelectedSlsPmls] = useState([]);
+  const [pclSearch, setPclSearch] = useState("");
+  const [pmlSearch, setPmlSearch] = useState("");
+  const [isAssigningSls, setIsAssigningSls] = useState(false);
+
+  const uniqueSlsList = useMemo(() => {
+    const slsSet = new Set();
+    data.forEach(r => {
+      if (r.sls) slsSet.add(r.sls);
+    });
+    return Array.from(slsSet).sort();
+  }, [data]);
+
+  const filteredPcls = useMemo(() => {
+    return pcls.filter(p => p.name.toLowerCase().includes(pclSearch.toLowerCase()));
+  }, [pcls, pclSearch]);
+
+  const filteredPmls = useMemo(() => {
+    return pmls.filter(p => p.name.toLowerCase().includes(pmlSearch.toLowerCase()));
+  }, [pmls, pmlSearch]);
+
+  const handleAssignSlsSubmit = async () => {
+    if (!selectedSls) return;
+    setIsAssigningSls(true);
+    try {
+      await api.dokumen.assignSls(
+        activeActivity.id,
+        selectedSls,
+        selectedSlsPcls,
+        selectedSlsPmls
+      );
+      
+      // Update local state to reflect changes instantly in the UI table
+      setData(prev => prev.map(r => {
+        if (r.sls === selectedSls) {
+          return {
+            ...r,
+            assigned_pcls: selectedSlsPcls,
+            assigned_pmls: selectedSlsPmls,
+            petugas: selectedSlsPcls.length > 0 ? selectedSlsPcls[0] : "Belum Ditugaskan",
+            pengawas: selectedSlsPmls.length > 0 ? selectedSlsPmls[0] : "Belum Ditugaskan"
+          };
+        }
+        return r;
+      }));
+
+      alert(`Berhasil menugaskan petugas untuk SLS ${selectedSls}`);
+      setIsAssignSlsModalOpen(false);
+      setSelectedSls("");
+      setSelectedSlsPcls([]);
+      setSelectedSlsPmls([]);
+      setPclSearch("");
+      setPmlSearch("");
+    } catch (err) {
+      alert("Gagal menugaskan petugas per SLS: " + err.message);
+    } finally {
+      setIsAssigningSls(false);
+    }
+  };
 
   // Check activity status to decide if prelist is editable
   const activeActivity = activities?.find(a => a.name === selectedProject);
@@ -307,6 +455,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     } catch (err) {
       console.error("Gagal mengambil data review:", err);
     } finally {
+      setData(prev => prev);
       setLoading(false);
     }
   };
@@ -380,12 +529,43 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     };
     fetchForm();
   }, [selectedProject, activeActivity]);
-  const handleAssignPCL = async (recordId, pclName) => {
-    setData(prev => prev.map(r => r.id === recordId ? { ...r, petugas: pclName } : r));
+
+  const handleAssignPCLMultiple = async (record, selectedPcls) => {
+    try {
+      setData(prev => prev.map(r => r.id === record.id ? { 
+        ...r, 
+        assigned_pcls: selectedPcls,
+        petugas: selectedPcls.length > 0 ? selectedPcls[0] : "Belum Ditugaskan"
+      } : r));
+
+      await api.dokumen.assignMultiple(
+        record.dbId || record.id,
+        selectedPcls,
+        record.assigned_pmls || []
+      );
+    } catch (err) {
+      alert("Gagal menyimpan penugasan PCL: " + err.message);
+      fetchReviewDocuments();
+    }
   };
 
-  const handleAssignPML = async (recordId, pmlName) => {
-    setData(prev => prev.map(r => r.id === recordId ? { ...r, pengawas: pmlName } : r));
+  const handleAssignPMLMultiple = async (record, selectedPmls) => {
+    try {
+      setData(prev => prev.map(r => r.id === record.id ? { 
+        ...r, 
+        assigned_pmls: selectedPmls,
+        pengawas: selectedPmls.length > 0 ? selectedPmls[0] : "Belum Ditugaskan"
+      } : r));
+
+      await api.dokumen.assignMultiple(
+        record.dbId || record.id,
+        record.assigned_pcls || [],
+        selectedPmls
+      );
+    } catch (err) {
+      alert("Gagal menyimpan penugasan PML: " + err.message);
+      fetchReviewDocuments();
+    }
   };
 
   const projectFilteredData = data;
@@ -1620,6 +1800,25 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 <Upload size={14}/>
                 <span>Unggah Prelist</span>
               </button>
+              {isDraft && (
+                <button 
+                  disabled={!selectedProject || isKegiatanAdmin}
+                  onClick={() => setIsAssignSlsModalOpen(true)}
+                  className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
+                    selectedProject && !isKegiatanAdmin
+                      ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
+                      : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                  }`}
+                  title={
+                    !selectedProject 
+                      ? "Pilih kegiatan terlebih dahulu" 
+                      : "Tugaskan petugas per SLS"
+                  }
+                >
+                  <Edit3 size={14}/>
+                  <span>Tugaskan SLS</span>
+                </button>
+              )}
               <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
                 <Search size={16} className="text-slate-400"/>
                 <input className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" placeholder="Cari ID atau nama..."/>
@@ -1717,18 +1916,15 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               </td>
                               <td className="px-6 py-3.5 border-t border-slate-50">
                                 <div className="flex items-center gap-2">
-                                  <select 
-                                    value={r.petugas || "Belum Ditugaskan"}
+                                  <MultiSelectDropdown 
+                                    idPrefix={`pcl-${r.id}`}
+                                    selectedNames={r.assigned_pcls || []}
+                                    allOptions={pcls}
+                                    placeholder="Pilih PCL"
                                     disabled={isKegiatanAdmin}
-                                    onChange={(e) => handleAssignPCL(r.id, e.target.value)}
-                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px] disabled:opacity-75 disabled:cursor-not-allowed"
-                                  >
-                                    <option value="Belum Ditugaskan">Pilih PCL</option>
-                                    {pcls.map(o => (
-                                      <option key={o.name} value={o.name}>{o.name}</option>
-                                    ))}
-                                  </select>
-                                  {r.petugas && r.petugas !== "Belum Ditugaskan" ? (
+                                    onChange={(updated) => handleAssignPCLMultiple(r, updated)}
+                                  />
+                                  {r.assigned_pcls && r.assigned_pcls.length > 0 ? (
                                     <span className="w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 animate-scale-in">
                                       <Check size={11} strokeWidth={3} />
                                     </span>
@@ -1741,18 +1937,15 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               </td>
                               <td className="px-6 py-3.5 border-t border-slate-50">
                                 <div className="flex items-center gap-2">
-                                  <select 
-                                    value={r.pengawas || "Belum Ditugaskan"}
+                                  <MultiSelectDropdown 
+                                    idPrefix={`pml-${r.id}`}
+                                    selectedNames={r.assigned_pmls || []}
+                                    allOptions={pmls}
+                                    placeholder="Pilih PML"
                                     disabled={isKegiatanAdmin}
-                                    onChange={(e) => handleAssignPML(r.id, e.target.value)}
-                                    className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full max-w-[140px] disabled:opacity-75 disabled:cursor-not-allowed"
-                                  >
-                                    <option value="Belum Ditugaskan">Pilih PML</option>
-                                    {pmls.map(o => (
-                                      <option key={o.name} value={o.name}>{o.name}</option>
-                                    ))}
-                                  </select>
-                                  {r.pengawas && r.pengawas !== "Belum Ditugaskan" ? (
+                                    onChange={(updated) => handleAssignPMLMultiple(r, updated)}
+                                  />
+                                  {r.assigned_pmls && r.assigned_pmls.length > 0 ? (
                                     <span className="w-5 h-5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0 animate-scale-in">
                                       <Check size={11} strokeWidth={3} />
                                     </span>
@@ -2089,6 +2282,176 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      )}
+
+      {isAssignSlsModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6"
+          style={{ animation: 'fadeIn 0.2s ease' }}
+          onClick={() => { if (!isAssigningSls) setIsAssignSlsModalOpen(false); }}>
+          <div className="bg-white rounded-2xl p-8 w-full shadow-lg max-h-[95vh] overflow-y-auto"
+            style={{ maxWidth: 640, animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
+            onClick={e => e.stopPropagation()}>
+            
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
+                  <Edit3 size={20}/>
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Tugaskan Petugas Per SLS</h3>
+                  <p className="text-xs text-slate-400">Penugasan massal PCL dan PML untuk seluruh keluarga dalam satu SLS</p>
+                </div>
+              </div>
+              <button 
+                disabled={isAssigningSls}
+                onClick={() => setIsAssignSlsModalOpen(false)}
+                className="w-8 h-8 rounded-lg hover:bg-slate-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-slate-600 transition-all bg-transparent disabled:opacity-50">
+                <X size={18}/>
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Select SLS */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">Pilih Satuan Lingkungan Setempat (SLS)</label>
+                <select 
+                  value={selectedSls}
+                  onChange={e => setSelectedSls(e.target.value)}
+                  className="w-full text-sm bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all"
+                >
+                  <option value="">-- Pilih SLS --</option>
+                  {uniqueSlsList.map(sls => (
+                    <option key={sls} value={sls}>{sls}</option>
+                  ))}
+                </select>
+                {uniqueSlsList.length === 0 && (
+                  <p className="text-[10px] text-amber-500 font-semibold mt-1">
+                    * Tidak ada SLS terdeteksi di dokumen kegiatan saat ini. Unggah prelist terlebih dahulu.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* PCL selection */}
+                <div className="flex flex-col">
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Pilih Petugas Pendataan (PCL)
+                  </label>
+                  <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 mb-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500/10">
+                    <Search size={12} className="text-slate-400"/>
+                    <input 
+                      type="text"
+                      placeholder="Cari PCL..."
+                      value={pclSearch}
+                      onChange={e => setPclSearch(e.target.value)}
+                      className="text-xs outline-none bg-transparent w-full font-semibold text-slate-700"
+                    />
+                  </div>
+                  <div className="border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2.5 bg-white">
+                    {filteredPcls.map(p => {
+                      const isChecked = selectedSlsPcls.includes(p.name);
+                      return (
+                        <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setSelectedSlsPcls(prev => 
+                                prev.includes(p.name) ? prev.filter(n => n !== p.name) : [...prev, p.name]
+                              );
+                            }}
+                            className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </label>
+                      );
+                    })}
+                    {filteredPcls.length === 0 && (
+                      <p className="text-[10px] text-slate-400 text-center py-4">Tidak ada PCL ditemukan</p>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 font-medium">
+                    {selectedSlsPcls.length} PCL terpilih
+                  </div>
+                </div>
+
+                {/* PML selection */}
+                <div className="flex flex-col">
+                  <label className="block text-xs font-bold text-slate-700 mb-2">
+                    Pilih Pengawas (PML)
+                  </label>
+                  <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 mb-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500/10">
+                    <Search size={12} className="text-slate-400"/>
+                    <input 
+                      type="text"
+                      placeholder="Cari PML..."
+                      value={pmlSearch}
+                      onChange={e => setPmlSearch(e.target.value)}
+                      className="text-xs outline-none bg-transparent w-full font-semibold text-slate-700"
+                    />
+                  </div>
+                  <div className="border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2.5 bg-white">
+                    {filteredPmls.map(p => {
+                      const isChecked = selectedSlsPmls.includes(p.name);
+                      return (
+                        <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
+                          <input 
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              setSelectedSlsPmls(prev => 
+                                prev.includes(p.name) ? prev.filter(n => n !== p.name) : [...prev, p.name]
+                              );
+                            }}
+                            className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                          />
+                          <span className="truncate">{p.name}</span>
+                        </label>
+                      );
+                    })}
+                    {filteredPmls.length === 0 && (
+                      <p className="text-[10px] text-slate-400 text-center py-4">Tidak ada PML ditemukan</p>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 font-medium">
+                    {selectedSlsPmls.length} PML terpilih
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-8 pt-4 border-t border-slate-100">
+              <button 
+                disabled={isAssigningSls}
+                onClick={() => {
+                  setIsAssignSlsModalOpen(false);
+                  setSelectedSls("");
+                  setSelectedSlsPcls([]);
+                  setSelectedSlsPmls([]);
+                  setPclSearch("");
+                  setPmlSearch("");
+                }}
+                className="flex-1 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-medium text-slate-600 cursor-pointer transition-all border-0 disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button 
+                disabled={!selectedSls || isAssigningSls}
+                onClick={handleAssignSlsSubmit}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                {isAssigningSls ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"/>
+                    Memproses...
+                  </>
+                ) : (
+                  "Simpan Penugasan"
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
