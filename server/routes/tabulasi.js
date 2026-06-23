@@ -90,11 +90,11 @@ router.get('/:kegiatanId', async (req, res) => {
       select: { status: true },
     });
     
-    const isSelesai = kegiatan && kegiatan.status === 'selesai';
+    const allowAll = kegiatan && ['selesai', 'published'].includes(kegiatan.status);
 
     const docWhere = {
       kegiatan_id: parseInt(kegiatanId, 10),
-      ...(isSelesai
+      ...(allowAll
         ? { status: { in: ['tersimpan', 'terkirim'] } }
         : { review_status: 'approved' }),
     };
@@ -241,11 +241,126 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
       ],
     });
 
-    const isSelesai = kegiatan.status === 'selesai';
+    let allBlocks = await prisma.formBlok.findMany({
+      where: { kegiatan_id: parseInt(kegiatanId, 10) },
+      orderBy: { sort_order: 'asc' }
+    });
+
+    const sortBlocksNaturally = (blks) => {
+      const romanToDecimal = (roman) => {
+        const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+        let dec = 0;
+        const str = roman.toLowerCase();
+        for (let i = 0; i < str.length; i++) {
+          const current = map[str[i]];
+          const next = map[str[i + 1]];
+          if (next && current < next) {
+            dec += next - current;
+            i++;
+          } else {
+            dec += current;
+          }
+        }
+        return dec || 0;
+      };
+      const getBlockSortKey = (block) => {
+        const kodeStr = String(block.kode || block.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          return romanToDecimal(match[1]);
+        }
+        if (kodeStr.toLowerCase() === "pengantar") {
+          return 0;
+        }
+        return 999;
+      };
+      return [...(blks || [])].sort((a, b) => {
+        const keyA = getBlockSortKey(a);
+        const keyB = getBlockSortKey(b);
+        if (keyA !== keyB) return keyA - keyB;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+    };
+
+    allBlocks = sortBlocksNaturally(allBlocks);
+
+    const getQuestionCode = (q, allQuestions, allBlocks) => {
+        if (!q) return '';
+        const valStr = q.validation || q.val;
+        if (valStr && valStr.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(valStr);
+            if (parsed.custom_code || parsed.customCode) {
+              return parsed.custom_code || parsed.customCode;
+            }
+          } catch (e) {}
+        }
+        const block = allBlocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+        let blockIdx = 0;
+        if (block) {
+          const romanToDecimal = (roman) => {
+            const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+            let dec = 0;
+            const str = roman.toLowerCase();
+            for (let i = 0; i < str.length; i++) {
+              const current = map[str[i]];
+              const next = map[str[i + 1]];
+              if (next && current < next) { dec += next - current; i++; }
+              else { dec += current; }
+            }
+            return dec || 0;
+          };
+          const kodeStr = String(block.kode || block.id || '');
+          const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+          if (match) { blockIdx = romanToDecimal(match[1]); }
+        }
+        if (!blockIdx) {
+          const standardBlocks = allBlocks.filter(b => String(b.kode || b.id || '').startsWith('Blok '));
+          blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
+        }
+        if (blockIdx === 0) return '';
+        
+        if (q.parent_id) {
+          const parent = allQuestions.find(p => p.id === q.parent_id);
+          if (!parent) return '';
+          const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
+          const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          const sibIdx = siblings.findIndex(s => s.id === q.id);
+          if (parent.parent_id) {
+            const romanNumerals = ['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii', 'viii', 'ix', 'x'];
+            const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
+            return parentCode + '_' + suffix;
+          } else {
+            const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0));
+            return parentCode + '_' + letter;
+          }
+        } else {
+          const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          let startIndex = 1;
+          const firstQ = mainQs[0];
+          if (firstQ) {
+            const firstValStr = firstQ.validation || firstQ.val;
+            if (firstValStr && firstValStr.trim().startsWith('{')) {
+              try {
+                const parsed = JSON.parse(firstValStr);
+                const custom = parsed.custom_code || parsed.customCode || '';
+                if (parsed.start_zero || parsed.start_from_zero || custom.endsWith('00') || custom === '400' || custom === 'R400') {
+                  startIndex = 0;
+                }
+              } catch (e) {}
+            }
+          }
+          const qIdx = mainQs.findIndex(s => s.id === q.id) + startIndex;
+          const padded = qIdx.toString().padStart(2, '0');
+          return blockIdx.toString() + padded;
+        }
+    };
+
+    const allowAll = ['selesai', 'published'].includes(kegiatan.status);
     const documents = await prisma.dokumen.findMany({
       where: {
         kegiatan_id: parseInt(kegiatanId, 10),
-        ...(isSelesai ? { status: { in: ['tersimpan', 'terkirim'] } } : { review_status: 'approved' }),
+        ...(allowAll ? { status: { in: ['tersimpan', 'terkirim'] } } : { review_status: 'approved' }),
       },
       orderBy: { created_at: 'asc' }
     });
@@ -284,10 +399,39 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
       return val;
     };
 
+    const getOrderedQuestionsInBlock = (blockId, allQuestions) => {
+      const blockQs = allQuestions.filter(q => q.blok_id === blockId);
+      const mainQs = blockQs.filter(q => !q.parent_id);
+
+      const ordered = [];
+      const addChildren = (parentId) => {
+        const children = blockQs.filter(q => q.parent_id === parentId);
+        children.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        children.forEach(child => {
+          ordered.push(child);
+          addChildren(child.id);
+        });
+      };
+
+      mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      mainQs.forEach(parent => {
+        ordered.push(parent);
+        addChildren(parent.id);
+      });
+      return ordered;
+    };
+
+    const allOrderedQs = [];
+    allBlocks.forEach(b => {
+      allOrderedQs.push(...getOrderedQuestionsInBlock(b.id, questions));
+    });
+
     const masterQuestions = [];
     const loopQuestionsByBlock = {};
 
-    questions.forEach(q => {
+    allOrderedQs.forEach(q => {
+      if (q.type === 'note') return; // Skip note questions
+
       let isLoop = false;
       try {
          const valObj = JSON.parse(q.validation || '{}');
@@ -322,7 +466,10 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
 
       masterQuestions.forEach(q => {
          const val = answersMap[doc.id]?.[q.id] ?? '';
-         masterRow[`${q.id} - ${q.label}`] = getParsedValue(q, val);
+         const qCode = getQuestionCode(q, questions, allBlocks);
+         // Tambahkan spasi di awal agar urutan kolom (object keys insertion order) 
+         // tidak diacak oleh JavaScript jika qCode berupa angka murni (misal "405")
+         masterRow[` ${qCode}`] = getParsedValue(q, val);
       });
       masterData.push(masterRow);
 
@@ -353,7 +500,8 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
             };
             lQuestions.forEach(q => {
                const val = docAnswersForBlock[q.id][i] ?? '';
-               loopRow[`${q.id} - ${q.label}`] = getParsedValue(q, val);
+               const qCode = getQuestionCode(q, questions, allBlocks);
+               loopRow[` ${qCode}`] = getParsedValue(q, val);
             });
             loopDataByBlock[blockName].push(loopRow);
          }
@@ -368,7 +516,15 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
       { Parameter: 'Status', Value: kegiatan.status },
       { Parameter: 'Total Dokumen Bersih', Value: documents.length },
       { Parameter: 'Tanggal Export', Value: new Date().toLocaleString('id-ID') },
+      { Parameter: '', Value: '' },
+      { Parameter: '--- DAFTAR RINCIAN ---', Value: '--- PERTANYAAN ---' }
     ];
+
+    allOrderedQs.forEach(q => {
+      if (q.type === 'note') return;
+      const qCode = getQuestionCode(q, questions, allBlocks);
+      metadata.push({ Parameter: qCode, Value: q.label });
+    });
     const wsMeta = xlsx.utils.json_to_sheet(metadata);
     // Custom column width for metadata
     wsMeta['!cols'] = [{ wch: 25 }, { wch: 50 }];
@@ -386,7 +542,7 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
 
     const buf = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
-    const safeFileName = kegiatan.nama.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeFileName = kegiatan.name.replace(/[^a-zA-Z0-9]/g, '_');
     res.setHeader('Content-Disposition', `attachment; filename="Export_${safeFileName}.xlsx"`);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     return res.send(buf);

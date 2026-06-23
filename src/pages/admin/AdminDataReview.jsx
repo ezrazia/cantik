@@ -1058,11 +1058,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         setDetectedColumns([]);
         setPreviewRows([]);
         setParsedExcelData([]);
+        setColumnMapping({});
+        setMappingStep(1);
         setIsSuccess(false);
         fetchReviewDocuments(); // Reload review data after successful import
       }, 1500);
     } catch (err) {
-      alert("Gagal mengimpor prelist: " + (err.message || "Timeout transaksi"));
+      alert("Gagal mengimpor prelist: " + (err.message || "Terjadi kesalahan pada server"));
     } finally {
       setIsUploading(false);
     }
@@ -1148,8 +1150,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     key={i}
                     onClick={() => setViewingBlock(b.id)}
                     className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all ${isCurrent
-                        ? "text-blue-600 bg-blue-50/70 shadow-sm"
-                        : "bg-transparent text-slate-500 hover:bg-slate-50"
+                      ? "text-blue-600 bg-blue-50/70 shadow-sm"
+                      : "bg-transparent text-slate-500 hover:bg-slate-50"
                       }`}
                   >
                     <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isCurrent ? 'bg-blue-500 animate-pulse' : 'bg-slate-300'}`} />
@@ -1222,8 +1224,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       onClick={() => setConfirmModalType("approve")}
                       disabled={isEditing}
                       className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${isEditing
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                        : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
                         }`}
                     >
                       <Check size={13} /> Setujui Dokumen (Approve)
@@ -1793,8 +1795,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 disabled={!canUploadPrelist}
                 onClick={() => setIsUploadModalOpen(true)}
                 className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${canUploadPrelist
-                    ? "bg-blue-600 hover:bg-blue-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]"
-                    : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                  ? "bg-blue-600 hover:bg-blue-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]"
+                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
                   }`}
                 title={
                   !selectedProject

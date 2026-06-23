@@ -1126,7 +1126,18 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       if (loopByQuestionId) {
         const triggerValue = ans.values[loopByQuestionId];
         const parsedTrigger = parseInt(triggerValue, 10);
-        return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
+        if (!isNaN(parsedTrigger) && parsedTrigger > 0) {
+          return Math.max(0, parsedTrigger);
+        }
+        // Fallback for prelist array mapping
+        try {
+          const val = ans.values[q.id];
+          if (typeof val === 'string' && val.startsWith('[')) {
+            const arr = JSON.parse(val);
+            if (Array.isArray(arr) && arr.length > 0) return arr.length;
+          }
+        } catch(e) {}
+        return 0;
       }
       if (loopType === "manual") {
         const manualCount = getManualLoopCount(q);
@@ -1331,7 +1342,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           headerUpdates.sls = extractedText;
         } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
           headerUpdates.alamat = extractedText;
-        } else if (lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) {
+        } else if (lowerLabel === "nama kepala rumah tangga" || lowerLabel === "nama krt" || lowerLabel.includes("nama kepala")) {
           headerUpdates.krt = extractedText;
         } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) {
           headerUpdates.sub_sls = extractedText;
@@ -2416,6 +2427,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         const triggerValue = ans.values[loopByQuestionId];
         const parsedTrigger = parseInt(triggerValue, 10);
         loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+        if (loopCount === 0) {
+          try {
+            const val = ans.values[q.id];
+            if (typeof val === 'string' && val.startsWith('[')) {
+              const arr = JSON.parse(val);
+              if (Array.isArray(arr) && arr.length > 0) loopCount = arr.length;
+            }
+          } catch(e) {}
+        }
       } else {
         const manualCount = getManualLoopCount(q);
         if (manualCount !== null) {
@@ -2507,6 +2527,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         const triggerValue = ans.values[loopByQuestionId];
         const parsedTrigger = parseInt(triggerValue, 10);
         loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
+        if (loopCount === 0) {
+          try {
+            const val = ans.values[q.id];
+            if (typeof val === 'string' && val.startsWith('[')) {
+              const arr = JSON.parse(val);
+              if (Array.isArray(arr) && arr.length > 0) loopCount = arr.length;
+            }
+          } catch(e) {}
+        }
       } else {
         const manualCount = getManualLoopCount(q);
         if (manualCount !== null) {

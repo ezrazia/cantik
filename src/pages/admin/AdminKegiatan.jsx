@@ -107,10 +107,10 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
         allWilayah
           .filter(w => w.sls)
           .forEach(w => {
-            const key = `${w.sls}||${w.desa}`;
+            const key = `${w.sls} [${w.desa}]`;
             if (!seen.has(key)) {
               seen.add(key);
-              unique.push({ name: w.sls, desa: w.desa });
+              unique.push({ name: key, sls: w.sls, desa: w.desa });
             }
           });
         return unique.sort((a, b) => a.name.localeCompare(b.name));
@@ -124,10 +124,10 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
         allWilayah
           .filter(w => w.sub_sls)
           .forEach(w => {
-            const key = `${w.sub_sls}||${w.sls}`;
+            const key = `${w.sub_sls} [${w.sls} - ${w.desa}]`;
             if (!seen.has(key)) {
               seen.add(key);
-              unique.push({ name: w.sub_sls, sls: w.sls, desa: w.desa });
+              unique.push({ name: key, subSls: w.sub_sls, sls: `${w.sls} [${w.desa}]`, desa: w.desa });
             }
           });
         return unique.sort((a, b) => a.name.localeCompare(b.name));
@@ -1139,7 +1139,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                                     onChange={() => handleLokusChange("sls", s.name)}
                                     className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
                                   />
-                                  <span className="truncate">{s.name} {s.desa}</span>
+                                  <span className="truncate">{s.name}</span>
                                 </label>
                               );
                             })
@@ -1192,7 +1192,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                                       onChange={() => handleLokusChange("subSls", sub.name)}
                                       className="rounded text-blue-600 focus:ring-blue-500/20 w-3.5 h-3.5 cursor-pointer disabled:opacity-50"
                                     />
-                                    <span className="truncate">{sub.name} {sub.desa}</span>
+                                    <span className="truncate">{sub.name}</span>
                                   </label>
                                 );
                               });
