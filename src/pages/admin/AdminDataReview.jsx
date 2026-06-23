@@ -6,8 +6,8 @@ import Badge from "../../components/ui/Badge";
 import ConfirmModal from "../../components/ui/ConfirmModal";
 import useDropdown from "../../hooks/useDropdown";
 import SearchableSelect from "../../components/ui/SearchableSelect";
-import { 
-  Search, Eye, Check, X, AlertTriangle, Filter, Upload, 
+import {
+  Search, Eye, Check, X, AlertTriangle, Filter, Upload,
   Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus
 } from "lucide-react";
 
@@ -24,7 +24,7 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
     let newVal = e.target.value;
     if (forceUppercase) newVal = newVal.toUpperCase();
     if (allowedPattern && newVal !== "" && !allowedPattern.test(newVal)) return;
-    
+
     setLocalValue(newVal);
 
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -55,7 +55,7 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
     if (!localValue || localValue === "-" || localValue === "-." || localValue.endsWith(".")) {
       return localValue.replace(/\./g, ",");
     }
-    
+
     const parts = localValue.toString().split(".");
     const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
     const decimalPart = parts.length > 1 ? "," + parts[1] : "";
@@ -107,16 +107,16 @@ const FastRadioGroup = ({ value, onChange, options, name, className, disabled })
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
       onChange(val);
-    }, 50); 
+    }, 50);
   };
 
   return (
     <div className={className}>
       {options?.map(opt => (
         <label key={opt.value} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-          <input 
-            type="radio" 
-            name={name} 
+          <input
+            type="radio"
+            name={name}
             value={opt.value}
             checked={String(localValue) === String(opt.value)}
             onChange={() => handleChange(opt.value)}
@@ -225,10 +225,10 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
     onChange(updated);
   };
 
-  const displayText = selectedNames.length === 0 
-    ? placeholder 
-    : selectedNames.length === 1 
-      ? selectedNames[0] 
+  const displayText = selectedNames.length === 0
+    ? placeholder
+    : selectedNames.length === 1
+      ? selectedNames[0]
       : `${selectedNames.length} Terpilih`;
 
   return (
@@ -241,7 +241,7 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
         className="text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-blue-500 rounded-lg px-2.5 py-1.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all w-full flex items-center justify-between gap-1 disabled:opacity-75 disabled:cursor-not-allowed"
       >
         <span className="truncate">{displayText}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`text-slate-400 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
       </button>
 
       {isOpen && (
@@ -253,18 +253,18 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
             const isChecked = selectedNames.includes(o.name);
             const optId = `${idPrefix || 'opt'}-${idx}-${o.name.replace(/\s+/g, '-').toLowerCase()}`;
             return (
-              <div 
+              <div
                 key={o.name}
                 className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-[11px] font-semibold text-slate-600 transition-all select-none"
               >
-                <input 
+                <input
                   type="checkbox"
                   id={optId}
                   checked={isChecked}
                   onChange={() => handleToggle(o.name)}
                   className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
                 />
-                <label 
+                <label
                   htmlFor={optId}
                   className="truncate cursor-pointer flex-1 py-0.5"
                 >
@@ -285,6 +285,8 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
 function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading, currentUser }) {
   const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
   const [filter, setFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOrder, setSortOrder] = useState("desc");
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState("");
   const [data, setData] = useState([]);
@@ -310,13 +312,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [isSuccess, setIsSuccess] = useState(false);
   const [detectedColumns, setDetectedColumns] = useState([]);
   const [previewRows, setPreviewRows] = useState([]);
-  
+
   // New mapping states
   const [parsedExcelData, setParsedExcelData] = useState([]);
   const [groupingColumn, setGroupingColumn] = useState("");
   const [columnMapping, setColumnMapping] = useState({});
   const [mappingStep, setMappingStep] = useState(1); // 1: upload, 2: map, 3: preview
-  
+
   const fileInputRef = useRef(null);
 
   // States for Assign SLS Modal
@@ -336,8 +338,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [desaStats, setDesaStats] = useState([]);
   const activeDesas = activeActivity
     ? (typeof activeActivity.lokus === 'string'
-        ? (JSON.parse(activeActivity.lokus)?.desa || [])
-        : (activeActivity.lokus?.desa || []))
+      ? (JSON.parse(activeActivity.lokus)?.desa || [])
+      : (activeActivity.lokus?.desa || []))
     : [];
   const villages = ["Semua Desa", ...(desaStats.length > 0 ? desaStats.map(d => `Desa ${d.name}`) : activeDesas.map(d => `Desa ${d}`))];
   const villageDropdown = useDropdown("Semua Desa");
@@ -387,13 +389,6 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     return Array.from(slsSet).sort();
   }, [data]);
 
-  const filteredPcls = useMemo(() => {
-    return pcls.filter(p => p.name.toLowerCase().includes(pclSearch.toLowerCase()));
-  }, [pcls, pclSearch]);
-
-  const filteredPmls = useMemo(() => {
-    return pmls.filter(p => p.name.toLowerCase().includes(pmlSearch.toLowerCase()));
-  }, [pmls, pmlSearch]);
 
   const handleAssignSlsSubmit = async () => {
     if (!selectedSls) return;
@@ -405,7 +400,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         selectedSlsPcls,
         selectedSlsPmls
       );
-      
+
       // Update local state to reflect changes instantly in the UI table
       setData(prev => prev.map(r => {
         if (r.sls === selectedSls) {
@@ -433,6 +428,57 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       setIsAssigningSls(false);
     }
   };
+
+  // Check activity status to decide if prelist is editable
+  const activeActivity = activities?.find(a => a.name === selectedProject);
+  const status = activeActivity ? activeActivity.status : "draft";
+
+  // Village Stats & Dropdown
+  const [desaStats, setDesaStats] = useState([]);
+  const activeDesas = activeActivity
+    ? (typeof activeActivity.lokus === 'string'
+      ? (JSON.parse(activeActivity.lokus)?.desa || [])
+      : (activeActivity.lokus?.desa || []))
+    : [];
+  const villages = ["Semua Desa", ...(desaStats.length > 0 ? desaStats.map(d => `Desa ${d.name}`) : activeDesas.map(d => `Desa ${d}`))];
+  const villageDropdown = useDropdown("Semua Desa");
+
+  useEffect(() => {
+    if (!activeActivity) return;
+    const fetchDesa = async () => {
+      try {
+        const stats = await api.desa.getStats(activeActivity.id);
+        setDesaStats(stats);
+      } catch (err) {
+        console.error("Gagal mengambil target desa:", err);
+      }
+    };
+    fetchDesa();
+  }, [selectedProject, activeActivity]);
+
+  const getStatusConfig = () => {
+    switch (status) {
+      case "published":
+        return { dot: "bg-emerald-500", pulse: "bg-emerald-400", text: "text-emerald-600", bg: "bg-emerald-50", label: "Published" };
+      case "selesai":
+        return { dot: "bg-red-500", pulse: "bg-red-400", text: "text-red-600", bg: "bg-red-50", label: "Selesai" };
+      case "uji_coba":
+        return { dot: "bg-blue-500", pulse: "bg-blue-400", text: "text-blue-600", bg: "bg-blue-50", label: "Uji Coba" };
+      case "draft":
+      default:
+        return { dot: "bg-amber-500", pulse: "bg-amber-400", text: "text-amber-600", bg: "bg-amber-50", label: "Draft" };
+    }
+  };
+
+  const statusConfig = getStatusConfig();
+
+  const isDraft = activeActivity ? activeActivity.status === "draft" : false;
+  const canUploadPrelist = selectedProject && isDraft && !isKegiatanAdmin;
+
+  // Officers list
+  const officersList = petugas || [];
+  const pcls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PCL");
+  const pmls = officersList.filter(o => !o.projectRoles || !o.projectRoles[selectedProject] || o.projectRoles[selectedProject] === "PML");
 
   const fetchReviewDocuments = async () => {
     if (!activeActivity) return;
@@ -514,7 +560,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 if (parsed.is_search) {
                   return { ...q, type: 'search' };
                 }
-              } catch (e) {}
+              } catch (e) { }
             }
             return q;
           });
@@ -532,8 +578,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const handleAssignPCLMultiple = async (record, selectedPcls) => {
     try {
-      setData(prev => prev.map(r => r.id === record.id ? { 
-        ...r, 
+      setData(prev => prev.map(r => r.id === record.id ? {
+        ...r,
         assigned_pcls: selectedPcls,
         petugas: selectedPcls.length > 0 ? selectedPcls[0] : "Belum Ditugaskan"
       } : r));
@@ -551,8 +597,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const handleAssignPMLMultiple = async (record, selectedPmls) => {
     try {
-      setData(prev => prev.map(r => r.id === record.id ? { 
-        ...r, 
+      setData(prev => prev.map(r => r.id === record.id ? {
+        ...r,
         assigned_pmls: selectedPmls,
         pengawas: selectedPmls.length > 0 ? selectedPmls[0] : "Belum Ditugaskan"
       } : r));
@@ -576,10 +622,26 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const filtered = filter === "all" ? villageData : villageData.filter(r => r.status === filter);
   const count = s => villageData.filter(r => r.status === s).length;
 
-  const sortedFiltered = [...filtered].sort((a, b) => {
+  const filteredSearch = filtered.filter(r => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (r.id || "").toString().toLowerCase().includes(q) ||
+      (r.kode || "").toLowerCase().includes(q) ||
+      (r.krt || "").toLowerCase().includes(q) ||
+      (r.petugas_name || "").toLowerCase().includes(q) ||
+      (r.pengawas || "").toLowerCase().includes(q);
+  });
+
+  const sortedFiltered = [...filteredSearch].sort((a, b) => {
     if (a.isPrelist && !b.isPrelist) return -1;
     if (!a.isPrelist && b.isPrelist) return 1;
-    return b.id.localeCompare(a.id);
+    const valA = (a.id || a.kode || "").toString();
+    const valB = (b.id || b.kode || "").toString();
+    if (sortOrder === "desc") {
+      return valB.localeCompare(valA);
+    } else {
+      return valA.localeCompare(valB);
+    }
   });
 
   const handleOpenDetail = async (record) => {
@@ -670,7 +732,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const getQuestionCode = (q, allQuestions, allBlocks) => {
     if (!q) return "";
-    
+
     // Support custom code set in validation JSON
     const valStr = q.validation || q.val;
     if (valStr && valStr.trim().startsWith('{')) {
@@ -679,7 +741,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         if (parsed.custom_code || parsed.customCode) {
           return parsed.custom_code || parsed.customCode;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const standardBlocks = allBlocks.filter(b => {
@@ -688,16 +750,16 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     });
     const blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
     if (blockIdx === 0) return "";
-    
+
     if (q.parent_id) {
       const parent = allQuestions.find(p => p.id === q.parent_id);
       if (!parent) return "";
       const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
-      
+
       // Sibling sub-questions of same parent
       const siblings = allQuestions.filter(s => s.blok_id === q.blok_id && s.parent_id === q.parent_id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
       const sibIdx = siblings.findIndex(s => s.id === q.id);
-      
+
       // Check if parent has parent_id (depth 2)
       if (parent.parent_id) {
         const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
@@ -710,7 +772,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     } else {
       // Index among main questions of the block
       const mainQs = allQuestions.filter(s => s.blok_id === q.blok_id && !s.parent_id && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      
+
       let startIndex = 1;
       const firstQ = mainQs[0];
       if (firstQ) {
@@ -722,7 +784,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
               startIndex = 0;
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
 
@@ -734,7 +796,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const getManualLoopCount = (q) => {
     if (!q) return null;
-    
+
     // Check if the question belongs to a loop group
     let loopGroupName = "";
     if (q.validation) {
@@ -743,9 +805,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         if (parsed && parsed.loop_group) {
           loopGroupName = parsed.loop_group;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
-    
+
     if (loopGroupName) {
       const groupQs = questions.filter(x => {
         if (!x.validation) return false;
@@ -777,14 +839,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         const parsed = JSON.parse(q.validation);
         isLoop = !!parsed.is_loop;
         loopType = parsed.loop_type || "question";
-      } catch (e) {}
+      } catch (e) { }
     }
     if (isLoop && loopType === "manual") {
       const savedCount = ans[`${q.id}_loop_count`];
       const parsed = savedCount ? parseInt(savedCount, 10) : 1;
       return isNaN(parsed) || parsed < 1 ? 1 : parsed;
     }
-    
+
     const parentId = q.parent_id || q.parentId;
     if (parentId) {
       const parent = questions.find(p => p.id === parentId);
@@ -792,7 +854,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         return getManualLoopCount(parent);
       }
     }
-    
+
     return null;
   };
 
@@ -809,7 +871,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     const newCount = Math.max(1, currentCount - 1);
     const updatedValues = { ...ans };
     updatedValues[`${qId}_loop_count`] = newCount;
-    
+
     // Find all questions that might be children of this question
     const childQs = questions.filter(c => c.parent_id === qId || c.parentId === qId);
     const targetQIds = [qId, ...childQs.map(c => c.id)];
@@ -825,10 +887,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             }
             updatedValues[id] = JSON.stringify(parsed);
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
-    
+
     setAns(updatedValues);
   };
 
@@ -842,7 +904,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       } else if (typeof parsed === 'object' && parsed !== null) {
         return parsed[idx] || "";
       }
-    } catch (e) {}
+    } catch (e) { }
     return idx === 0 ? raw : "";
   };
 
@@ -880,7 +942,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               delete filteredAns[q.id];
               delete filteredAns[`${q.id}_loop_count`];
             }
-          } catch(e) {}
+          } catch (e) { }
         }
       });
 
@@ -926,7 +988,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const handleSelectFile = (file) => {
     if (!file) return;
     setIsUploading(true);
-    
+
     setUploadedFile({
       name: file.name,
       size: (file.size / 1024).toFixed(1) + " KB",
@@ -942,11 +1004,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         const firstSheetName = workbook.SheetNames[0];
         const firstSheet = workbook.Sheets[firstSheetName];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
-        
+
         if (jsonData.length > 0) {
           const headers = jsonData[0].map(h => String(h || "").trim().toLowerCase().replace(/\s+/g, '_'));
           setDetectedColumns(headers.filter(h => h));
-          
+
           const rows = [];
           for (let i = 1; i < jsonData.length; i++) {
             if (!jsonData[i] || jsonData[i].length === 0 || !jsonData[i].some(cell => cell !== undefined && cell !== null && cell !== '')) continue;
@@ -958,7 +1020,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             });
             rows.push(rowData);
           }
-          
+
           setParsedExcelData(rows);
           setPreviewRows(rows.slice(0, 10));
           setUploadedFile(prev => ({ ...prev, rowCount: rows.length }));
@@ -982,7 +1044,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       alert("Tidak ada data untuk diimpor.");
       return;
     }
-    
+
     setIsUploading(true);
     try {
       // Identify columns
@@ -992,7 +1054,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       const desaCol = detectedColumns.find(c => c.toLowerCase().includes('desa') || c.toLowerCase().includes('kelurahan'));
       const slsCol = detectedColumns.find(c => c.toLowerCase().includes('sls') || c.toLowerCase().includes('rt'));
       const nikCol = detectedColumns.find(c => ['nik', 'no_nik', 'nomor_nik'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('nik'));
-      
+
       const groups = {};
       if (kkCol) {
         parsedExcelData.forEach(row => {
@@ -1006,16 +1068,16 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           groups[`row_${idx}`] = [row];
         });
       }
-      
+
       const documents = Object.values(groups).map((family, idx) => {
         const head = family[0]; // first row is KRT
-        
+
         // Helper to safely cast to string
         const safeString = (val) => (val !== undefined && val !== null ? String(val).trim() : "");
-        
+
         const headNik = nikCol && head[nikCol] ? safeString(head[nikCol]) : `NONIK${idx}`;
         const headRt = slsCol && head[slsCol] ? safeString(head[slsCol]) : `NORT${idx}`;
-        
+
         return {
           kode: head.id || head.kode || `PL-${headNik}-${headRt}`,
           kegiatan_id: activeActivity?.id,
@@ -1029,9 +1091,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           values: {} // future: populate family loops if needed
         };
       });
-      
+
       const defaultPetugas = petugas && petugas.length > 0 ? petugas[0].id : 1;
-      
+
       // Chunk documents to avoid transaction timeout
       // Reduced to 5 to fit well within Prisma Accelerate 15000ms max timeout
       const chunkSize = 5;
@@ -1066,13 +1128,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
     const blockQuestions = questions.filter(q => q.blok_id === viewingBlock);
 
-    const activityPetugas = (petugas || []).filter(p => 
+    const activityPetugas = (petugas || []).filter(p =>
       p.projects?.includes(selectedProject)
     );
-    const pclList = activityPetugas.filter(p => 
+    const pclList = activityPetugas.filter(p =>
       p.projectRoles?.[selectedProject] === "PCL"
     );
-    const pmlList = activityPetugas.filter(p => 
+    const pmlList = activityPetugas.filter(p =>
       p.projectRoles?.[selectedProject] === "PML"
     );
 
@@ -1081,7 +1143,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         {/* Top Control Bar */}
         <div className="flex items-center justify-between mb-6 bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={() => {
                 setViewingRecord(null);
                 setViewingBlock(blocks[0]?.id || null);
@@ -1100,10 +1162,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
         {/* 2-Column Layout: Left Sidebar + Right Questions */}
         <div className="flex flex-col lg:flex-row gap-6 w-full items-start">
-          
+
           {/* Inner Left Sidebar Container */}
           <div className="w-full lg:w-72 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col justify-between h-[620px] sticky top-6">
-            
+
             {/* Top: Document Information */}
             <div className="p-5 border-b border-slate-50 bg-slate-50/50">
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Informasi Dokumen</p>
@@ -1133,14 +1195,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               {BLOCKS.map((b, i) => {
                 const isCurrent = viewingBlock === b.id;
                 return (
-                  <button 
+                  <button
                     key={i}
                     onClick={() => setViewingBlock(b.id)}
-                    className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all ${
-                      isCurrent 
-                        ? "text-blue-600 bg-blue-50/70 shadow-sm" 
+                    className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all ${isCurrent
+                        ? "text-blue-600 bg-blue-50/70 shadow-sm"
                         : "bg-transparent text-slate-500 hover:bg-slate-50"
-                    }`}
+                      }`}
                   >
                     <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isCurrent ? 'bg-blue-500 animate-pulse' : 'bg-slate-300'}`} />
                     <div className="text-left flex flex-col min-w-0">
@@ -1157,12 +1218,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               {isKegiatanAdmin ? (
                 viewingRecord.status === "approved" ? (
                   <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     Dokumen Telah Disetujui
                   </div>
                 ) : (
                   <div className="text-[10px] text-slate-500 bg-slate-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-slate-100">
-                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400"/>
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
                     Dokumen Belum Disetujui (Read-Only)
                   </div>
                 )
@@ -1171,13 +1232,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   {viewingRecord.status !== "approved" ? (
                     isEditing ? (
                       <div className="grid grid-cols-2 gap-2">
-                        <button 
+                        <button
                           onClick={handleCancelEdit}
                           className="py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center"
                         >
                           Batal
                         </button>
-                        <button 
+                        <button
                           onClick={handleSaveEdit}
                           className="py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer border-0 transition-all text-center shadow-sm"
                         >
@@ -1185,39 +1246,38 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         </button>
                       </div>
                     ) : (
-                      <button 
+                      <button
                         onClick={() => setIsEditing(true)}
                         className="w-full py-2.5 bg-white hover:bg-slate-50 text-blue-600 border border-slate-200 hover:border-slate-300 font-bold rounded-xl text-xs cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
                       >
-                        <Edit3 size={13}/> Edit Isian
+                        <Edit3 size={13} /> Edit Isian
                       </button>
                     )
                   ) : (
                     <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                       Dokumen Telah Disetujui
                     </div>
                   )}
 
                   {/* Approve / Unapprove Actions */}
                   {viewingRecord.status === "approved" ? (
-                    <button 
+                    <button
                       onClick={() => setConfirmModalType("unapprove")}
                       className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs cursor-pointer border border-amber-100 transition-all flex items-center justify-center gap-1.5"
                     >
-                      <X size={13}/> Batalkan Persetujuan (Unapprove)
+                      <X size={13} /> Batalkan Persetujuan (Unapprove)
                     </button>
                   ) : (
-                    <button 
+                    <button
                       onClick={() => setConfirmModalType("approve")}
                       disabled={isEditing}
-                      className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${
-                        isEditing 
-                          ? "bg-slate-100 text-slate-400 cursor-not-allowed" 
+                      className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${isEditing
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
                           : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                      }`}
+                        }`}
                     >
-                      <Check size={13}/> Setujui Dokumen (Approve)
+                      <Check size={13} /> Setujui Dokumen (Approve)
                     </button>
                   )}
                 </>
@@ -1289,8 +1349,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             <div key={iIdx} className="space-y-1">
                               {instances.length > 1 && <label className="text-[10px] font-bold text-slate-455 block">Isian Ke-{iIdx + 1}</label>}
                               {q.type === 'pcl' ? (
-                                <select 
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                <select
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 cursor-pointer"
                                 >
@@ -1303,8 +1363,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   ))}
                                 </select>
                               ) : q.type === 'pml' ? (
-                                <select 
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                <select
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 cursor-pointer"
                                 >
@@ -1317,21 +1377,21 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   ))}
                                 </select>
                               ) : q.type === 'search' ? (
-                                <SearchableSelect 
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                <SearchableSelect
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   options={q.options || []}
                                   placeholder="Cari dan pilih opsi..."
                                   onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
                                 />
                               ) : q.type === 'select' ? (
-                                <FastSelect 
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                <FastSelect
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
                                   options={q.options || []}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
                                 />
                               ) : q.type === 'radio' ? (
-                                <FastRadioGroup 
+                                <FastRadioGroup
                                   className="flex flex-wrap gap-4 py-1.5"
                                   name={`q_${q.id}_${iIdx}`}
                                   value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
@@ -1339,24 +1399,24 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   onChange={(val) => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
                                 />
                               ) : q.type === 'number' ? (
-                                <DebouncedInput 
-                                  type="number" 
+                                <DebouncedInput
+                                  type="number"
                                   step="any"
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
                                 />
                               ) : q.type === 'date' ? (
-                                <input 
+                                <input
                                   type={(() => {
                                     if (q.validation && q.validation.trim().startsWith('{')) {
                                       try {
                                         const parsed = JSON.parse(q.validation);
                                         return parsed.date_type || "date";
-                                      } catch (e) {}
+                                      } catch (e) { }
                                     }
                                     return "date";
                                   })()}
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
                                 />
@@ -1367,9 +1427,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 min-h-[80px]"
                                 />
                               ) : (
-                                <input 
-                                  type="text" 
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
+                                <input
+                                  type="text"
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
                                   onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
                                 />
@@ -1386,8 +1446,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                 <div key={iIdx} className="px-4 py-2.5 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
                                   <span className="text-[10px] font-bold text-slate-400">Isian Ke-{iIdx + 1}:</span>
                                   <span className="text-xs font-bold text-slate-600">
-                                    {hasOptions 
-                                      ? (q.options.find(opt => String(opt.value) === String(loopVal))?.label || loopVal || '-') 
+                                    {hasOptions
+                                      ? (q.options.find(opt => String(opt.value) === String(loopVal))?.label || loopVal || '-')
                                       : (loopVal || '-')
                                     }
                                   </span>
@@ -1398,8 +1458,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         ) : (
                           <div className="px-4 py-3 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
                             <span className="text-xs font-bold text-slate-600">
-                              {hasOptions 
-                                ? (q.options.find(opt => String(opt.value) === String(value))?.label || value || '-') 
+                              {hasOptions
+                                ? (q.options.find(opt => String(opt.value) === String(value))?.label || value || '-')
                                 : (value || '-')
                               }
                             </span>
@@ -1413,7 +1473,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 const renderQuestionRow = (q, depth = 0, forceCard = false, activeInstanceIdx = null) => {
                   const value = ans[q.id] ?? '';
                   const hasOptions = q.options && Array.isArray(q.options);
-                  
+
                   let isLoop = false;
                   let loopType = "question";
                   let loopByQuestionId = null;
@@ -1425,7 +1485,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       loopType = parsed.loop_type || "question";
                       loopByQuestionId = parsed.loop_by_question_id || null;
                       subLabel = parsed.sub_label || "";
-                    } catch (e) {}
+                    } catch (e) { }
                   }
 
                   let loopCount = 1;
@@ -1446,17 +1506,17 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                   if (depth === 0 || forceCard) {
                     return (
-                      <ReviewQCard 
-                        key={q.id} 
-                        r={qCode} 
-                        label={resolveLabelText(q.label, activeInstanceIdx)} 
+                      <ReviewQCard
+                        key={q.id}
+                        r={qCode}
+                        label={resolveLabelText(q.label, activeInstanceIdx)}
                         subLabel={subLabel}
                         required={!!q.required}
                         skipInfo={q.skip_logic}
                       >
                         {hasChildren ? (
                           <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
-                            {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                            {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                           </div>
                         ) : (
                           renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
@@ -1509,7 +1569,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         <div className="pl-4 mt-2">
                           {hasChildren ? (
                             <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
-                              {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                              {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                             </div>
                           ) : (
                             renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
@@ -1552,7 +1612,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                 const topLevelQs = blockQuestions.filter(q => !q.parent_id && !q.parentId);
                 const renderedGroups = new Set();
-                
+
                 return topLevelQs.flatMap(q => {
                   let loopGroupName = "";
                   if (q.validation) {
@@ -1561,7 +1621,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       if (parsed && parsed.loop_group) {
                         loopGroupName = parsed.loop_group;
                       }
-                    } catch (e) {}
+                    } catch (e) { }
                   }
 
                   if (loopGroupName) {
@@ -1645,41 +1705,41 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                   const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
                   const hasChildren = childQs.length > 0;
-                  
+
                   if (hasChildren && (!q.label || q.label.trim() === "")) {
-                    return childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, 0, true));
+                    return childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, 0, true));
                   }
                   return [renderQuestionRow(q)];
                 });
               })()}
             </div>
 
-              {/* Block bottom navigation */}
-              <div className="flex gap-3 max-w-xl mt-6">
-                <button 
-                  disabled={viewingBlock === blocks[0]?.id}
-                  onClick={() => {
-                    const prevBlock = BLOCKS[BLOCKS.findIndex(b => b.id === viewingBlock) - 1]?.id;
-                    if (prevBlock) setViewingBlock(prevBlock);
-                  }}
-                  className="px-5 py-3 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-sm"
-                >
-                  <ChevronLeft size={14}/> Sebelumnya
-                </button>
-                <button 
-                  disabled={viewingBlock === blocks[blocks.length - 1]?.id}
-                  onClick={() => {
-                    const nextBlock = BLOCKS[BLOCKS.findIndex(b => b.id === viewingBlock) + 1]?.id;
-                    if (nextBlock) setViewingBlock(nextBlock);
-                  }}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
-                >
-                  Blok Berikutnya <ChevronRight size={14}/>
-                </button>
-              </div>
+            {/* Block bottom navigation */}
+            <div className="flex gap-3 max-w-xl mt-6">
+              <button
+                disabled={viewingBlock === blocks[0]?.id}
+                onClick={() => {
+                  const prevBlock = BLOCKS[BLOCKS.findIndex(b => b.id === viewingBlock) - 1]?.id;
+                  if (prevBlock) setViewingBlock(prevBlock);
+                }}
+                className="px-5 py-3 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-bold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-1.5 shadow-sm"
+              >
+                <ChevronLeft size={14} /> Sebelumnya
+              </button>
+              <button
+                disabled={viewingBlock === blocks[blocks.length - 1]?.id}
+                onClick={() => {
+                  const nextBlock = BLOCKS[BLOCKS.findIndex(b => b.id === viewingBlock) + 1]?.id;
+                  if (nextBlock) setViewingBlock(nextBlock);
+                }}
+                className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+              >
+                Blok Berikutnya <ChevronRight size={14} />
+              </button>
             </div>
           </div>
         </div>
+      </div>
     );
   };
 
@@ -1754,22 +1814,21 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   </div>
                 )}
                 <div className="relative">
-                  <button 
+                  <button
                     onClick={villageDropdown.toggle}
                     className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg border-0 cursor-pointer hover:bg-blue-100 transition-all"
                   >
-                    {villageDropdown.selected} <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform duration-200 ${villageDropdown.isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
+                    {villageDropdown.selected} <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform duration-200 ${villageDropdown.isOpen ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6" /></svg>
                   </button>
-                  
+
                   {villageDropdown.isOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={villageDropdown.close}/>
+                      <div className="fixed inset-0 z-10" onClick={villageDropdown.close} />
                       <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-56 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
                         {villages.map(v => (
                           <button key={v} onClick={() => villageDropdown.select(v)}
-                            className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${
-                              villageDropdown.selected === v ? 'bg-blue-50 text-blue-600 font-semibold' : 'bg-white text-slate-500 hover:bg-slate-50 font-medium'
-                            }`}>
+                            className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all ${villageDropdown.selected === v ? 'bg-blue-50 text-blue-600 font-semibold' : 'bg-white text-slate-500 hover:bg-slate-50 font-medium'
+                              }`}>
                             {v}
                           </button>
                         ))}
@@ -1779,49 +1838,52 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 </div>
               </div>
             </div>
-            
+
             <div className="flex items-center gap-3 w-full lg:w-auto">
-              <button 
+              <button
                 disabled={!canUploadPrelist}
                 onClick={() => setIsUploadModalOpen(true)}
-                className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
-                  canUploadPrelist 
-                    ? "bg-blue-600 hover:bg-blue-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
+                className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${canUploadPrelist
+                    ? "bg-blue-600 hover:bg-blue-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]"
                     : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                }`}
+                  }`}
                 title={
-                  !selectedProject 
-                    ? "Pilih kegiatan terlebih dahulu" 
-                    : !isDraft 
-                      ? "Prelist dikunci karena kegiatan sudah dipublish" 
+                  !selectedProject
+                    ? "Pilih kegiatan terlebih dahulu"
+                    : !isDraft
+                      ? "Prelist dikunci karena kegiatan sudah dipublish"
                       : "Unggah prelist keluarga"
                 }
               >
-                <Upload size={14}/>
+                <Upload size={14} />
                 <span>Unggah Prelist</span>
               </button>
               {isDraft && (
-                <button 
+                <button
                   disabled={!selectedProject || isKegiatanAdmin}
                   onClick={() => setIsAssignSlsModalOpen(true)}
-                  className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
-                    selectedProject && !isKegiatanAdmin
-                      ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]" 
+                  className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${selectedProject && !isKegiatanAdmin
+                      ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]"
                       : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                  }`}
+                    }`}
                   title={
-                    !selectedProject 
-                      ? "Pilih kegiatan terlebih dahulu" 
+                    !selectedProject
+                      ? "Pilih kegiatan terlebih dahulu"
                       : "Tugaskan petugas per SLS"
                   }
                 >
-                  <Edit3 size={14}/>
+                  <Edit3 size={14} />
                   <span>Tugaskan SLS</span>
                 </button>
               )}
               <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
-                <Search size={16} className="text-slate-400"/>
-                <input className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" placeholder="Cari ID atau nama..."/>
+                <Search size={16} className="text-slate-400" />
+                <input
+                  className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium"
+                  placeholder="Cari ID, Nama KRT, atau Petugas..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
               </div>
             </div>
           </div>
@@ -1837,19 +1899,20 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 { id: "approved", l: "Approved", c: count("approved") },
               ].map(t => (
                 <button key={t.id} onClick={() => setFilter(t.id)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium border-0 cursor-pointer transition-all ${
-                    filter === t.id ? "text-white bg-blue-600" : "bg-white border border-slate-100 text-slate-500 hover:bg-slate-50"
-                  }`}>
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium border-0 cursor-pointer transition-all ${filter === t.id ? "text-white bg-blue-600" : "bg-white border border-slate-100 text-slate-500 hover:bg-slate-50"
+                    }`}>
                   {t.l}
-                  <span className={`mono text-[10px] px-1.5 py-0.5 rounded font-semibold ${
-                    filter === t.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400"
-                  }`}>{t.c}</span>
+                  <span className={`mono text-[10px] px-1.5 py-0.5 rounded font-semibold ${filter === t.id ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400"
+                    }`}>{t.c}</span>
                 </button>
               ))}
             </div>
-            
-            <button className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all cursor-pointer">
-              <Filter size={13}/> Urutkan
+
+            <button
+              onClick={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg text-slate-500 hover:text-blue-600 transition-all cursor-pointer"
+            >
+              <Filter size={13} /> Urutkan {sortOrder === "desc" ? "(Baru-Lama)" : "(Lama-Baru)"}
             </button>
           </div>
 
@@ -1916,7 +1979,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               </td>
                               <td className="px-6 py-3.5 border-t border-slate-50">
                                 <div className="flex items-center gap-2">
-                                  <MultiSelectDropdown 
+                                  <MultiSelectDropdown
                                     idPrefix={`pcl-${r.id}`}
                                     selectedNames={r.assigned_pcls || []}
                                     allOptions={pcls}
@@ -1937,7 +2000,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               </td>
                               <td className="px-6 py-3.5 border-t border-slate-50">
                                 <div className="flex items-center gap-2">
-                                  <MultiSelectDropdown 
+                                  <MultiSelectDropdown
                                     idPrefix={`pml-${r.id}`}
                                     selectedNames={r.assigned_pmls || []}
                                     allOptions={pmls}
@@ -1962,7 +2025,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               <td className="px-6 py-3.5 border-t border-slate-50">
                                 <div className="flex items-center gap-2.5">
                                   <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-[10px] font-bold text-blue-600">
-                                    {r.petugas !== "Belum Ditugaskan" ? r.petugas.split(' ').map(n=>n[0]).join('') : "?"}
+                                    {r.petugas !== "Belum Ditugaskan" ? r.petugas.split(' ').map(n => n[0]).join('') : "?"}
                                   </div>
                                   <span className="text-sm font-semibold text-slate-700">{r.petugas}</span>
                                 </div>
@@ -1984,42 +2047,42 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               <td className="px-6 py-3.5 border-t border-slate-50 mono text-xs text-slate-400 font-semibold">{new Date(r.updated_at || r.created_at).toLocaleDateString('id-ID')}</td>
                               <td className="px-6 py-3.5 border-t border-slate-50">
                                 {r.flag > 0
-                                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-600 rounded-md"><AlertTriangle size={11}/>{r.flag}</span>
+                                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-600 rounded-md"><AlertTriangle size={11} />{r.flag}</span>
                                   : <span className="text-slate-200">—</span>}
                               </td>
-                              <td className="px-6 py-3.5 border-t border-slate-50"><Badge status={r.status}/></td>
+                              <td className="px-6 py-3.5 border-t border-slate-50"><Badge status={r.status} /></td>
                             </>
                           )}
                           <td className="px-6 py-3.5 border-t border-slate-50">
                             <div className="flex items-center gap-1.5">
-                              <button 
+                              <button
                                 onClick={() => handleOpenDetail(r)}
                                 className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-blue-600 transition-all bg-transparent"
                                 title="Lihat Detail Isian Kuesioner"
                               >
-                                <Eye size={15}/>
+                                <Eye size={15} />
                               </button>
                               {status !== "draft" && r.status === "pml_approved" && !isKegiatanAdmin && (
                                 <>
                                   <button onClick={() => setModal({ ...r, type: "approve" })}
                                     className="w-8 h-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-emerald-600 transition-all bg-transparent"
                                     title="Setujui (Admin)">
-                                    <Check size={15}/>
+                                    <Check size={15} />
                                   </button>
                                   <button onClick={() => setModal({ ...r, type: "reject" })}
                                     className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-600 transition-all bg-transparent"
                                     title="Tolak (Admin)">
-                                    <X size={15}/>
+                                    <X size={15} />
                                   </button>
                                 </>
                               )}
                               {status === "draft" && !isKegiatanAdmin && (
-                                <button 
+                                <button
                                   onClick={() => setData(prev => prev.filter(item => item.id !== r.id))}
                                   className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-500 transition-all bg-transparent"
                                   title="Hapus Data Keluarga"
                                 >
-                                  <X size={15}/>
+                                  <X size={15} />
                                 </button>
                               )}
                             </div>
@@ -2030,7 +2093,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   })}
                   {sortedFiltered.length === 0 && (
                     <tr><td colSpan={status === "draft" ? 9 : 11} className="px-6 py-16 text-center">
-                      <Search size={24} className="text-slate-200 mx-auto mb-2"/>
+                      <Search size={24} className="text-slate-200 mx-auto mb-2" />
                       <p className="text-xs text-slate-400 font-medium">Tidak ada dokumen di {villageDropdown.selected}</p>
                     </td></tr>
                   )}
@@ -2048,30 +2111,30 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           <div className="bg-white rounded-2xl p-8 w-full shadow-lg max-h-[90vh] overflow-y-auto"
             style={{ maxWidth: 580, animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
-            
+
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Database size={20}/>
+                  <Database size={20} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">Unggah Prelist Keluarga</h3>
                   <p className="text-xs text-slate-400">Unggah data baseline keluarga untuk dipetakan</p>
                 </div>
               </div>
-              <button 
+              <button
                 disabled={isUploading || isSuccess}
                 onClick={() => setIsUploadModalOpen(false)}
                 className="w-8 h-8 rounded-lg hover:bg-slate-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-slate-600 transition-all bg-transparent disabled:opacity-50">
-                <X size={18}/>
+                <X size={18} />
               </button>
             </div>
 
-            
+
             {isSuccess ? (
               <div className="py-8 text-center" style={{ animation: 'scaleIn 0.2s ease' }}>
                 <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-                  <Check size={36}/>
+                  <Check size={36} />
                 </div>
                 <h4 className="text-md font-bold text-slate-800 mb-1">Data Berhasil Diimpor!</h4>
                 <p className="text-xs text-slate-400">Target Prelist keluarga telah ditambahkan ke sistem.</p>
@@ -2084,11 +2147,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       <p className="text-xs font-bold text-slate-800">Butuh template kolom file?</p>
                       <p className="text-[10px] text-slate-400">Gunakan format template standar agar data terbaca otomatis</p>
                     </div>
-                    <button 
+                    <button
                       onClick={handleDownloadTemplate}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-blue-600 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-sm"
                     >
-                      <Upload size={12} className="rotate-180"/>
+                      <Upload size={12} className="rotate-180" />
                       Unduh Template
                     </button>
                   </div>
@@ -2096,15 +2159,15 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 mb-2">File Prelist (Excel / CSV)</label>
                     <input type="file" ref={fileInputRef} onChange={(e) => { if (e.target.files?.length) handleSelectFile(e.target.files[0]); }} accept=".xlsx,.xls,.csv" className="hidden" />
-                    
+
                     {!uploadedFile ? (
-                      <div 
+                      <div
                         onClick={() => fileInputRef.current?.click()}
                         className={`border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-50/50 hover:bg-blue-50/10 flex flex-col items-center justify-center ${isUploading ? 'opacity-70 pointer-events-none' : ''}`}
                       >
                         {isUploading ? (
                           <>
-                            <div className="w-8 h-8 rounded-full border-2 border-blue-500/20 border-t-blue-500 animate-spin mb-3"/>
+                            <div className="w-8 h-8 rounded-full border-2 border-blue-500/20 border-t-blue-500 animate-spin mb-3" />
                             <p className="text-xs font-medium text-slate-500">Membaca dan memvalidasi file...</p>
                           </>
                         ) : (
@@ -2125,14 +2188,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/50 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                              <FileText size={18}/>
+                              <FileText size={18} />
                             </div>
                             <div>
                               <p className="text-xs font-bold text-slate-800 line-clamp-1">{uploadedFile.name}</p>
                               <p className="text-[10px] text-slate-400 font-medium">{uploadedFile.size} • Terdeteksi {uploadedFile.rowCount} data keluarga</p>
                             </div>
                           </div>
-                          <button 
+                          <button
                             onClick={() => {
                               setUploadedFile(null);
                               setDetectedColumns([]);
@@ -2140,7 +2203,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             }}
                             className="w-7 h-7 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg flex items-center justify-center border-0 bg-transparent cursor-pointer transition-all"
                           >
-                            <X size={14}/>
+                            <X size={14} />
                           </button>
                         </div>
 
@@ -2180,7 +2243,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             </table>
                           </div>
                           <p className="text-[10px] text-emerald-600 font-semibold mt-2 flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-500"/> Semua baris data memiliki pemetaan desa yang valid.
+                            <span className="w-1 h-1 rounded-full bg-emerald-500" /> Semua baris data memiliki pemetaan desa yang valid.
                           </p>
                         </div>
                       </div>
@@ -2189,7 +2252,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 </div>
 
                 <div className="flex gap-3 mt-8">
-                  <button 
+                  <button
                     disabled={isUploading}
                     onClick={() => {
                       setIsUploadModalOpen(false);
@@ -2201,7 +2264,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   >
                     Batal
                   </button>
-                  <button 
+                  <button
                     disabled={!uploadedFile || isUploading}
                     onClick={() => setMappingStep(2)}
                     className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98]"
@@ -2215,7 +2278,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/50 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                      <FileText size={18}/>
+                      <FileText size={18} />
                     </div>
                     <div>
                       <p className="text-xs font-bold text-slate-800 line-clamp-1">{uploadedFile?.name}</p>
@@ -2227,8 +2290,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4">
                   <label className="block text-xs font-bold text-blue-900 mb-1">Pilih Kolom Master Pengelompokan (Grouping Key)</label>
                   <p className="text-[10px] text-blue-600 mb-3">Kolom ini digunakan untuk menggabungkan baris yang memiliki nilai yang sama menjadi 1 Dokumen Keluarga (Misal: No KK). Jika Anda hanya mendaftar 1 baris per dokumen, pilih ID unik.</p>
-                  <SearchableSelect 
-                    value={groupingColumn} 
+                  <SearchableSelect
+                    value={groupingColumn}
                     onChange={val => setGroupingColumn(val)}
                     placeholder="Pilih Kolom Excel..."
                     showValueInLabel={false}
@@ -2245,26 +2308,27 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     {[...detectedColumns, '__AUTO_COUNT__'].map(col => {
                       const isAutoCount = col === '__AUTO_COUNT__';
                       return (
-                      <div key={col} className="flex flex-col md:flex-row md:items-center gap-2 p-2 border-b border-slate-100 last:border-0">
-                        <div className="w-full md:w-1/3">
-                          <span className={`text-[11px] font-semibold ${isAutoCount ? 'text-emerald-600' : 'text-slate-700'}`}>
-                            {isAutoCount ? '[Otomatis: Jumlah Baris]' : col}
-                          </span>
+                        <div key={col} className="flex flex-col md:flex-row md:items-center gap-2 p-2 border-b border-slate-100 last:border-0">
+                          <div className="w-full md:w-1/3">
+                            <span className={`text-[11px] font-semibold ${isAutoCount ? 'text-emerald-600' : 'text-slate-700'}`}>
+                              {isAutoCount ? '[Otomatis: Jumlah Baris]' : col}
+                            </span>
+                          </div>
+                          <div className="w-full md:w-2/3">
+                            <SearchableSelect
+                              value={columnMapping[col] || ""}
+                              onChange={val => setColumnMapping({ ...columnMapping, [col]: val })}
+                              placeholder="Tidak Dipetakan (Abaikan)"
+                              showValueInLabel={false}
+                              options={[
+                                { value: "", label: "Tidak Dipetakan (Abaikan)" },
+                                ...questions.slice().sort((a, b) => (a.label || "").localeCompare(b.label || "")).map(q => ({ value: q.id, label: q.label }))
+                              ]}
+                            />
+                          </div>
                         </div>
-                        <div className="w-full md:w-2/3">
-                          <SearchableSelect 
-                            value={columnMapping[col] || ""}
-                            onChange={val => setColumnMapping({...columnMapping, [col]: val})}
-                            placeholder="Tidak Dipetakan (Abaikan)"
-                            showValueInLabel={false}
-                            options={[
-                              { value: "", label: "Tidak Dipetakan (Abaikan)" },
-                              ...questions.slice().sort((a, b) => (a.label || "").localeCompare(b.label || "")).map(q => ({ value: q.id, label: q.label }))
-                            ]}
-                          />
-                        </div>
-                      </div>
-                    )})}
+                      )
+                    })}
                   </div>
                 </div>
 
@@ -2272,7 +2336,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   <button onClick={() => setMappingStep(1)} className="flex-1 py-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 cursor-pointer transition-all border-0">
                     Kembali
                   </button>
-                  <button 
+                  <button
                     disabled={!groupingColumn || isUploading}
                     onClick={handleImportPrelist}
                     className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-xs font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98]"
@@ -2293,22 +2357,22 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           <div className="bg-white rounded-2xl p-8 w-full shadow-lg max-h-[95vh] overflow-y-auto"
             style={{ maxWidth: 640, animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
-            
+
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
-                  <Edit3 size={20}/>
+                  <Edit3 size={20} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">Tugaskan Petugas Per SLS</h3>
                   <p className="text-xs text-slate-400">Penugasan massal PCL dan PML untuk seluruh keluarga dalam satu SLS</p>
                 </div>
               </div>
-              <button 
+              <button
                 disabled={isAssigningSls}
                 onClick={() => setIsAssignSlsModalOpen(false)}
                 className="w-8 h-8 rounded-lg hover:bg-slate-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-slate-600 transition-all bg-transparent disabled:opacity-50">
-                <X size={18}/>
+                <X size={18} />
               </button>
             </div>
 
@@ -2316,7 +2380,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               {/* Select SLS */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">Pilih Satuan Lingkungan Setempat (SLS)</label>
-                <select 
+                <select
                   value={selectedSls}
                   onChange={e => setSelectedSls(e.target.value)}
                   className="w-full text-sm bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all"
@@ -2340,8 +2404,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     Pilih Petugas Pendataan (PCL)
                   </label>
                   <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 mb-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500/10">
-                    <Search size={12} className="text-slate-400"/>
-                    <input 
+                    <Search size={12} className="text-slate-400" />
+                    <input
                       type="text"
                       placeholder="Cari PCL..."
                       value={pclSearch}
@@ -2354,11 +2418,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       const isChecked = selectedSlsPcls.includes(p.name);
                       return (
                         <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
-                          <input 
+                          <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => {
-                              setSelectedSlsPcls(prev => 
+                              setSelectedSlsPcls(prev =>
                                 prev.includes(p.name) ? prev.filter(n => n !== p.name) : [...prev, p.name]
                               );
                             }}
@@ -2383,8 +2447,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     Pilih Pengawas (PML)
                   </label>
                   <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 mb-2 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500/10">
-                    <Search size={12} className="text-slate-400"/>
-                    <input 
+                    <Search size={12} className="text-slate-400" />
+                    <input
                       type="text"
                       placeholder="Cari PML..."
                       value={pmlSearch}
@@ -2397,11 +2461,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       const isChecked = selectedSlsPmls.includes(p.name);
                       return (
                         <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
-                          <input 
+                          <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => {
-                              setSelectedSlsPmls(prev => 
+                              setSelectedSlsPmls(prev =>
                                 prev.includes(p.name) ? prev.filter(n => n !== p.name) : [...prev, p.name]
                               );
                             }}
@@ -2423,7 +2487,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             </div>
 
             <div className="flex gap-3 mt-8 pt-4 border-t border-slate-100">
-              <button 
+              <button
                 disabled={isAssigningSls}
                 onClick={() => {
                   setIsAssignSlsModalOpen(false);
@@ -2437,14 +2501,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               >
                 Batal
               </button>
-              <button 
+              <button
                 disabled={!selectedSls || isAssigningSls}
                 onClick={handleAssignSlsSubmit}
                 className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98] flex items-center justify-center gap-2"
               >
                 {isAssigningSls ? (
                   <>
-                    <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"/>
+                    <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin" />
                     Memproses...
                   </>
                 ) : (
@@ -2464,10 +2528,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           <div className="bg-white rounded-2xl p-8 w-full shadow-lg max-w-[420px]"
             style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
-            
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${
-              confirmModalType === "approve" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
-            }`}>
+
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${confirmModalType === "approve" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+              }`}>
               {confirmModalType === "approve" ? <Check size={24} /> : <AlertTriangle size={24} />}
             </div>
 
@@ -2475,24 +2538,23 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               {confirmModalType === "approve" ? "Setujui Dokumen?" : "Batalkan Persetujuan?"}
             </h3>
             <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-              {confirmModalType === "approve" 
+              {confirmModalType === "approve"
                 ? `Apakah Anda yakin ingin menyetujui dokumen ${viewingRecord.id} dari ${viewingRecord.petugas}? Dokumen akan disimpan sebagai data valid.`
                 : `Apakah Anda yakin ingin membatalkan persetujuan dokumen ${viewingRecord.id}? Status dokumen akan dikembalikan menjadi 'Submitted' dan dapat diedit kembali.`
               }
             </p>
 
             <div className="flex gap-3">
-              <button 
+              <button
                 onClick={() => setConfirmModalType(null)}
                 className="flex-1 py-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-xs font-semibold text-slate-600 cursor-pointer transition-all border-0"
               >
                 Batal
               </button>
-              <button 
+              <button
                 onClick={confirmModalType === "approve" ? handleApprove : handleUnapprove}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white border-0 cursor-pointer transition-all ${
-                  confirmModalType === "approve" ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
-                }`}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white border-0 cursor-pointer transition-all ${confirmModalType === "approve" ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
               >
                 Ya, Yakin
               </button>

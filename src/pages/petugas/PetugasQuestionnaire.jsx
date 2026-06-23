@@ -2117,8 +2117,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 if (localTime > apiTime) {
                   mergedDocs[apiIdx] = localDoc;
                 } else {
-                  // Jika API lebih baru, update local doc dengan ID dari server
-                  mergedDocs[apiIdx] = { ...mergedDocs[apiIdx], ...localDoc };
+                  // Jika API lebih baru, pastikan data API menimpa local doc
+                  mergedDocs[apiIdx] = { ...localDoc, ...mergedDocs[apiIdx] };
                 }
               } else {
                 // Doc tidak ada di API (belum sync) - tambahkan dari local
