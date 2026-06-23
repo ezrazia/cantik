@@ -1150,7 +1150,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           hintText: parsed.hint || "",
           description: parsed.description || parsed.hint || "",
           isLoop: !!parsed.is_loop,
-          loopType: parsed.loop_type || "question",
+          loopType: parsed.loop_type || (parsed.loop_by_question_id ? "question" : "manual"),
           loopByQuestionId: parsed.loop_by_question_id || null,
           defaultVal: parsed.default_val || null,
           isLookupKey: !!parsed.is_lookup_key,
