@@ -2211,6 +2211,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   const isQuestionVisibleIgnoreBlock = (q, activeInstanceIdx = null) => {
+    // If parent is hidden, this question should also be hidden
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(x => String(x.id) === String(parentId));
+      if (parent && !isQuestionVisibleIgnoreBlock(parent, activeInstanceIdx)) {
+        return false;
+      }
+    }
+
     const resolvedValues = getResolvedValuesForIndex(ans.values, activeInstanceIdx);
     const showIfValue = q.show_if_value || q.showIfValue;
     if (showIfValue) {
