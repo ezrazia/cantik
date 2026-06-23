@@ -7,8 +7,8 @@ const router = Router();
 async function getFormattedKode(tx, docData) {
   const { kode, kegiatan_id, petugas_id, kecamatan, desa } = docData;
   
-  // Only format if the code is a new/temporary offline code (starts with "NEW-")
-  if (!kode || !kode.startsWith('NEW-')) {
+  // Only format if the code is a new/temporary offline code (starts with "NEW-" or "PL-")
+  if (!kode || (!kode.startsWith('NEW-') && !kode.startsWith('PL-'))) {
     return kode;
   }
 
@@ -159,14 +159,20 @@ router.get('/review/:kegiatanId', async (req, res) => {
     const rows = await prisma.dokumen.findMany({
       where: {
         kegiatan_id: parseInt(kegiatanId, 10),
-        status: { in: ['tersimpan', 'terkirim'] },
+        status: { in: ['draft', 'tersimpan', 'terkirim'] },
       },
       include: {
         kegiatan: {
           select: { name: true },
         },
         petugas: {
-          select: { name: true },
+          select: { 
+            name: true,
+            petugas_kegiatan: {
+              where: { kegiatan_id: parseInt(kegiatanId, 10) },
+              select: { pengawas: true }
+            }
+          },
         },
         dokumen_log: {
           orderBy: { created_at: 'asc' },
@@ -181,6 +187,7 @@ router.get('/review/:kegiatanId', async (req, res) => {
       ...doc,
       activity_name: doc.kegiatan?.name || '',
       petugas_name: doc.petugas?.name || '',
+      pengawas: doc.petugas?.petugas_kegiatan?.[0]?.pengawas || null,
       logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
       sync: !!doc.sync,
       is_prelist: !!doc.is_prelist,
@@ -417,9 +424,6 @@ router.post('/', async (req, res) => {
       }
 
       return currentDocId;
-    }, {
-      maxWait: 15000,
-      timeout: 15000,
     });
 
     return res.json({ success: true, message: 'Dokumen berhasil disimpan', id: docId });
@@ -569,9 +573,6 @@ router.post('/backup', async (req, res) => {
           failed++;
         }
       }
-    }, {
-      maxWait: 15000,
-      timeout: 15000,
     });
 
     return res.json({
@@ -743,8 +744,8 @@ router.post('/sync', async (req, res) => {
         });
       }
     }, {
-      maxWait: 15000,
-      timeout: 15000,
+      maxWait: 5000,
+      timeout: 10000
     });
 
     return res.json({ success: true, message: `Sinkronisasi berhasil untuk ${documents.length} dokumen` });
@@ -1118,6 +1119,9 @@ router.post('/prelist/import', async (req, res) => {
 
         imported++;
       }
+    }, {
+      maxWait: 5000,
+      timeout: 10000
     });
 
     return res.json({
@@ -1213,6 +1217,9 @@ router.post('/batch-prelist', async (req, res) => {
         });
         insertedDocs.push(newDoc);
       }
+    }, {
+      maxWait: 5000,
+      timeout: 10000
     });
 
     return res.json({

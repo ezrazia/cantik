@@ -60,7 +60,30 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
     try {
       // 1. Download documents (prelist) with deduplication
       const docs = await api.dokumen.getByPetugas(currentUser.id);
-      const dedupedDocs = deduplicateDocs(docs);
+      let dedupedDocs = deduplicateDocs(docs);
+
+      // Pertahankan draft lokal agar tidak tertimpa oleh versi server
+      const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+      if (cached) {
+        try {
+          const localList = JSON.parse(cached);
+          const localDrafts = localList.filter(d => d.sync === false);
+          
+          localDrafts.forEach(draft => {
+            const idx = dedupedDocs.findIndex(d => d.kode === draft.kode);
+            if (idx > -1) {
+              // Ganti versi server dengan draft lokal yang belum tersinkronisasi
+              dedupedDocs[idx] = draft;
+            } else {
+              // Dokumen dibuat secara lokal dan belum pernah dikirim ke server
+              dedupedDocs.push(draft);
+            }
+          });
+        } catch (e) {
+          console.error("Gagal mem-parsing draft lokal:", e);
+        }
+      }
+
       setDocuments(dedupedDocs);
       localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
 
@@ -97,10 +120,14 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       localStorage.setItem(`last_download_${currentUser.id}`, timeStr);
       setDownloadTime(timeStr);
 
-      showToast("Kuesioner dan data prelist berhasil diunduh.", "success");
+      showAlert(
+        "Kuesioner dan seluruh data prelist telah berhasil disimpan ke perangkat Anda secara luring (offline). Anda kini dapat mulai melakukan pencacahan di lapangan meskipun tanpa koneksi internet.",
+        "Unduhan Selesai",
+        "success"
+      );
     } catch (err) {
       console.error("Gagal mengunduh kuesioner offline:", err);
-      showToast("Gagal mengunduh data offline: " + err.message, "error");
+      showAlert("Terjadi kesalahan saat mengunduh data: " + err.message, "Gagal Mengunduh", "error");
     } finally {
       setIsDownloading(false);
     }

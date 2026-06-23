@@ -70,7 +70,7 @@ export default defineConfig({
           // ─── API GET: Form structure & Wilayah (StaleWhileRevalidate) ───
           {
             urlPattern: /\/api\/(form|wilayah)\/.*/i,
-            handler: 'StaleWhileRevalidate',
+            handler: 'NetworkFirst',
             options: {
               cacheName: 'api-reference-data',
               expiration: {

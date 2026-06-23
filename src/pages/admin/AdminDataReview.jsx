@@ -1,4 +1,4 @@
-import { useState, Fragment, useEffect, useRef } from "react";
+import { useState, Fragment, useEffect, useRef, startTransition, useMemo } from "react";
 import * as XLSX from 'xlsx';
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { api } from "../../services/api";
@@ -10,6 +10,151 @@ import {
   Search, Eye, Check, X, AlertTriangle, Filter, Upload, 
   Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus
 } from "lucide-react";
+
+const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, allowedPattern, isNumberFormat = false, ...props }) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const [isFocused, setIsFocused] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const handleChange = (e) => {
+    let newVal = e.target.value;
+    if (forceUppercase) newVal = newVal.toUpperCase();
+    if (allowedPattern && newVal !== "" && !allowedPattern.test(newVal)) return;
+    
+    setLocalValue(newVal);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(newVal);
+    }, delay);
+  };
+
+  const handleFocus = (e) => {
+    setIsFocused(true);
+    if (props.onFocus) props.onFocus(e);
+  };
+
+  const handleBlur = (e) => {
+    setIsFocused(false);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (localValue !== (value || "")) {
+      onChange(localValue);
+    }
+    if (props.onBlur) props.onBlur(e);
+  };
+
+  const displayValue = useMemo(() => {
+    if (!isNumberFormat) return localValue;
+    if (isFocused) {
+      return localValue.replace(/\./g, ",");
+    }
+    if (!localValue || localValue === "-" || localValue === "-." || localValue.endsWith(".")) {
+      return localValue.replace(/\./g, ",");
+    }
+    
+    const parts = localValue.toString().split(".");
+    const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+    const decimalPart = parts.length > 1 ? "," + parts[1] : "";
+    return integerPart + decimalPart;
+  }, [localValue, isFocused, isNumberFormat]);
+
+  return <input {...props} value={displayValue} onChange={handleChange} onFocus={handleFocus} onBlur={handleBlur} />;
+};
+
+const DebouncedTextarea = ({ value, onChange, delay = 500, ...props }) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const handleChange = (e) => {
+    const newVal = e.target.value;
+    setLocalValue(newVal);
+
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(newVal);
+    }, delay);
+  };
+
+  const handleBlur = (e) => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (localValue !== (value || "")) {
+      onChange(localValue);
+    }
+    if (props.onBlur) props.onBlur(e);
+  };
+
+  return <textarea {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
+};
+
+const FastRadioGroup = ({ value, onChange, options, name, className, disabled }) => {
+  const [localValue, setLocalValue] = useState(value);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+
+  const handleChange = (val) => {
+    setLocalValue(val);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(val);
+    }, 50); 
+  };
+
+  return (
+    <div className={className}>
+      {options?.map(opt => (
+        <label key={opt.value} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+          <input 
+            type="radio" 
+            name={name} 
+            value={opt.value}
+            checked={String(localValue) === String(opt.value)}
+            onChange={() => handleChange(opt.value)}
+            disabled={disabled}
+          />
+          {opt.label}
+        </label>
+      ))}
+    </div>
+  );
+};
+
+const FastSelect = ({ value, onChange, options, className, disabled, placeholder = "Pilih Opsi", children }) => {
+  const [localValue, setLocalValue] = useState(value || "");
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  const handleChange = (e) => {
+    const val = e.target.value;
+    setLocalValue(val);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      onChange(val);
+    }, 50);
+  };
+
+  return (
+    <select value={localValue} onChange={handleChange} className={className} disabled={disabled}>
+      <option value="">{placeholder}</option>
+      {options ? options.map(opt => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      )) : children}
+    </select>
+  );
+};
 
 /**
  * Custom QCard for viewing and editing questionnaires
@@ -335,10 +480,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   };
 
   const setVal = (qId, value) => {
-    setAns(prev => ({
-      ...prev,
-      [qId]: value
-    }));
+    startTransition(() => {
+      setAns(prev => ({
+        ...prev,
+        [qId]: value
+      }));
+    });
   };
 
   const getQuestionCode = (q, allQuestions, allBlocks) => {
@@ -533,10 +680,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       }
     }
     parsed[idx] = val;
-    setAns(prev => ({
-      ...prev,
-      [qId]: JSON.stringify(parsed)
-    }));
+    startTransition(() => {
+      setAns(prev => ({
+        ...prev,
+        [qId]: JSON.stringify(parsed)
+      }));
+    });
   };
 
   // Save changes from Edit Mode
@@ -594,36 +743,138 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     document.body.removeChild(link);
   };
 
-  const handleSimulateSelectFile = () => {
+  const handleSelectFile = (file) => {
+    if (!file) return;
     setIsUploading(true);
-    setTimeout(() => {
-      setUploadedFile({
-        name: "prelist_semua_desa_2026.xlsx",
-        size: "38.2 KB",
-        rowCount: 5
-      });
-      setDetectedColumns(["id", "petugas", "desa", "sls", "subSls", "nama_krt", "alamat"]);
-      setPreviewRows([
-        { id: "PL-301", petugas: "Belum Ditugaskan", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", subSls: "RT 01 A Tideng Pale", nama_krt: "Keluarga Slamet Riyadi", alamat: "Jl. Cempaka No. 5" },
-        { id: "PL-302", petugas: "Belum Ditugaskan", desa: "Tideng Pale", sls: "SLS 01 Tideng Pale", subSls: "RT 01 B Tideng Pale", nama_krt: "Keluarga Joko Wahyono", alamat: "Jl. Merdeka No. 10" },
-        { id: "PL-303", petugas: "Belum Ditugaskan", desa: "Tideng Pale Timur", sls: "SLS 01 Tideng Pale Timur", subSls: "RT 01 A Tideng Pale Timur", nama_krt: "Keluarga Sri Wahyuni", alamat: "Jl. Mawar No. 3" },
-        { id: "PL-304", petugas: "Belum Ditugaskan", desa: "Tideng Pale Timur", sls: "SLS 02 Tideng Pale Timur", subSls: "", nama_krt: "Keluarga Mulyono", alamat: "Jl. Dahlia No. 15" },
-        { id: "PL-305", petugas: "Belum Ditugaskan", desa: "Limbu Sedulun", sls: "SLS 01 Limbu Sedulun", subSls: "", nama_krt: "Keluarga Bambang Hermawan", alamat: "Jl. Melati No. 8" }
-      ]);
+    
+    setUploadedFile({
+      name: file.name,
+      size: (file.size / 1024).toFixed(1) + " KB",
+      rowCount: 0,
+      file: file
+    });
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const firstSheet = workbook.Sheets[firstSheetName];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+        
+        if (jsonData.length > 0) {
+          const headers = jsonData[0].map(h => String(h || "").trim().toLowerCase().replace(/\s+/g, '_'));
+          setDetectedColumns(headers.filter(h => h));
+          
+          const rows = [];
+          for (let i = 1; i < jsonData.length; i++) {
+            if (!jsonData[i] || jsonData[i].length === 0 || !jsonData[i].some(cell => cell !== undefined && cell !== null && cell !== '')) continue;
+            const rowData = {};
+            headers.forEach((h, colIdx) => {
+              if (h) {
+                rowData[h] = jsonData[i][colIdx] !== undefined ? jsonData[i][colIdx] : "";
+              }
+            });
+            rows.push(rowData);
+          }
+          
+          setParsedExcelData(rows);
+          setPreviewRows(rows.slice(0, 10));
+          setUploadedFile(prev => ({ ...prev, rowCount: rows.length }));
+        }
+      } catch (err) {
+        console.error("Error reading file:", err);
+        alert("Gagal membaca file Excel/CSV.");
+      } finally {
+        setIsUploading(false);
+      }
+    };
+    reader.onerror = () => {
+      alert("Gagal membaca file.");
       setIsUploading(false);
-    }, 1200);
+    };
+    reader.readAsArrayBuffer(file);
   };
 
-  const handleImportPrelist = () => {
-    // Simulated prelist importing
-    setIsSuccess(true);
-    setTimeout(() => {
-      setIsUploadModalOpen(false);
-      setUploadedFile(null);
-      setDetectedColumns([]);
-      setPreviewRows([]);
-      setIsSuccess(false);
-    }, 1500);
+  const handleImportPrelist = async () => {
+    if (!parsedExcelData || parsedExcelData.length === 0) {
+      alert("Tidak ada data untuk diimpor.");
+      return;
+    }
+    
+    setIsUploading(true);
+    try {
+      // Identify columns
+      const kkCol = detectedColumns.find(c => ['no_kk', 'nokk', 'kk', 'id_keluarga', 'nomor_kk'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('kk'));
+      const namaCol = detectedColumns.find(c => ['nama_krt', 'krt', 'nama', 'kepala_keluarga'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('nama'));
+      const alamatCol = detectedColumns.find(c => c.toLowerCase().includes('alamat'));
+      const desaCol = detectedColumns.find(c => c.toLowerCase().includes('desa') || c.toLowerCase().includes('kelurahan'));
+      const slsCol = detectedColumns.find(c => c.toLowerCase().includes('sls') || c.toLowerCase().includes('rt'));
+      const nikCol = detectedColumns.find(c => ['nik', 'no_nik', 'nomor_nik'].includes(c.toLowerCase())) || detectedColumns.find(c => c.toLowerCase().includes('nik'));
+      
+      const groups = {};
+      if (kkCol) {
+        parsedExcelData.forEach(row => {
+          const kkVal = row[kkCol];
+          if (!kkVal) return;
+          if (!groups[kkVal]) groups[kkVal] = [];
+          groups[kkVal].push(row);
+        });
+      } else {
+        parsedExcelData.forEach((row, idx) => {
+          groups[`row_${idx}`] = [row];
+        });
+      }
+      
+      const documents = Object.values(groups).map((family, idx) => {
+        const head = family[0]; // first row is KRT
+        
+        // Helper to safely cast to string
+        const safeString = (val) => (val !== undefined && val !== null ? String(val).trim() : "");
+        
+        const headNik = nikCol && head[nikCol] ? safeString(head[nikCol]) : `NONIK${idx}`;
+        const headRt = slsCol && head[slsCol] ? safeString(head[slsCol]) : `NORT${idx}`;
+        
+        return {
+          kode: head.id || head.kode || `PL-${headNik}-${headRt}`,
+          kegiatan_id: activeActivity?.id,
+          krt: namaCol && head[namaCol] ? safeString(head[namaCol]) : "Tanpa Nama",
+          alamat: alamatCol ? safeString(head[alamatCol]) : "",
+          desa: desaCol ? safeString(head[desaCol]) : "",
+          sls: slsCol ? safeString(head[slsCol]) : "",
+          sub_sls: safeString(head.sub_sls || head.subsls),
+          status: 'draft',
+          is_prelist: true,
+          values: {} // future: populate family loops if needed
+        };
+      });
+      
+      const defaultPetugas = petugas && petugas.length > 0 ? petugas[0].id : 1;
+      
+      // Chunk documents to avoid transaction timeout
+      // Reduced to 5 to fit well within Prisma Accelerate 15000ms max timeout
+      const chunkSize = 5;
+      for (let i = 0; i < documents.length; i += chunkSize) {
+        const chunk = documents.slice(i, i + chunkSize);
+        await api.dokumen.sync(defaultPetugas, chunk);
+      }
+
+      setIsSuccess(true);
+      setTimeout(() => {
+        setIsUploadModalOpen(false);
+        setUploadedFile(null);
+        setDetectedColumns([]);
+        setPreviewRows([]);
+        setParsedExcelData([]);
+        setIsSuccess(false);
+        fetchReviewDocuments(); // Reload review data after successful import
+      }, 1500);
+    } catch (err) {
+      alert("Gagal mengimpor prelist: " + (err.message || "Timeout transaksi"));
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Questionnaire Viewer content layout
@@ -893,37 +1144,25 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
                                 />
                               ) : q.type === 'select' ? (
-                                <select 
+                                <FastSelect 
                                   value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
+                                  onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
+                                  options={q.options || []}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
-                                >
-                                  <option value="">Pilih Opsi</option>
-                                  {q.options?.map(opt => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                  ))}
-                                </select>
+                                />
                               ) : q.type === 'radio' ? (
-                                <div className="flex flex-wrap gap-4 py-1.5">
-                                  {q.options?.map(opt => (
-                                    <label key={opt.value} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                                      <input 
-                                        type="radio" 
-                                        name={`q_${q.id}_${iIdx}`} 
-                                        value={opt.value}
-                                        checked={String(instances.length > 1 ? getLoopValue(q.id, iIdx) : value) === String(opt.value)}
-                                        onChange={() => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, opt.value) : setVal(q.id, opt.value)}
-                                      />
-                                      {opt.label}
-                                    </label>
-                                  ))}
-                                </div>
+                                <FastRadioGroup 
+                                  className="flex flex-wrap gap-4 py-1.5"
+                                  name={`q_${q.id}_${iIdx}`}
+                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
+                                  options={q.options}
+                                  onChange={(val) => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
+                                />
                               ) : q.type === 'number' ? (
-                                <input 
+                                <DebouncedInput 
                                   type="number" 
                                   step="any"
                                   value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value} 
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
                                   className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
                                 />
                               ) : q.type === 'date' ? (
@@ -1663,7 +1902,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 mb-2">File Prelist (Excel / CSV)</label>
-                    <input type="file" ref={fileInputRef} onChange={(e) => { if (e.target.files?.length) handleSimulateSelectFile(); }} accept=".xlsx,.xls,.csv" className="hidden" />
+                    <input type="file" ref={fileInputRef} onChange={(e) => { if (e.target.files?.length) handleSelectFile(e.target.files[0]); }} accept=".xlsx,.xls,.csv" className="hidden" />
                     
                     {!uploadedFile ? (
                       <div 
@@ -1727,31 +1966,21 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         {/* Review Baris Data (Preview Table) */}
                         <div>
                           <span className="block text-xs font-semibold text-slate-500 mb-2">Pratinjau Data (Semua Desa)</span>
-                          <div className="border border-slate-100 rounded-xl overflow-hidden text-[11px] bg-slate-50/30">
+                          <div className="border border-slate-100 rounded-xl overflow-hidden text-[11px] bg-slate-50/30 overflow-x-auto">
                             <table className="w-full border-collapse">
                               <thead>
                                 <tr className="bg-slate-50/60 text-slate-400 font-semibold border-b border-slate-100 text-left">
-                                  <th className="px-3 py-2">ID</th>
-                                  <th className="px-3 py-2">Nama KRT</th>
-                                  <th className="px-3 py-2">Desa</th>
-                                  <th className="px-3 py-2">SLS</th>
-                                  <th className="px-3 py-2">Sub SLS</th>
-                                  <th className="px-3 py-2">Alamat</th>
+                                  {detectedColumns.map(col => (
+                                    <th key={col} className="px-3 py-2 uppercase tracking-wider whitespace-nowrap">{col.replace(/_/g, ' ')}</th>
+                                  ))}
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-slate-100 text-slate-600 font-medium">
                                 {previewRows.map((row, idx) => (
                                   <tr key={idx} className="hover:bg-slate-50/50">
-                                    <td className="px-3 py-2 mono font-semibold">{row.id}</td>
-                                    <td className="px-3 py-2 text-slate-700">{row.nama_krt}</td>
-                                    <td className="px-3 py-2">
-                                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-bold uppercase">
-                                        {row.desa}
-                                      </span>
-                                    </td>
-                                    <td className="px-3 py-2 text-slate-500">{row.sls || "—"}</td>
-                                    <td className="px-3 py-2 text-slate-500">{row.subSls || "—"}</td>
-                                    <td className="px-3 py-2 text-slate-400 truncate max-w-[150px]">{row.alamat}</td>
+                                    {detectedColumns.map(col => (
+                                      <td key={col} className="px-3 py-2 truncate max-w-[150px]">{row[col] || "—"}</td>
+                                    ))}
                                   </tr>
                                 ))}
                               </tbody>

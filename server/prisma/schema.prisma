@@ -36,6 +36,8 @@ enum QuestionType {
   note
   pcl
   pml
+  search
+  signature
 }
 
 enum DokumenStatus {

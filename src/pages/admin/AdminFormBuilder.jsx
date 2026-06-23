@@ -461,6 +461,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const [activeBlok, setActiveBlok] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [insertMode, setInsertMode] = useState("bottom");
   const [newQ, setNewQ] = useState({ label: "", type: "text", req: true });
   const [localLoading, setLocalLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -2068,6 +2069,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const [newBlockPosition, setNewBlockPosition] = useState("after"); // "after" | "start" | "end"
   const [isConfirmAddBlockOpen, setIsConfirmAddBlockOpen] = useState(false);
   const [blockToDelete, setBlockToDelete] = useState(null);
+  const [questionToDelete, setQuestionToDelete] = useState(null);
   const [editingBlockId, setEditingBlockId] = useState(null);
   const [editingBlockTitle, setEditingBlockTitle] = useState("");
 
@@ -2122,7 +2124,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
   const statusConfig = getStatusConfig();
   const isDraft = activeActivity ? activeActivity.status === "draft" : false;
-  const canEdit = selectedProject && isDraft;
+  const isPublished = activeActivity ? activeActivity.status === "published" : false;
+  const canEdit = selectedProject && (isDraft || isPublished);
   // Allow drag-drop reordering for all activities (only affects sort_order, no data loss)
   const canDrag = selectedProject;
 
@@ -2404,7 +2407,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
     try {
       const blockQs = questions.filter(q => q.blokId === activeBlok);
-      const sortOrder = blockQs.length;
+      let sortOrder = blockQs.length;
+      if (insertMode === 'after_selected' && selectedId) {
+        const selectedIdx = blockQs.findIndex(q => q.id === selectedId);
+        if (selectedIdx >= 0) {
+          sortOrder = blockQs[selectedIdx].sort_order + 0.5;
+        }
+      }
 
       const res = await api.form.createQuestion({
         blok_id: activeBlockObj.dbId,
@@ -2482,11 +2491,17 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   };
 
   // Delete question
-  const handleDeleteQuestion = async (id) => {
+  const handleDeleteQuestion = (id) => {
+    setQuestionToDelete(id);
+  };
+
+  const confirmDeleteQuestion = async () => {
+    if (!questionToDelete) return;
     try {
-      await api.form.deleteQuestion(id);
+      await api.form.deleteQuestion(questionToDelete);
       await fetchFormStructure();
       setSelectedId(null);
+      setQuestionToDelete(null);
     } catch (err) {
       alert("Gagal menghapus pertanyaan: " + err.message);
     }
@@ -2637,32 +2652,47 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     const [dragged] = updatedMainQs.splice(sourceIdx, 1);
     updatedMainQs.splice(targetIdx, 0, dragged);
 
-    // Rekonstruksi block dengan children
-    const reconstructedBlockQs = [...updatedMainQs];
+    // Rekonstruksi block dengan children yang berada tepat setelah parent-nya
+    const reconstructedBlockQs = [];
     updatedMainQs.forEach(parent => {
-      const children = orderedBlockQs.filter(q => q.parentId === parent.id);
-      children.forEach(child => {
-        const idx = reconstructedBlockQs.findIndex(q => q.id === child.id);
-        if (idx === -1) reconstructedBlockQs.push(child);
-      });
+      reconstructedBlockQs.push(parent);
+      const addChildren = (parentId) => {
+        const children = orderedBlockQs.filter(q => q.parentId === parentId);
+        children.forEach(child => {
+          reconstructedBlockQs.push(child);
+          addChildren(child.id);
+        });
+      };
+      addChildren(parent.id);
     });
 
-    // Iterate over reconstructedBlockQs and update sort_order in database
+    // Update state secara optimistik agar UI tidak freeze
+    setProjectData(prev => {
+      const current = prev[selectedProject] || { blocks: [], questions: [] };
+      const newQuestions = current.questions.map(q => {
+        const idx = reconstructedBlockQs.findIndex(rq => rq.id === q.id);
+        if (idx !== -1) {
+          return { ...q, sort_order: idx };
+        }
+        return q;
+      });
+      return {
+        ...prev,
+        [selectedProject]: {
+          ...current,
+          questions: newQuestions
+        }
+      };
+    });
+
     const activeBlockObj = blocks.find(b => b.id === activeBlok);
     if (!activeBlockObj) return;
 
     try {
       console.log('[handleDrop] Starting update for', reconstructedBlockQs.length, 'questions');
-      for (let i = 0; i < reconstructedBlockQs.length; i++) {
-        const q = reconstructedBlockQs[i];
-        console.log('[handleDrop] Updating question', i, ':', { id: q.id, label: q.label?.substring(0, 30), sort_order: i });
-
-        if (!q.id) {
-          console.error('[handleDrop] Question ID is missing!', q);
-          continue;
-        }
-
-        await api.form.updateQuestion(q.id, {
+      const updatePromises = reconstructedBlockQs.map((q, i) => {
+        if (!q.id) return Promise.resolve();
+        return api.form.updateQuestion(q.id, {
           blok_id: activeBlockObj.dbId,
           parent_id: q.parentId,
           label: q.label,
@@ -2676,7 +2706,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           show_if_value: q.showIfValue,
           sort_order: i
         });
-      }
+      });
+      await Promise.all(updatePromises);
       console.log('[handleDrop] All updates complete, fetching fresh data...');
       await fetchFormStructure();
       console.log('[handleDrop] Done!');
@@ -2719,10 +2750,28 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     const [moved] = updated.splice(srcIdx, 1);
     updated.splice(targetSiblingIdx, 0, moved);
 
+    // Update state secara optimistik
+    setProjectData(prev => {
+      const current = prev[selectedProject] || { blocks: [], questions: [] };
+      const newQuestions = current.questions.map(q => {
+        const idx = updated.findIndex(rq => rq.id === q.id);
+        if (idx !== -1) {
+          return { ...q, sort_order: idx };
+        }
+        return q;
+      });
+      return {
+        ...prev,
+        [selectedProject]: {
+          ...current,
+          questions: newQuestions
+        }
+      };
+    });
+
     try {
-      for (let i = 0; i < updated.length; i++) {
-        const q = updated[i];
-        await api.form.updateQuestion(q.id, {
+      const updatePromises = updated.map((q, i) => {
+        return api.form.updateQuestion(q.id, {
           blok_id: activeBlockObj.dbId,
           parent_id: q.parentId,
           label: q.label,
@@ -2736,7 +2785,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           show_if_value: q.showIfValue,
           sort_order: i
         });
-      }
+      });
+      await Promise.all(updatePromises);
       await fetchFormStructure();
     } catch (err) {
       console.error("Gagal menyimpan urutan sub drag & drop:", err);
@@ -3229,13 +3279,14 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               <Eye size={14}/> Preview
             </button>
             <button 
+              onClick={() => alert("Perubahan kuesioner berhasil disinkronkan. Sistem selalu menyimpan perubahan Anda secara otomatis ke database!")}
               disabled={!canEdit}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl border-0 transition-all ${
                 canEdit 
                   ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-[0.98]" 
                   : "bg-slate-100 text-slate-400 cursor-not-allowed"
               }`}
-              title={!canEdit ? "Kuesioner hanya dapat disimpan ketika berstatus Draft" : "Simpan kuesioner"}
+              title={!canEdit ? "Kuesioner hanya dapat diedit ketika berstatus Draft atau Published" : "Simpan kuesioner"}
             >
               <Save size={14}/> Simpan
             </button>
@@ -3535,7 +3586,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 </button>
                 <button 
                   disabled={!canEdit}
-                  onClick={() => setShowAdd(!showAdd)}
+                  onClick={() => { setInsertMode('after_selected'); setShowAdd(!showAdd); }}
                   className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${
                     canEdit 
                       ? "text-blue-600 bg-blue-50 hover:bg-blue-100 cursor-pointer" 
@@ -3856,6 +3907,62 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           </div>
                         </div>
                       )}
+
+                      {/* Inline Add Question Form */}
+                      {showAdd && insertMode === 'after_selected' && selectedId === q.id && (
+                        <div
+                          className="ml-8 w-full mb-3 mt-1"
+                          style={{ animation: 'slideDown 0.2s ease' }}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          <div className="flex items-stretch gap-0">
+                            {/* Connector line */}
+                            <div className="flex flex-col items-center mr-3 flex-shrink-0">
+                              <div className="w-px flex-1 bg-blue-200" style={{ minHeight: '8px' }}/>
+                              <CornerDownRight size={13} className="text-blue-400 flex-shrink-0 my-0.5"/>
+                              <div className="w-px flex-1 bg-transparent"/>
+                            </div>
+                            {/* Form card */}
+                            <div className="flex-1 bg-white border border-blue-200 rounded-xl p-4 shadow-sm mb-1">
+                              <div className="flex items-center gap-2 mb-3">
+                                <span className="text-[10px] font-bold text-blue-700 uppercase tracking-wider">Sisipkan Rincian Baru Setelah R.{qCode}</span>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                  <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tipe</label>
+                                  <select value={newQ.type} onChange={e => setNewQ({...newQ, type: e.target.value})}
+                                    className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer">
+                                    <option value="text">Text</option>
+                                    <option value="number">Number</option>
+                                    <option value="radio">Radio/Pilihan</option>
+                                    <option value="select">Select/Dropdown</option>
+                                    <option value="search">Searchable Dropdown</option>
+                                    <option value="location">Geotagging</option>
+                                    <option value="date">Tanggal/Waktu</option>
+                                    <option value="pcl">PCL (Daftar Petugas)</option>
+                                    <option value="pml">PML (Daftar Pengawas)</option>
+                                  </select>
+                                </div>
+                                <div className="flex items-end mb-1">
+                                  <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
+                                    <input type="checkbox" checked={newQ.req} onChange={e => setNewQ({...newQ, req: e.target.checked})} className="rounded accent-blue-600"/>
+                                    Wajib diisi
+                                  </label>
+                                </div>
+                              </div>
+                              <div className="mb-3">
+                                <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Label Pertanyaan</label>
+                                <input value={newQ.label} onChange={e => setNewQ({...newQ, label: e.target.value})}
+                                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700" placeholder="Contoh: Nama Kepala Rumah Tangga" autoFocus/>
+                              </div>
+                              <div className="flex gap-2 justify-end mt-4">
+                                <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs font-semibold text-slate-400 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 cursor-pointer transition-all">Batal</button>
+                                <button onClick={addQ} disabled={!newQ.label.trim()} className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 rounded-lg border-0 cursor-pointer hover:bg-blue-700 transition-all disabled:opacity-40">Tambah</button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </React.Fragment>
                   );
                 })}
@@ -3873,7 +3980,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   <div className="space-y-4 mt-6">
                     <div className="flex items-center justify-center gap-3">
                       <button 
-                        onClick={() => setShowAdd(!showAdd)}
+                        onClick={() => { setInsertMode('bottom'); setShowAdd(!showAdd); }}
                         className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-blue-600 bg-blue-50/50 hover:bg-blue-50 border border-blue-100 hover:border-blue-200 rounded-xl cursor-pointer transition-all shadow-sm"
                       >
                         <Plus size={14}/>
@@ -3888,7 +3995,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       </button>
                     </div>
 
-                    {showAdd && (
+                    {(showAdd && (insertMode === 'bottom' || !selectedId)) && (
                       <div className="bg-white rounded-xl border border-blue-100 p-5 shadow-sm" style={{ animation: 'slideUp 0.2s ease' }}>
                         <div className="grid grid-cols-2 gap-3 mb-3">
                           <div>
@@ -4416,6 +4523,44 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 </button>
                               )}
                             </div>
+                            {canEdit && (
+                              <details className="mb-3 bg-white p-2 border border-slate-200 rounded-lg">
+                                <summary className="text-[10px] font-bold text-slate-500 cursor-pointer outline-none">Import Opsi dari JSON (Otomatis)</summary>
+                                <div className="mt-2">
+                                  <textarea id={`json-import-${selected.id}`} className="w-full text-xs p-2 border border-slate-200 rounded-lg outline-none font-mono" rows="4" placeholder='Contoh:\n[\n  {"kode": "000", "pekerjaan": "Tidak Bekerja"},\n  {"kode": "001", "pekerjaan": "PNS"}\n]'></textarea>
+                                  <button type="button" onClick={(e) => {
+                                    const textarea = document.getElementById(`json-import-${selected.id}`);
+                                    const jsonStr = textarea.value;
+                                    if (!jsonStr) return;
+                                    try {
+                                      const parsed = JSON.parse(jsonStr);
+                                      if (Array.isArray(parsed) && parsed.length > 0) {
+                                        const newOptions = parsed.map(item => {
+                                          const keys = Object.keys(item);
+                                          if (keys.length >= 2) {
+                                            return { value: String(item[keys[0]]), label: String(item[keys[1]]) };
+                                          } else if (keys.length === 1) {
+                                            return { value: String(item[keys[0]]), label: String(item[keys[0]]) };
+                                          }
+                                          return null;
+                                        }).filter(Boolean);
+                                        // Auto append to existing options
+                                        handleUpdateQuestion("options", [...optionsList, ...newOptions]);
+                                        textarea.value = "";
+                                        e.target.parentElement.parentElement.removeAttribute("open");
+                                        alert(`${newOptions.length} Opsi berhasil diimport!`);
+                                      } else {
+                                        alert("Gagal: JSON harus berupa array of objects.");
+                                      }
+                                    } catch(err) {
+                                      alert("Gagal: Format JSON tidak valid (" + err.message + ")");
+                                    }
+                                  }} className="mt-2 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded border-0 cursor-pointer w-full transition-colors">
+                                    Proses JSON
+                                  </button>
+                                </div>
+                              </details>
+                            )}
                             <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
                               {optionsList.map((opt, idx) => (
                                 <div key={idx} className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200">
@@ -4873,6 +5018,39 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           </div>
         </div>
       )}
+
+      {/* Delete Question Confirmation Modal */}
+      {questionToDelete && (() => {
+        const qToDel = questions.find(q => q.id === questionToDelete);
+        if (!qToDel) return null;
+        return (
+          <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-4" style={{ animation: "fadeIn 0.15s ease" }}>
+            <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-lg" style={{ animation: "scaleIn 0.2s ease" }}>
+              <div className="flex items-center gap-3 text-red-500 mb-4">
+                <AlertTriangle size={20} />
+                <h3 className="text-sm font-bold text-slate-800">Hapus Pertanyaan?</h3>
+              </div>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Tindakan ini akan menghapus pertanyaan <strong className="text-slate-700">"{qToDel.label?.substring(0, 50) || 'Tanpa label'}{qToDel.label?.length > 50 ? '...' : ''}"</strong> secara permanen. Tindakan ini tidak dapat dibatalkan.
+              </p>
+              <div className="flex gap-2.5 mt-6 justify-end">
+                <button 
+                  onClick={() => setQuestionToDelete(null)}
+                  className="px-3.5 py-2 text-xs font-semibold text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-xl border-0 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={confirmDeleteQuestion}
+                  className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl border-0 cursor-pointer"
+                >
+                  Hapus Permanen
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Copy Questionnaire Modal */}
       {isCopyModalOpen && (
