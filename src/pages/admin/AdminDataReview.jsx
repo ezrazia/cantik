@@ -222,7 +222,7 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
             const optId = `${idPrefix || 'opt'}-${idx}-${o.name.replace(/\s+/g, '-').toLowerCase()}`;
             return (
               <div
-                key={o.name}
+                key={`${idx}-${o.name}`}
                 className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer text-[11px] font-semibold text-slate-600 transition-all select-none"
               >
                 <input
@@ -828,6 +828,19 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     }
   };
 
+  const handleHapus = async () => {
+    try {
+      await api.dokumen.delete(viewingRecord.dbId || viewingRecord.id, true);
+      await fetchReviewDocuments();
+      setViewingRecord(null);
+      setViewingBlock(blocks[0]?.id || null);
+      setIsEditing(false);
+      setConfirmModalType(null);
+    } catch (err) {
+      alert("Gagal menghapus dokumen: " + err.message);
+    }
+  };
+
   const setVal = (qId, value) => {
     startTransition(() => {
       setAns(prev => ({
@@ -1399,45 +1412,45 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
             {/* Top: Document Information */}
             <div className="p-5 border-b border-slate-50 bg-slate-50/50">
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Informasi Dokumen</p>
-              <div className="mt-4 space-y-2.5 text-xs font-semibold text-slate-700">
-                <div className="flex justify-between items-center">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-4">Informasi Dokumen</p>
+              <div className="space-y-4 text-xs font-semibold text-slate-700">
+                <div className="flex flex-col gap-1.5">
                   <span className="text-slate-400 font-medium">ID Dokumen</span>
-                  <span className="mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{viewingRecord.id}</span>
+                  <span className="mono font-bold text-blue-600 break-all">{viewingRecord.id}</span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col gap-1">
                   <span className="text-slate-400 font-medium">Kepala Keluarga</span>
-                  <span className="text-slate-800 truncate max-w-[120px]">{krtName}</span>
+                  <span className="text-slate-800 text-sm leading-tight">{krtName}</span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col gap-1">
                   <span className="text-slate-400 font-medium">Petugas</span>
-                  <span className="text-slate-800 truncate max-w-[120px]">{viewingRecord.petugas}</span>
+                  <span className="text-slate-800 text-sm leading-tight">{viewingRecord.petugas}</span>
                 </div>
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col gap-1">
                   <span className="text-slate-400 font-medium">Desa</span>
-                  <span className="text-slate-800">{viewingRecord.desa}</span>
+                  <span className="text-slate-800 text-sm leading-tight">{viewingRecord.desa}</span>
                 </div>
               </div>
             </div>
 
             {/* Middle: Block List */}
-            <div className="p-3 space-y-1 flex-1 overflow-y-auto">
-              <p className="px-3 py-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Daftar Blok</p>
+            <div className="p-4 space-y-1.5 flex-1 overflow-y-auto bg-white">
+              <p className="px-2 py-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Daftar Blok</p>
               {BLOCKS.map((b, i) => {
                 const isCurrent = viewingBlock === b.id;
                 return (
                   <button
                     key={i}
                     onClick={() => setViewingBlock(b.id)}
-                    className={`w-full flex items-start gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all ${isCurrent
-                      ? "text-blue-600 bg-blue-50/70 shadow-sm"
-                      : "bg-transparent text-slate-500 hover:bg-slate-50"
+                    className={`w-full flex items-start gap-3 px-3 py-3 rounded-xl text-xs font-bold border cursor-pointer transition-all ${isCurrent
+                      ? "text-blue-700 bg-blue-50/80 border-blue-200 shadow-sm"
+                      : "bg-transparent text-slate-500 border-transparent hover:bg-slate-50 hover:border-slate-100"
                       }`}
                   >
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${isCurrent ? 'bg-blue-500 animate-pulse' : 'bg-slate-300'}`} />
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 transition-colors ${isCurrent ? 'bg-blue-600 animate-pulse' : 'bg-slate-300'}`} />
                     <div className="text-left flex flex-col min-w-0">
-                      <span>{b.l}</span>
-                      <span className="text-[10px] text-slate-400 font-normal mt-0.5 leading-normal">{b.title}</span>
+                      <span className="leading-tight">{b.l}</span>
+                      <span className={`text-[10px] font-normal mt-1 leading-normal ${isCurrent ? 'text-blue-500/80' : 'text-slate-400'}`}>{b.title}</span>
                     </div>
                   </button>
                 );
@@ -1445,7 +1458,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             </div>
 
             {/* Bottom: Stuck to bottom controls */}
-            <div className="p-5 border-t border-slate-100 bg-slate-50/30 space-y-2 mt-auto">
+            <div className="p-5 border-t border-slate-100 bg-slate-50/50 space-y-3 mt-auto">
               {isKegiatanAdmin ? (
                 viewingRecord.status === "selesai" ? (
                   <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
@@ -1481,12 +1494,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         onClick={() => setIsEditing(true)}
                         className="w-full py-2.5 bg-white hover:bg-slate-50 text-blue-600 border border-slate-200 hover:border-slate-300 font-bold rounded-xl text-xs cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-sm"
                       >
-                        <Edit3 size={13} /> Edit Isian
+                        <Edit3 size={14} /> Edit Isian
                       </button>
                     )
                   ) : (
-                    <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2.5 rounded-xl font-semibold flex items-center gap-2 border border-emerald-100/50 shadow-sm">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                       Dokumen Telah Disetujui
                     </div>
                   )}
@@ -1497,20 +1510,44 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       onClick={() => setConfirmModalType("unapprove")}
                       className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs cursor-pointer border border-amber-100 transition-all flex items-center justify-center gap-1.5"
                     >
-                      <X size={13} /> Batalkan Persetujuan (Unapprove)
+                      <X size={14} /> Batalkan Persetujuan (Unapprove)
                     </button>
                   ) : (
-                    <button
-                      onClick={() => setConfirmModalType("approve")}
-                      disabled={isEditing}
-                      className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${isEditing
-                        ? "bg-slate-100 text-slate-400 cursor-not-allowed"
-                        : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                        }`}
-                    >
-                      <Check size={13} /> Setujui Dokumen (Approve)
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => setConfirmModalType("approve")}
+                        disabled={isEditing}
+                        className={`py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${isEditing
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+                          }`}
+                      >
+                        <Check size={14} /> Approve
+                      </button>
+                      <button
+                        onClick={() => setModal({ ...viewingRecord, type: "reject" })}
+                        disabled={isEditing}
+                        className={`py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${isEditing
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          : "bg-amber-600 hover:bg-amber-700 text-white shadow-sm"
+                          }`}
+                      >
+                        <X size={14} /> Reject
+                      </button>
+                    </div>
                   )}
+
+                  {/* Hapus Action */}
+                  <button
+                    onClick={() => setConfirmModalType("delete")}
+                    disabled={isEditing}
+                    className={`w-full py-2.5 font-bold rounded-xl text-xs cursor-pointer border-0 transition-all flex items-center justify-center gap-1.5 ${isEditing
+                      ? "bg-slate-100 text-slate-400 cursor-not-allowed"
+                      : "bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
+                    }`}
+                  >
+                    <AlertTriangle size={14} /> Hapus Permanen
+                  </button>
                 </>
               )}
             </div>
@@ -1524,12 +1561,23 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               <span className="text-[11px] text-blue-600 font-bold">Blok {BLOCKS.findIndex(b => b.id === viewingBlock) + 1} dari {blocks.length}</span>
             </div>
 
-            <div className="space-y-4 max-w-xl pb-10">
+            <div className="space-y-4 max-w-4xl pb-2">
               {(() => {
+                const parseMarkdownBold = (text) => {
+                  if (typeof text !== 'string') return text;
+                  const parts = text.split(/(\*\*.*?\*\*)/g);
+                  return parts.map((part, index) => {
+                    if (part.startsWith('**') && part.endsWith('**')) {
+                      return <strong key={index} className="font-bold">{part.slice(2, -2)}</strong>;
+                    }
+                    return part;
+                  });
+                };
+
                 const resolveLabelText = (labelText, activeInstanceIdx) => {
                   if (!labelText) return "";
                   const placeholderRegex = /\{([a-zA-Z0-9.]+)\}|\$([a-zA-Z0-9.]+)/g;
-                  return labelText.replace(placeholderRegex, (match, p1, p2) => {
+                  const replaced = labelText.replace(placeholderRegex, (match, p1, p2) => {
                     const code = p1 || p2;
                     if (!code) return match;
                     const cleanCode = code.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
@@ -1561,6 +1609,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     const val = resolvedValues[targetQ.id];
                     return val !== undefined && val !== null && val !== "" ? val : match;
                   });
+                  return parseMarkdownBold(replaced);
                 };
 
                 const renderInputForQuestion = (q, rawInstances, value, hasOptions, activeInstanceIdx = null) => {
@@ -1720,7 +1769,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   }
 
                   const loopCount = getQuestionLoopCount(q);
-                  const { loopByQuestionId } = parseValidation(q.validation);
+                  const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
                   if (loopCount <= 0 && loopByQuestionId) {
                     return null;
                   }
@@ -1746,7 +1795,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                           </div>
                         ) : (
-                          renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
+                          q.type === 'note' ? null : renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
                         )}
 
                         {isLoop && loopType === "manual" && (
@@ -1799,7 +1848,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                             </div>
                           ) : (
-                            renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
+                            q.type === 'note' ? null : renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
                           )}
 
                           {isLoop && loopType === "manual" && (
@@ -1943,7 +1992,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             </div>
 
             {/* Block bottom navigation */}
-            <div className="flex gap-3 max-w-xl mt-6">
+            <div className="flex gap-3 max-w-4xl mt-4">
               <button
                 disabled={viewingBlock === blocks[0]?.id}
                 onClick={() => {
@@ -3001,17 +3050,22 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
 
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${confirmModalType === "approve" ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${
+              confirmModalType === "approve" ? "bg-emerald-50 text-emerald-600" :
+              confirmModalType === "delete" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600"
               }`}>
               {confirmModalType === "approve" ? <Check size={24} /> : <AlertTriangle size={24} />}
             </div>
 
             <h3 className="text-lg font-bold text-slate-900 mb-1.5">
-              {confirmModalType === "approve" ? "Setujui Dokumen?" : "Batalkan Persetujuan?"}
+              {confirmModalType === "approve" ? "Setujui Dokumen?" :
+               confirmModalType === "delete" ? "Hapus Dokumen Permanen?" : "Batalkan Persetujuan?"}
             </h3>
             <p className="text-xs text-slate-500 mb-6 leading-relaxed">
               {confirmModalType === "approve"
                 ? `Apakah Anda yakin ingin menyetujui dokumen ${viewingRecord.id} dari ${viewingRecord.petugas}? Dokumen akan disimpan sebagai data valid.`
+                : confirmModalType === "delete"
+                ? `Apakah Anda yakin ingin menghapus dokumen ${viewingRecord.id} beserta seluruh isiannya secara permanen? Data ini tidak dapat dikembalikan.`
                 : `Apakah Anda yakin ingin membatalkan persetujuan dokumen ${viewingRecord.id}? Status dokumen akan dikembalikan menjadi 'Submitted' dan dapat diedit kembali.`
               }
             </p>
@@ -3024,8 +3078,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 Batal
               </button>
               <button
-                onClick={confirmModalType === "approve" ? handleApprove : handleUnapprove}
-                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white border-0 cursor-pointer transition-all ${confirmModalType === "approve" ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
+                onClick={confirmModalType === "approve" ? handleApprove : confirmModalType === "delete" ? handleHapus : handleUnapprove}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold text-white border-0 cursor-pointer transition-all ${
+                  confirmModalType === "approve" ? 'bg-emerald-600 hover:bg-emerald-700' :
+                  confirmModalType === "delete" ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
                   }`}
               >
                 Ya, Yakin

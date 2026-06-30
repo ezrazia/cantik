@@ -113,7 +113,7 @@ export const api = {
     sync: (petugasId, documents) => request('/dokumen/sync', { method: 'POST', body: { petugas_id: petugasId, documents } }),
     backup: (petugasId, documents) => request('/dokumen/backup', { method: 'POST', body: { petugas_id: petugasId, documents } }),
     review: (id, review_status, notes = '', role = '') => request(`/dokumen/review/${id}`, { method: 'POST', body: { review_status, notes, role } }),
-    delete: (id) => request(`/dokumen/${id}`, { method: 'DELETE' }),
+    delete: (id, force = false) => request(`/dokumen/${id}${force ? '?force=true' : ''}`, { method: 'DELETE' }),
     assignMultiple: (dbId, pcls, pmls) => request('/dokumen/assign-multiple', { method: 'POST', body: { dbId, assigned_pcls: pcls, assigned_pmls: pmls } }),
     assignSls: (kegiatanId, sls, pcls, pmls) => request('/dokumen/assign-sls', { method: 'POST', body: { kegiatan_id: kegiatanId, sls, assigned_pcls: pcls, assigned_pmls: pmls } }),
     autoAssignLokus: (kegiatanId) => request('/dokumen/auto-assign-lokus', { method: 'POST', body: { kegiatan_id: kegiatanId } }),

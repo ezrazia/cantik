@@ -272,7 +272,7 @@ router.get('/review/:kegiatanId', async (req, res) => {
       },
       include: {
         kegiatan: {
-          select: { name: true },
+          select: { name: true, lokus: true },
         },
         petugas: {
           select: {
@@ -293,12 +293,50 @@ router.get('/review/:kegiatanId', async (req, res) => {
     });
 
     const formatted = rows.map(doc => {
+      let lObj = doc.kegiatan?.lokus;
+      if (typeof lObj === 'string') {
+        try { lObj = JSON.parse(lObj); } catch(e) { lObj = {}; }
+      } else if (!lObj) {
+        lObj = {};
+      }
+      
+      const knownDesas = (lObj.desa || []).map(d => d.toUpperCase());
+      
+      const normalizeDesa = (rawDesa) => {
+        if (!rawDesa) return knownDesas.length === 1 ? (lObj.desa[0]) : 'Unknown';
+        const upper = rawDesa.toUpperCase();
+        const matchIdx = knownDesas.findIndex(kd => kd === upper);
+        if (matchIdx >= 0) return lObj.desa[matchIdx];
+        if (knownDesas.length === 1) return lObj.desa[0];
+        return rawDesa;
+      };
+
+      const cleanSlsCode = (rawSls) => {
+        if (!rawSls) return null;
+        let sls = rawSls.trim();
+        if (sls.startsWith('[')) {
+          try {
+            const arr = JSON.parse(sls);
+            sls = Array.isArray(arr) && arr.length > 0 ? String(arr[0]) : sls;
+          } catch (e) { }
+        }
+        const stripped = sls
+          .replace(/^(RT|SLS)\s+/i, '')
+          .replace(/\s*\[.*\]$/, '')
+          .replace(/\s+.*$/, '')
+          .trim();
+        const digits = stripped.replace(/[^0-9]/g, '');
+        return digits ? digits.padStart(2, '0') : null;
+      };
+
       const pclsVal = doc.assigned_pcls;
       const pmlsVal = doc.assigned_pmls;
       const fallbackPcls = doc.petugas?.name && doc.petugas.name !== "Belum Ditugaskan" ? [doc.petugas.name] : [];
       const fallbackPmls = doc.petugas?.petugas_kegiatan?.[0]?.pengawas ? [doc.petugas.petugas_kegiatan[0].pengawas] : [];
       return {
         ...doc,
+        desa: normalizeDesa(doc.desa),
+        sls: cleanSlsCode(doc.sls),
         activity_name: doc.kegiatan?.name || '',
         petugas_name: doc.petugas?.name || '',
         pengawas: doc.petugas?.petugas_kegiatan?.[0]?.pengawas || null,
@@ -973,26 +1011,32 @@ router.post('/review/:id', async (req, res) => {
         },
       });
 
-      // Jika disetujui, update status desa_kegiatan
-      if (review_status === 'approved') {
-        await tx.desaKegiatan.upsert({
-          where: {
-            uk_desa_kegiatan: {
-              kegiatan_id: existing.kegiatan_id,
-              desa: existing.desa || '',
-            },
-          },
-          update: {
-            selesai: { increment: 1 },
-          },
-          create: {
+      // Recalculate desaKegiatan.selesai
+      const approvedCount = await tx.dokumen.count({
+        where: {
+          kegiatan_id: existing.kegiatan_id,
+          desa: existing.desa || '',
+          review_status: 'approved',
+        },
+      });
+
+      await tx.desaKegiatan.upsert({
+        where: {
+          uk_desa_kegiatan: {
             kegiatan_id: existing.kegiatan_id,
             desa: existing.desa || '',
-            selesai: 1,
-            target: 0,
           },
-        });
-      }
+        },
+        update: {
+          selesai: approvedCount,
+        },
+        create: {
+          kegiatan_id: existing.kegiatan_id,
+          desa: existing.desa || '',
+          selesai: approvedCount,
+          target: 0,
+        },
+      });
     });
 
     return res.json({ success: true, message: `Dokumen berhasil di-${review_status}` });
@@ -1022,7 +1066,10 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Dokumen tidak ditemukan' });
     }
 
-    if (existing.status === 'terkirim' && existing.review_status !== 'rejected') {
+    // Check if force is passed as a string 'true' or literal true
+    const force = req.query.force === 'true' || req.query.force === true;
+
+    if (!force && existing.status === 'terkirim' && existing.review_status !== 'rejected') {
       return res.status(400).json({ success: false, message: 'Dokumen yang sudah terkirim tidak dapat dihapus' });
     }
 
@@ -1046,6 +1093,25 @@ router.delete('/:id', async (req, res) => {
         data: {
           target: total,
           selesai: selesaiCount,
+        },
+      });
+
+      // Recalculate desaKegiatan.selesai
+      const approvedCount = await tx.dokumen.count({
+        where: {
+          kegiatan_id: existing.kegiatan_id,
+          desa: existing.desa || '',
+          review_status: 'approved',
+        },
+      });
+
+      await tx.desaKegiatan.updateMany({
+        where: {
+          kegiatan_id: existing.kegiatan_id,
+          desa: existing.desa || '',
+        },
+        data: {
+          selesai: approvedCount,
         },
       });
     });

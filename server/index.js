@@ -78,3 +78,5 @@ async function start() {
 }
 
 start();
+
+// Trigger restart

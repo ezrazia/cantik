@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import AdminLayout from '../../components/layouts/AdminLayout';
 import { api } from '../../services/api';
-import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, PlusCircle, Target } from "lucide-react";
 import useDropdown from '../../hooks/useDropdown';
 
@@ -437,15 +437,16 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
               <div className="w-1 h-5 bg-blue-600 rounded-full"/>
               Kiriman Harian
             </h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={CHART_DATA} barGap={4}>
-                <XAxis dataKey="h" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false}/>
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={30}/>
-                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', fontSize: 12 }}/>
-                <Bar dataKey="k" radius={[4,4,0,0]} name="Kirim">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={CHART_DATA} barGap={4} margin={{ top: 10, right: 10, bottom: 0, left: -25 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="h" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} tickMargin={8} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
+                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
+                <Bar dataKey="k" radius={[4,4,0,0]} name="Kirim" maxBarSize={40}>
                   {CHART_DATA.map((_, i) => <Cell key={i} fill="#2563eb"/>)}
                 </Bar>
-                <Bar dataKey="t" radius={[4,4,0,0]} name="Tolak">
+                <Bar dataKey="t" radius={[4,4,0,0]} name="Tolak" maxBarSize={40}>
                   {CHART_DATA.map((_, i) => <Cell key={i} fill="#fbbf24"/>)}
                 </Bar>
               </BarChart>

@@ -27,10 +27,11 @@ router.get('/stats', async (req, res) => {
     
     // Cari level lokus terdalam dari kegiatan
     let lokusLevel = 'desa';
+    let lObj = null;
     if (kegiatan_id) {
       const kegiatanObj = await prisma.kegiatan.findUnique({ where: { id: parseInt(kegiatan_id, 10) } });
       if (kegiatanObj && kegiatanObj.lokus) {
-        let lObj = kegiatanObj.lokus;
+        lObj = kegiatanObj.lokus;
         if (typeof lObj === 'string') {
           try { lObj = JSON.parse(lObj); } catch(e) { lObj = {}; }
         }
@@ -54,6 +55,89 @@ router.get('/stats', async (req, res) => {
       }
     });
 
+    // Build known desa/SLS lists from kegiatan lokus for normalization
+    let knownDesas = [];
+    let knownSlsList = [];
+    if (lObj) {
+      knownDesas = (lObj.desa || []).map(d => d.toUpperCase());
+      knownSlsList = lObj.sls || [];
+    }
+
+    /**
+     * Normalize desa value against known lokus desas.
+     * If d.desa matches a known desa (case-insensitive), use the canonical name.
+     * If not and there's only one known desa, assume it belongs there.
+     * Otherwise fallback to the raw value or 'Unknown'.
+     */
+    const normalizeDesa = (rawDesa) => {
+      if (!rawDesa) return knownDesas.length === 1 ? (lObj.desa[0]) : 'Unknown';
+      const upper = rawDesa.toUpperCase();
+      const matchIdx = knownDesas.findIndex(kd => kd === upper);
+      if (matchIdx >= 0) return lObj.desa[matchIdx];
+      // Single desa in lokus: all documents belong to it
+      if (knownDesas.length === 1) return lObj.desa[0];
+      return rawDesa;
+    };
+
+    /**
+     * Extract clean SLS code from raw sls field.
+     * Handles formats like: "01", "02", "SLS 01 Limbu Sedulun", "(*01*)", "00",
+     * "RT 001 [DESA]", '["01"]' (JSON array)
+     * Returns just the numeric code e.g. "01", "02", "03", "04"
+     */
+    const cleanSlsCode = (rawSls) => {
+      if (!rawSls) return null;
+      let sls = rawSls.trim();
+      // Handle JSON array format: '["01"]' -> "01"
+      if (sls.startsWith('[')) {
+        try {
+          const arr = JSON.parse(sls);
+          sls = Array.isArray(arr) && arr.length > 0 ? String(arr[0]) : sls;
+        } catch (e) { /* not JSON, continue */ }
+      }
+      // Strip prefixes and suffixes
+      // "RT 001 [LIMBU SEDULUN]" -> "001"
+      // "SLS 01 Limbu Sedulun" -> "01"
+      const stripped = sls
+        .replace(/^(RT|SLS)\s+/i, '')     // Remove RT/SLS prefix
+        .replace(/\s*\[.*\]$/, '')          // Remove [DESA] suffix
+        .replace(/\s+.*$/, '')              // Remove trailing desa name
+        .trim();
+      // Extract digits from formats like "(*01*)" -> "01"
+      const digits = stripped.replace(/[^0-9]/g, '');
+      return digits ? digits.padStart(2, '0') : null;
+    };
+
+    /**
+     * Extract clean code from a lokus SLS entry.
+     * "RT 001 [LIMBU SEDULUN]" -> "01" (removing leading zeros beyond 2 digits)
+     * "SLS 01 Limbu Sedulun" -> "01"
+     */
+    const extractLokusSlsCode = (entry) => {
+      const stripped = entry
+        .replace(/^(RT|SLS)\s+/i, '')
+        .replace(/\s*\[.*\]$/, '')
+        .replace(/\|\|.*$/, '')           // Handle "RT 001||BUONG BARU" format
+        .replace(/\s+.*$/, '')
+        .trim();
+      const digits = stripped.replace(/[^0-9]/g, '');
+      return digits ? digits.padStart(2, '0') : null;
+    };
+
+    /**
+     * Check if an SLS code is valid (exists in the kegiatan lokus config).
+     * Compares numerically to handle different zero-padding ("01" matches "001").
+     */
+    const isValidSls = (code) => {
+      if (knownSlsList.length === 0) return true; // no SLS config means accept all
+      const codeNum = parseInt(code, 10);
+      if (isNaN(codeNum) || codeNum <= 0) return false; // "00" is invalid
+      return knownSlsList.some(slsEntry => {
+        const entryCode = extractLokusSlsCode(slsEntry);
+        return entryCode && parseInt(entryCode, 10) === codeNum;
+      });
+    };
+
     let totalDokumen = 0, approved = 0, rejected = 0, pending = 0, draft = 0, tambahan = 0;
     const lokusMap = {};
 
@@ -69,12 +153,25 @@ router.get('/stats', async (req, res) => {
       if (isDraft) draft++;
       if (isTambahan) tambahan++;
 
-      let lokusKey = d[lokusLevel] || d.desa || 'Unknown';
+      // Normalize desa name using kegiatan lokus
+      const normalizedDesa = normalizeDesa(d.desa);
+
+      let lokusKey;
       if (lokusLevel === 'sls' && d.sls) {
-        lokusKey = `${d.desa} - SLS ${d.sls}`;
+        const code = cleanSlsCode(d.sls);
+        if (code && isValidSls(code)) {
+          lokusKey = `${normalizedDesa} - SLS ${code}`;
+        } else {
+          // Invalid SLS code — group under desa only
+          lokusKey = normalizedDesa;
+        }
       } else if (lokusLevel === 'sub_sls' && d.sub_sls) {
-        lokusKey = `${d.desa} - SLS ${d.sls} - Sub ${d.sub_sls}`;
+        const slsCode = cleanSlsCode(d.sls);
+        lokusKey = `${normalizedDesa} - SLS ${slsCode || '??'} - Sub ${d.sub_sls}`;
+      } else {
+        lokusKey = normalizedDesa || 'Unknown';
       }
+
       if (!lokusMap[lokusKey]) {
         lokusMap[lokusKey] = { name: lokusKey, Selesai: 0, Review: 0, Ditolak: 0, Draft: 0, Tambahan: 0, Total: 0 };
       }
