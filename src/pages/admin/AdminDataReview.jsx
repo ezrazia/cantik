@@ -8,8 +8,9 @@ import useDropdown from "../../hooks/useDropdown";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import {
   Search, Eye, Check, X, AlertTriangle, Filter, Upload,
-  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus
+  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus, Award, ChevronDown
 } from "lucide-react";
+import QCard from "../../components/ui/QCard";
 
 const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, allowedPattern, isNumberFormat = false, ...props }) => {
   const [localValue, setLocalValue] = useState(value || "");
@@ -156,40 +157,7 @@ const FastSelect = ({ value, onChange, options, className, disabled, placeholder
   );
 };
 
-/**
- * Custom QCard for viewing and editing questionnaires
- */
-function ReviewQCard({ r, label, subLabel, required, hint, skipInfo, children }) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-5 shadow-sm space-y-3 relative overflow-hidden transition-all duration-200 hover:shadow-md">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Q.{r}</span>
-            {required && (
-              <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>
-            )}
-            {skipInfo && (
-              <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded uppercase">
-                {typeof skipInfo === 'string' && skipInfo.trim().startsWith('{') ? "Lompatan" : skipInfo}
-              </span>
-            )}
-          </div>
-          <h4 className="text-sm font-bold text-slate-800 mt-1.5 leading-snug">{label}</h4>
-          {subLabel && (
-            <p className="text-xs text-slate-500 mt-1 font-medium leading-relaxed">{subLabel}</p>
-          )}
-          {hint && (
-            <p className="text-[10px] text-slate-400 mt-0.5 font-medium">{hint}</p>
-          )}
-        </div>
-      </div>
-      <div className="pt-1.5">
-        {children}
-      </div>
-    </div>
-  );
-}
+
 
 /**
  * Halaman Review Data Admin.
@@ -291,6 +259,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [note, setNote] = useState("");
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [sortColumn, setSortColumn] = useState("id");
+  const [sortDirection, setSortDirection] = useState("desc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   const isLoading = propLoading || loading;
 
@@ -329,6 +301,42 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [pclSearch, setPclSearch] = useState("");
   const [pmlSearch, setPmlSearch] = useState("");
   const [isAssigningSls, setIsAssigningSls] = useState(false);
+  const [isAssignDropdownOpen, setIsAssignDropdownOpen] = useState(false);
+  const assignDropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (assignDropdownRef.current && !assignDropdownRef.current.contains(event.target)) {
+        setIsAssignDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const activeProjectPetugas = useMemo(() => {
+    return (petugas || []).filter(p => p.projects && p.projects.includes(selectedProject));
+  }, [petugas, selectedProject]);
+
+  const filteredPcls = useMemo(() => {
+    const list = activeProjectPetugas.filter(p => {
+      const role = p.projectRoles?.[selectedProject] || "PCL";
+      return role === "PCL";
+    });
+    if (!pclSearch) return list;
+    const q = pclSearch.toLowerCase();
+    return list.filter(p => p.username?.toLowerCase().includes(q));
+  }, [activeProjectPetugas, pclSearch, selectedProject]);
+
+  const filteredPmls = useMemo(() => {
+    const list = activeProjectPetugas.filter(p => {
+      const role = p.projectRoles?.[selectedProject] || "PCL";
+      return role === "PML";
+    });
+    if (!pmlSearch) return list;
+    const q = pmlSearch.toLowerCase();
+    return list.filter(p => p.username?.toLowerCase().includes(q));
+  }, [activeProjectPetugas, pmlSearch, selectedProject]);
 
   // Check activity status to decide if prelist is editable
   const activeActivity = activities?.find(a => a.name === selectedProject);
@@ -343,6 +351,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     : [];
   const villages = ["Semua Desa", ...(desaStats.length > 0 ? desaStats.map(d => `Desa ${d.name}`) : activeDesas.map(d => `Desa ${d}`))];
   const villageDropdown = useDropdown("Semua Desa");
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, searchQuery, villageDropdown.selected, sortColumn, sortDirection, selectedProject]);
 
   useEffect(() => {
     if (!activeActivity) return;
@@ -429,23 +441,128 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     }
   };
 
+  const handleResetSlsAssignment = async () => {
+    if (!selectedSls) return;
+    if (!window.confirm(`Yakin ingin mereset semua penugasan PCL dan PML untuk SLS "${selectedSls}"? Data penugasan akan dihapus.`)) return;
+    setIsAssigningSls(true);
+    try {
+      await api.dokumen.assignSls(activeActivity.id, selectedSls, [], []);
+      setData(prev => prev.map(r => {
+        if (r.sls === selectedSls) {
+          return {
+            ...r,
+            assigned_pcls: [],
+            assigned_pmls: [],
+            petugas: "Belum Ditugaskan",
+            pengawas: "Belum Ditugaskan"
+          };
+        }
+        return r;
+      }));
+      setSelectedSlsPcls([]);
+      setSelectedSlsPmls([]);
+      alert(`Penugasan untuk SLS ${selectedSls} berhasil direset.`);
+    } catch (err) {
+      alert("Gagal mereset penugasan: " + err.message);
+    } finally {
+      setIsAssigningSls(false);
+    }
+  };
+
+  const handleAutoAllocate = async () => {
+    if (!selectedProject || !activeActivity) return;
+    if (!window.confirm("Yakin ingin mengalokasikan PCL dan PML secara otomatis berdasarkan SLS pendaftaran petugas? Penugasan yang ada akan diperbarui.")) return;
+    
+    setIsAssigningSls(true);
+    try {
+      // 1. Get PCLs and PMLs assigned to this activity
+      const allPcls = officersList.filter(o => {
+        const ass = o.assignments?.[selectedProject];
+        return ass && ass.role === "PCL";
+      });
+
+      const allPmls = officersList.filter(o => {
+        const ass = o.assignments?.[selectedProject];
+        return ass && ass.role === "PML";
+      });
+
+      // 2. We match PCLs to each SLS
+      // Document SLS code is typically '01', '02', '03', '04', etc.
+      // Officer SLS assignments are like 'RT 001 [LIMBU SEDULUN]', 'RT 002', etc.
+      const getPclsForSls = (slsCode) => {
+        if (!slsCode) return [];
+        const cleanSlsCode = slsCode.trim().replace(/^0+/, ''); // '01' -> '1'
+        return allPcls.filter(p => {
+          const pSlsList = p.assignments?.[selectedProject]?.sls || [];
+          return pSlsList.some(pSls => {
+            const cleanPSls = pSls.toLowerCase();
+            const rtMatch = cleanPSls.match(/rt\s*(\d+)/i);
+            if (rtMatch) {
+              const rtNum = parseInt(rtMatch[1], 10).toString();
+              return rtNum === cleanSlsCode;
+            }
+            return cleanPSls.includes(cleanSlsCode);
+          });
+        });
+      };
+
+      // 3. Find Herman as primary PML for Limbu Sedulun, or fallback to all PMLs
+      const hermanPml = allPmls.find(p => p.name.toLowerCase().includes('herman') || p.username.toLowerCase().includes('herman'));
+      const fallbackPmls = allPmls.map(p => p.name);
+      
+      const uniqueSlsList = Array.from(new Set(data.map(r => r.sls).filter(Boolean)));
+      
+      for (const sls of uniqueSlsList) {
+        const matchedPcls = getPclsForSls(sls);
+        const pclNames = matchedPcls.map(p => p.name);
+        
+        // PML is Herman if found, otherwise all PMLs registered for the project
+        const pmlNames = hermanPml ? [hermanPml.name] : fallbackPmls;
+        
+        await api.dokumen.assignSls(
+          activeActivity.id,
+          sls,
+          pclNames,
+          pmlNames
+        );
+      }
+
+      await fetchReviewDocuments();
+      alert("Alokasi petugas otomatis berhasil dijalankan!");
+    } catch (err) {
+      console.error(err);
+      alert("Gagal melakukan alokasi otomatis: " + err.message);
+    } finally {
+      setIsAssigningSls(false);
+    }
+  };
+
   const fetchReviewDocuments = async () => {
     if (!activeActivity) return;
     setLoading(true);
     try {
       const docs = await api.dokumen.getForReview(activeActivity.id);
       // Map properties to match UI expected keys
-      const formatted = docs.map(doc => ({
-        ...doc,
-        id: doc.kode, // Use kode as UI id display
-        dbId: doc.id,  // Save DB primary key as dbId
-        status: doc.review_status === 'draft' ? doc.status : doc.review_status,
-        petugas: doc.petugas_name,
-        isPrelist: !!doc.is_prelist,
-        sls: doc.sls,
-        subSls: doc.sub_sls,
-        nama_krt: doc.krt
-      }));
+      const formatted = docs.map(doc => {
+        let statusVal = doc.review_status === 'draft' ? doc.status : doc.review_status;
+        if (doc.review_status === 'approved') {
+          const hasAdminApproval = doc.logs && doc.logs.some(log => log.includes('oleh Admin') || log.includes('Admin'));
+          if (hasAdminApproval) {
+            statusVal = 'selesai';
+          }
+        }
+        return {
+          ...doc,
+          id: doc.kode, // Use kode as UI id display
+          dbId: doc.id,  // Save DB primary key as dbId
+          status: statusVal,
+          petugas: doc.petugas_name,
+          isPrelist: !!doc.is_prelist,
+          sls: doc.sls,
+          subSls: doc.sub_sls,
+          nama_krt: doc.krt
+        };
+      });
       setData(formatted);
     } catch (err) {
       console.error("Gagal mengambil data review:", err);
@@ -581,17 +698,58 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       (r.pengawas || "").toLowerCase().includes(q);
   });
 
-  const sortedFiltered = [...filteredSearch].sort((a, b) => {
-    if (a.isPrelist && !b.isPrelist) return -1;
-    if (!a.isPrelist && b.isPrelist) return 1;
-    const valA = (a.id || a.kode || "").toString();
-    const valB = (b.id || b.kode || "").toString();
-    if (sortOrder === "desc") {
-      return valB.localeCompare(valA);
-    } else {
-      return valA.localeCompare(valB);
+  const getSortValue = (item, col) => {
+    switch (col) {
+      case "id":
+        return (item.id || item.kode || "").toString();
+      case "krt":
+        return (item.krt || item.nama_krt || "").toString().toLowerCase();
+      case "desa":
+        return (item.desa || "").toString().toLowerCase();
+      case "sls":
+        return (item.sls || "").toString().toLowerCase();
+      case "subSls":
+        return (item.subSls || "").toString().toLowerCase();
+      case "isPrelist":
+        return item.isPrelist ? 1 : 0;
+      case "petugas":
+        return (item.petugas || "").toString().toLowerCase();
+      case "pengawas":
+        return (item.pengawas || "").toString().toLowerCase();
+      case "tgl_kirim":
+        return new Date(item.updated_at || item.created_at || 0).getTime();
+      case "warning":
+        return item.flag || 0;
+      case "status":
+        return (item.status || "").toString().toLowerCase();
+      default:
+        return "";
     }
-  });
+  };
+
+  const sortedFiltered = useMemo(() => {
+    return [...filteredSearch].sort((a, b) => {
+      if (a.isPrelist && !b.isPrelist) return -1;
+      if (!a.isPrelist && b.isPrelist) return 1;
+
+      const valA = getSortValue(a, sortColumn);
+      const valB = getSortValue(b, sortColumn);
+
+      if (typeof valA === 'number' && typeof valB === 'number') {
+        return sortDirection === "desc" ? valB - valA : valA - valB;
+      }
+
+      const strA = String(valA);
+      const strB = String(valB);
+      return sortDirection === "desc" ? strB.localeCompare(strA) : strA.localeCompare(strB);
+    });
+  }, [filteredSearch, sortColumn, sortDirection]);
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return sortedFiltered.slice(startIndex, endIndex);
+  }, [sortedFiltered, currentPage, pageSize]);
 
   const handleOpenDetail = async (record) => {
     try {
@@ -614,10 +772,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const approve = async () => {
     try {
-      await api.dokumen.review(modal.dbId || modal.id, 'approved');
+      await api.dokumen.review(modal.dbId || modal.id, 'approved', '', currentUser?.role || 'admin');
       await fetchReviewDocuments();
       if (viewingRecord && viewingRecord.id === modal.id) {
-        setViewingRecord(prev => ({ ...prev, status: "approved" }));
+        setViewingRecord(prev => ({ ...prev, status: "selesai" }));
       }
       if (onApproveDocument) {
         onApproveDocument(modal.desa);
@@ -630,7 +788,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const reject = async () => {
     try {
-      await api.dokumen.review(modal.dbId || modal.id, 'rejected', note);
+      await api.dokumen.review(modal.dbId || modal.id, 'rejected', note, currentUser?.role || 'admin');
       await fetchReviewDocuments();
       if (viewingRecord && viewingRecord.id === modal.id) {
         setViewingRecord(prev => ({ ...prev, status: "rejected" }));
@@ -645,9 +803,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   // Sidebar Approve Action
   const handleApprove = async () => {
     try {
-      await api.dokumen.review(viewingRecord.dbId || viewingRecord.id, 'approved');
+      await api.dokumen.review(viewingRecord.dbId || viewingRecord.id, 'approved', '', currentUser?.role || 'admin');
       await fetchReviewDocuments();
-      setViewingRecord(prev => ({ ...prev, status: "approved" }));
+      setViewingRecord(prev => ({ ...prev, status: "selesai" }));
       setIsEditing(false);
       if (onApproveDocument) {
         onApproveDocument(viewingRecord.desa);
@@ -661,7 +819,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   // Sidebar Unapprove Action
   const handleUnapprove = async () => {
     try {
-      await api.dokumen.review(viewingRecord.dbId || viewingRecord.id, 'rejected', 'Persetujuan dibatalkan oleh PML');
+      await api.dokumen.review(viewingRecord.dbId || viewingRecord.id, 'rejected', 'Pembatalan persetujuan oleh Admin', currentUser?.role || 'admin');
       await fetchReviewDocuments();
       setViewingRecord(prev => ({ ...prev, status: "rejected" }));
       setConfirmModalType(null);
@@ -743,22 +901,115 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     }
   };
 
-  const getManualLoopCount = (q) => {
-    if (!q) return null;
+  const parseValidation = (str) => {
+    if (!str) return { isLoop: false, loopByQuestionId: null };
+    const trimmed = str.trim();
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return {
+          isLoop: !!parsed.is_loop,
+          loopType: parsed.loop_type || "question",
+          loopByQuestionId: parsed.loop_by_question_id || null,
+        };
+      } catch (e) {}
+    }
+    return { isLoop: false, loopByQuestionId: null };
+  };
 
-    // Check if the question belongs to a loop group
-    let loopGroupName = "";
+  const getQuestionLoopGroup = (q) => {
+    if (!q) return "";
     if (q.validation) {
       try {
         const parsed = JSON.parse(q.validation);
         if (parsed && parsed.loop_group) {
-          loopGroupName = parsed.loop_group;
+          return parsed.loop_group;
         }
-      } catch (e) { }
+      } catch (e) {}
+    }
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getQuestionLoopGroup(parent);
+      }
+    }
+    return "";
+  };
+
+  const getQuestionLoopCount = (q) => {
+    if (!q) return 1;
+
+    const loopGroupName = getQuestionLoopGroup(q);
+    const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+    const isLoopQ = isLoop || !!loopGroupName;
+
+    if (!isLoopQ) {
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (parent) {
+          return getQuestionLoopCount(parent);
+        }
+      }
     }
 
     if (loopGroupName) {
+      const groupQs = questions.filter(x => x.blok_id === q.blok_id && getQuestionLoopGroup(x) === loopGroupName);
+      const masterQ = groupQs.find(x => {
+        if (!x.validation) return false;
+        try {
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop;
+        } catch (e) {
+          return false;
+        }
+      }) || groupQs[0];
+
+      if (masterQ && masterQ.id !== q.id) {
+        return getQuestionLoopCount(masterQ);
+      }
+    }
+
+    if (isLoop) {
+      if (loopByQuestionId) {
+        let triggerValue = ans[loopByQuestionId];
+        if (typeof triggerValue === 'string' && triggerValue.trim().startsWith('[')) {
+          try {
+            const arr = JSON.parse(triggerValue);
+            if (Array.isArray(arr)) triggerValue = arr[0];
+          } catch(e) {}
+        }
+        const parsedTrigger = parseInt(triggerValue, 10);
+        if (!isNaN(parsedTrigger) && parsedTrigger > 0) {
+          return Math.max(0, parsedTrigger);
+        }
+        // Fallback for prelist array mapping or synced answers
+        try {
+          const val = ans[q.id];
+          if (typeof val === 'string' && val.startsWith('[')) {
+            const arr = JSON.parse(val);
+            if (Array.isArray(arr) && arr.length > 0) return arr.length;
+          }
+        } catch (e) { }
+        return 0;
+      }
+      if (loopType === "manual") {
+        const manualCount = getManualLoopCount(q);
+        return manualCount !== null ? manualCount : 1;
+      }
+    }
+
+    return 1;
+  };
+
+  const getManualLoopCount = (q) => {
+    if (!q) return null;
+
+    const loopGroupName = getQuestionLoopGroup(q);
+    if (loopGroupName) {
       const groupQs = questions.filter(x => {
+        if (x.blok_id !== q.blok_id) return false;
         if (!x.validation) return false;
         try {
           const parsed = JSON.parse(x.validation);
@@ -767,6 +1018,29 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           return false;
         }
       });
+      
+      // Check if any question in the group has a saved loop count
+      for (const gq of groupQs) {
+        const savedCount = ans[`${gq.id}_loop_count`];
+        if (savedCount !== undefined && savedCount !== null && savedCount !== '') {
+          return parseInt(savedCount, 10);
+        }
+      }
+
+      // Check max array length among all questions in the group
+      let maxArrayLength = 1;
+      for (const gq of groupQs) {
+        try {
+          const val = ans[gq.id];
+          if (typeof val === 'string' && val.startsWith('[')) {
+            const arr = JSON.parse(val);
+            if (Array.isArray(arr) && arr.length > maxArrayLength) {
+              maxArrayLength = arr.length;
+            }
+          }
+        } catch (e) {}
+      }
+
       const masterQ = groupQs.find(x => {
         if (!x.validation) return false;
         try {
@@ -779,26 +1053,32 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       if (masterQ && masterQ.id !== q.id) {
         return getManualLoopCount(masterQ);
       }
+      
+      return maxArrayLength;
     }
 
-    let isLoop = false;
-    let loopType = "question";
-    if (q.validation && q.validation.trim().startsWith('{')) {
-      try {
-        const parsed = JSON.parse(q.validation);
-        isLoop = !!parsed.is_loop;
-        loopType = parsed.loop_type || "question";
-      } catch (e) { }
-    }
+    const { isLoop, loopType } = parseValidation(q.validation);
     if (isLoop && loopType === "manual") {
       const savedCount = ans[`${q.id}_loop_count`];
-      const parsed = savedCount ? parseInt(savedCount, 10) : 1;
-      return isNaN(parsed) || parsed < 1 ? 1 : parsed;
+      if (savedCount !== undefined && savedCount !== null && savedCount !== '') {
+        return parseInt(savedCount, 10);
+      }
+      
+      // Fallback for prelist array mapping / synced database values
+      try {
+        const val = ans[q.id];
+        if (typeof val === 'string' && val.startsWith('[')) {
+          const arr = JSON.parse(val);
+          if (Array.isArray(arr) && arr.length > 0) return arr.length;
+        }
+      } catch (e) { }
+      
+      return 1;
     }
 
     const parentId = q.parent_id || q.parentId;
     if (parentId) {
-      const parent = questions.find(p => p.id === parentId);
+      const parent = questions.find(x => x.id === parentId);
       if (parent) {
         return getManualLoopCount(parent);
       }
@@ -906,7 +1186,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         desa: viewingRecord.desa,
         sls: viewingRecord.sls,
         sub_sls: viewingRecord.sub_sls,
-        status: viewingRecord.status === 'approved' ? 'terkirim' : viewingRecord.status,
+        status: (viewingRecord.status === 'approved' || viewingRecord.status === 'selesai') ? 'terkirim' : viewingRecord.status,
         is_prelist: viewingRecord.is_prelist,
         values: filteredAns,
         log_message: "Dokumen diperbarui oleh PML"
@@ -1111,11 +1391,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           </div>
         </div>
 
-        {/* 2-Column Layout: Left Sidebar + Right Questions */}
-        <div className="flex flex-col lg:flex-row gap-6 w-full items-start">
+        {/* 3-Column Layout: Left Sidebar + Middle Questions + Right Anomaly */}
+        <div className="flex flex-col xl:flex-row gap-6 w-full items-start">
 
           {/* Inner Left Sidebar Container */}
-          <div className="w-full lg:w-72 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col justify-between h-[620px] sticky top-6">
+          <div className="w-full xl:w-72 shrink-0 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col justify-between xl:h-[620px] xl:sticky xl:top-6">
 
             {/* Top: Document Information */}
             <div className="p-5 border-b border-slate-50 bg-slate-50/50">
@@ -1167,7 +1447,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             {/* Bottom: Stuck to bottom controls */}
             <div className="p-5 border-t border-slate-100 bg-slate-50/30 space-y-2 mt-auto">
               {isKegiatanAdmin ? (
-                viewingRecord.status === "approved" ? (
+                viewingRecord.status === "selesai" ? (
                   <div className="text-[10px] text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg font-semibold flex items-center gap-1.5 border border-emerald-100/50">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                     Dokumen Telah Disetujui
@@ -1180,7 +1460,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 )
               ) : (
                 <>
-                  {viewingRecord.status !== "approved" ? (
+                  {viewingRecord.status !== "selesai" ? (
                     isEditing ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -1212,7 +1492,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   )}
 
                   {/* Approve / Unapprove Actions */}
-                  {viewingRecord.status === "approved" ? (
+                  {viewingRecord.status === "selesai" ? (
                     <button
                       onClick={() => setConfirmModalType("unapprove")}
                       className="w-full py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs cursor-pointer border border-amber-100 transition-all flex items-center justify-center gap-1.5"
@@ -1237,8 +1517,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
           </div>
 
-          {/* Right Area: Questionnaire Cards (Dynamic) */}
-          <div className="flex-1 w-full bg-white rounded-xl border border-slate-100 p-6 shadow-sm min-h-[620px]">
+          {/* Middle Area: Questionnaire Cards (Dynamic) */}
+          <div className="flex-1 min-w-0 bg-white rounded-xl border border-slate-100 p-6 shadow-sm min-h-[620px]">
             <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-50">
               <h3 className="text-sm font-bold text-slate-800">{activeBlockObj.l} – {activeBlockObj.title}</h3>
               <span className="text-[11px] text-blue-600 font-bold">Blok {BLOCKS.findIndex(b => b.id === viewingBlock) + 1} dari {blocks.length}</span>
@@ -1294,16 +1574,28 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   });
                   return (
                     <>
-                      {isEditing ? (
                         <div className="space-y-4">
-                          {instances.map((iIdx) => (
+                          {instances.map((iIdx) => {
+                            const currentVal = getLoopValue(q.id, iIdx);
+                            const handleChange = (val) => handleUpdateLoopValue(q.id, iIdx, val);
+                            const baseClasses = "w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 disabled:bg-slate-50 disabled:border-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed transition-all";
+
+                            let qVal = {};
+                            try {
+                              if (q.validation && q.validation.trim().startsWith('{')) {
+                                qVal = JSON.parse(q.validation);
+                              }
+                            } catch (e) {}
+
+                            return (
                             <div key={iIdx} className="space-y-1">
                               {instances.length > 1 && <label className="text-[10px] font-bold text-slate-455 block">Isian Ke-{iIdx + 1}</label>}
                               {q.type === 'pcl' ? (
                                 <select
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 cursor-pointer"
+                                  value={currentVal}
+                                  onChange={e => handleChange(e.target.value)}
+                                  className={baseClasses + " cursor-pointer"}
+                                  disabled={!isEditing}
                                 >
                                   <option value="">-- Pilih PCL --</option>
                                   {pclList.map(p => (
@@ -1315,9 +1607,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                 </select>
                               ) : q.type === 'pml' ? (
                                 <select
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 cursor-pointer"
+                                  value={currentVal}
+                                  onChange={e => handleChange(e.target.value)}
+                                  className={baseClasses + " cursor-pointer"}
+                                  disabled={!isEditing}
                                 >
                                   <option value="">-- Pilih PML --</option>
                                   {pmlList.map(p => (
@@ -1329,33 +1622,45 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                 </select>
                               ) : q.type === 'search' ? (
                                 <SearchableSelect
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
+                                  value={currentVal}
                                   options={q.options || []}
                                   placeholder="Cari dan pilih opsi..."
-                                  onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
+                                  onChange={handleChange}
+                                  disabled={!isEditing}
                                 />
                               ) : q.type === 'select' ? (
                                 <FastSelect
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  onChange={val => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
+                                  value={currentVal}
+                                  onChange={handleChange}
                                   options={q.options || []}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
+                                  className={baseClasses}
+                                  disabled={!isEditing}
                                 />
                               ) : q.type === 'radio' ? (
                                 <FastRadioGroup
-                                  className="flex flex-wrap gap-4 py-1.5"
+                                  className={`flex flex-wrap gap-4 py-1.5 ${!isEditing ? 'opacity-70 pointer-events-none grayscale-[30%]' : ''}`}
                                   name={`q_${q.id}_${iIdx}`}
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
+                                  value={currentVal}
                                   options={q.options}
-                                  onChange={(val) => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, val) : setVal(q.id, val)}
+                                  onChange={handleChange}
+                                  disabled={!isEditing}
                                 />
                               ) : q.type === 'number' ? (
-                                <DebouncedInput
-                                  type="number"
-                                  step="any"
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
-                                />
+                                <div className="flex items-center gap-2">
+                                  <DebouncedInput
+                                    type="number"
+                                    step="any"
+                                    value={currentVal}
+                                    onChange={handleChange}
+                                    className={baseClasses + " flex-1"}
+                                    disabled={!isEditing}
+                                  />
+                                  {qVal.satuan && (
+                                    <div className="flex-shrink-0 px-1">
+                                      <span className="text-sm font-bold text-slate-500">{qVal.satuan}</span>
+                                    </div>
+                                  )}
+                                </div>
                               ) : q.type === 'date' ? (
                                 <input
                                   type={(() => {
@@ -1367,56 +1672,37 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                     }
                                     return "date";
                                   })()}
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
+                                  value={currentVal}
+                                  onChange={e => handleChange(e.target.value)}
+                                  className={baseClasses}
+                                  disabled={!isEditing}
                                 />
                               ) : q.type === 'textarea' ? (
                                 <textarea
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800 min-h-[80px]"
+                                  value={currentVal}
+                                  onChange={e => handleChange(e.target.value)}
+                                  className={baseClasses + " min-h-[80px]"}
+                                  disabled={!isEditing}
                                 />
                               ) : (
-                                <input
-                                  type="text"
-                                  value={instances.length > 1 ? getLoopValue(q.id, iIdx) : value}
-                                  onChange={e => instances.length > 1 ? handleUpdateLoopValue(q.id, iIdx, e.target.value) : setVal(q.id, e.target.value)}
-                                  className="w-full px-4 py-3 text-sm bg-white border border-blue-300 focus:border-blue-500 rounded-xl outline-none font-semibold text-slate-800"
-                                />
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={currentVal}
+                                    onChange={e => handleChange(e.target.value)}
+                                    className={baseClasses + " flex-1"}
+                                    disabled={!isEditing}
+                                  />
+                                  {qVal.satuan && (
+                                    <div className="flex-shrink-0 px-1">
+                                      <span className="text-sm font-bold text-slate-500">{qVal.satuan}</span>
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
-                          ))}
+                          )})}
                         </div>
-                      ) : (
-                        instances.length > 1 ? (
-                          <div className="space-y-2">
-                            {instances.map((iIdx) => {
-                              const loopVal = getLoopValue(q.id, iIdx);
-                              return (
-                                <div key={iIdx} className="px-4 py-2.5 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
-                                  <span className="text-[10px] font-bold text-slate-400">Isian Ke-{iIdx + 1}:</span>
-                                  <span className="text-xs font-bold text-slate-600">
-                                    {hasOptions
-                                      ? (q.options.find(opt => String(opt.value) === String(loopVal))?.label || loopVal || '-')
-                                      : (loopVal || '-')
-                                    }
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="px-4 py-3 bg-slate-50 rounded-xl flex items-center justify-between border border-slate-100/50">
-                            <span className="text-xs font-bold text-slate-600">
-                              {hasOptions
-                                ? (q.options.find(opt => String(opt.value) === String(value))?.label || value || '-')
-                                : (value || '-')
-                              }
-                            </span>
-                          </div>
-                        )
-                      )}
                     </>
                   );
                 };
@@ -1425,29 +1711,18 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   const value = ans[q.id] ?? '';
                   const hasOptions = q.options && Array.isArray(q.options);
 
-                  let isLoop = false;
-                  let loopType = "question";
-                  let loopByQuestionId = null;
                   let subLabel = "";
                   if (q.validation && q.validation.trim().startsWith('{')) {
                     try {
                       const parsed = JSON.parse(q.validation);
-                      isLoop = !!parsed.is_loop;
-                      loopType = parsed.loop_type || "question";
-                      loopByQuestionId = parsed.loop_by_question_id || null;
                       subLabel = parsed.sub_label || "";
                     } catch (e) { }
                   }
 
-                  let loopCount = 1;
-                  const manualCount = getManualLoopCount(q);
-                  if (manualCount !== null) {
-                    loopCount = manualCount;
-                  } else if (isLoop && loopByQuestionId) {
-                    const triggerValue = ans[loopByQuestionId];
-                    const parsedTrigger = parseInt(triggerValue, 10);
-                    loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-                    if (loopCount <= 0) return null;
+                  const loopCount = getQuestionLoopCount(q);
+                  const { loopByQuestionId } = parseValidation(q.validation);
+                  if (loopCount <= 0 && loopByQuestionId) {
+                    return null;
                   }
 
                   const instances = Array.from({ length: loopCount }, (_, idx) => idx);
@@ -1457,13 +1732,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                   if (depth === 0 || forceCard) {
                     return (
-                      <ReviewQCard
+                      <QCard
                         key={q.id}
                         r={qCode}
                         label={resolveLabelText(q.label, activeInstanceIdx)}
                         subLabel={subLabel}
                         required={!!q.required}
                         skipInfo={q.skip_logic}
+                        className="bg-white border-slate-100 shadow-sm"
                       >
                         {hasChildren ? (
                           <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
@@ -1502,7 +1778,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             </span>
                           </div>
                         )}
-                      </ReviewQCard>
+                      </QCard>
                     );
                   } else {
                     return (
@@ -1595,22 +1871,23 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       if (!x.validation) return false;
                       try {
                         const parsed = JSON.parse(x.validation);
-                        return parsed && parsed.is_loop && parsed.loop_type === "manual";
+                        return parsed && parsed.is_loop;
                       } catch (e) {
                         return false;
                       }
                     }) || groupQs[0];
 
-                    const loopCount = getManualLoopCount(masterQ) || 1;
+                    const loopCount = getQuestionLoopCount(masterQ) || 1;
                     const instances = Array.from({ length: loopCount }, (_, idx) => idx);
 
                     return [
-                      <ReviewQCard
+                      <QCard
                         key={`loop_group_${loopGroupName}`}
                         r={getQuestionCode(masterQ, questions, blocks)}
                         label={masterQ.label}
                         required={false}
                         skipInfo={`Kelompok Looping: ${loopGroupName.toUpperCase()}`}
+                        className="bg-white border-slate-100 shadow-sm"
                       >
                         <div className="space-y-6 mt-4">
                           {instances.map((idx) => (
@@ -1650,7 +1927,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             </span>
                           </div>
                         )}
-                      </ReviewQCard>
+                      </QCard>
                     ];
                   }
 
@@ -1689,6 +1966,18 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               </button>
             </div>
           </div>
+
+          {/* Right Area: Anomaly Space */}
+          <div className="w-full xl:w-80 shrink-0 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col xl:h-[620px] xl:sticky xl:top-6">
+            <div className="p-5 border-b border-slate-50 bg-slate-50/50">
+              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Anomali & Validasi</p>
+            </div>
+            <div className="p-5 flex-1 flex flex-col items-center justify-center text-center">
+               <AlertTriangle size={32} className="text-slate-200 mb-3" />
+               <p className="text-xs text-slate-400 font-medium">Fitur anomali sedang dalam pengembangan.</p>
+            </div>
+          </div>
+
         </div>
       </div>
     );
@@ -1809,23 +2098,88 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 <Upload size={14} />
                 <span>Unggah Prelist</span>
               </button>
-              {isDraft && (
-                <button
-                  disabled={!selectedProject || isKegiatanAdmin}
-                  onClick={() => setIsAssignSlsModalOpen(true)}
-                  className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${selectedProject && !isKegiatanAdmin
-                      ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]"
-                      : "bg-slate-100 text-slate-400 cursor-not-allowed"
+              {isDraft && !isKegiatanAdmin && (
+                <div className="relative" ref={assignDropdownRef}>
+                  <button
+                    disabled={!selectedProject || isAssigningSls}
+                    onClick={() => setIsAssignDropdownOpen(!isAssignDropdownOpen)}
+                    className={`flex items-center gap-2 px-4.5 py-2.5 rounded-xl text-xs font-semibold transition-all border-0 ${
+                      selectedProject && !isAssigningSls
+                        ? "bg-indigo-600 hover:bg-indigo-700 text-white hover:shadow cursor-pointer hover:scale-[1.01]"
+                        : "bg-slate-100 text-slate-400 cursor-not-allowed"
                     }`}
-                  title={
-                    !selectedProject
-                      ? "Pilih kegiatan terlebih dahulu"
-                      : "Tugaskan petugas per SLS"
-                  }
-                >
-                  <Edit3 size={14} />
-                  <span>Tugaskan SLS</span>
-                </button>
+                  >
+                    <Edit3 size={14} />
+                    <span>Kelola Penugasan</span>
+                    <ChevronDown size={14} className={`transition-transform duration-200 ${isAssignDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isAssignDropdownOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setIsAssignDropdownOpen(false)} />
+                      <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 py-1.5 overflow-hidden" style={{ animation: 'scaleIn 0.15s ease' }}>
+                        
+                        <button
+                          onClick={() => {
+                            setIsAssignDropdownOpen(false);
+                            setIsAssignSlsModalOpen(true);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-3 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-0 cursor-pointer transition-all"
+                        >
+                          <Edit3 size={14} className="text-indigo-500" />
+                          <span>Tugaskan Per SLS</span>
+                        </button>
+
+                        <button
+                          disabled={isAssigningSls}
+                          onClick={async () => {
+                            setIsAssignDropdownOpen(false);
+                            await handleAutoAllocate();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-3 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-0 cursor-pointer transition-all disabled:opacity-50"
+                        >
+                          <Award size={14} className="text-emerald-500" />
+                          <span>Alokasi Otomatis</span>
+                        </button>
+
+                        <div className="border-t border-slate-100 my-1"></div>
+
+                        <button
+                          disabled={isAssigningSls}
+                          onClick={async () => {
+                            setIsAssignDropdownOpen(false);
+                            if (!selectedProject || !activeActivity) return;
+                            if (!window.confirm(`Yakin ingin mereset SEMUA penugasan petugas (PCL & PML) untuk seluruh SLS pada kegiatan ini? Tindakan ini tidak bisa dibatalkan.`)) return;
+                            setIsAssigningSls(true);
+                            try {
+                              const slsList = Array.from(new Set(data.map(r => r.sls).filter(Boolean)));
+                              await Promise.all(slsList.map(sls =>
+                                api.dokumen.assignSls(activeActivity.id, sls, [], [])
+                              ));
+                              setData(prev => prev.map(r => ({
+                                ...r,
+                                assigned_pcls: [],
+                                assigned_pmls: [],
+                                petugas: "Belum Ditugaskan",
+                                pengawas: "Belum Ditugaskan"
+                              })));
+                              alert("Semua penugasan petugas berhasil direset.");
+                            } catch (err) {
+                              alert("Gagal mereset penugasan: " + err.message);
+                            } finally {
+                              setIsAssigningSls(false);
+                            }
+                          }}
+                          className="w-full flex items-center gap-2.5 px-4 py-3 text-left text-xs font-semibold text-red-650 hover:bg-red-50/50 border-0 cursor-pointer transition-all disabled:opacity-50"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-red-500"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3"/></svg>
+                          <span>Reset Semua Petugas</span>
+                        </button>
+
+                      </div>
+                    </>
+                  )}
+                </div>
               )}
               <div className="flex-1 lg:w-72 flex items-center gap-2 bg-white px-4 py-2.5 rounded-xl border border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
                 <Search size={16} className="text-slate-400" />
@@ -1844,10 +2198,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
             <div className="flex flex-wrap gap-2">
               {[
                 { id: "all", l: "Semua", c: villageData.length },
-                { id: "menunggu", l: "Menunggu", c: count("menunggu") },
-                { id: "submitted", l: "Submit", c: count("submitted") },
-                { id: "pml_approved", l: "Disetujui PML", c: count("pml_approved") },
+                { id: "draft", l: "Draft", c: count("draft") },
+                { id: "terkirim", l: "Submit", c: count("terkirim") },
+                { id: "rejected", l: "Rejected", c: count("rejected") },
                 { id: "approved", l: "Approved", c: count("approved") },
+                { id: "selesai", l: "Selesai", c: count("selesai") },
               ].map(t => (
                 <button key={t.id} onClick={() => setFilter(t.id)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium border-0 cursor-pointer transition-all ${filter === t.id ? "text-white bg-blue-600" : "bg-white border border-slate-100 text-slate-500 hover:bg-slate-50"
@@ -1873,51 +2228,97 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               <table className="w-full border-separate border-spacing-0 min-w-[950px]">
                 <thead>
                   <tr className="bg-slate-50/50">
-                    {status === "draft" ? (
-                      ["ID", "Kepala Keluarga", "Desa", "SLS", "Sub SLS", "Tipe", "Petugas Pendataan (PCL)", "Pengawas (PML)", "Aksi"].map(h => (
-                        <th key={h} className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider">{h}</th>
-                      ))
-                    ) : (
-                      ["ID", "Kepala Keluarga", "Petugas", "Desa", "SLS", "Sub SLS", "Tipe", "Tgl. Kirim", "Warning", "Status", "Aksi"].map(h => (
-                        <th key={h} className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider">{h}</th>
-                      ))
-                    )}
+                    {(status === "draft"
+                      ? [
+                          { label: "ID", key: "id" },
+                          { label: "Kepala Keluarga", key: "krt" },
+                          { label: "Desa", key: "desa" },
+                          { label: "SLS", key: "sls" },
+                          { label: "Sub SLS", key: "subSls" },
+                          { label: "Tipe", key: "isPrelist" },
+                          { label: "Petugas Pendataan (PCL)", key: "petugas" },
+                          { label: "Pengawas (PML)", key: "pengawas" },
+                          { label: "Aksi", key: null }
+                        ]
+                      : [
+                          { label: "ID", key: "id" },
+                          { label: "Kepala Keluarga", key: "krt" },
+                          { label: "Petugas", key: "petugas" },
+                          { label: "Desa", key: "desa" },
+                          { label: "SLS", key: "sls" },
+                          { label: "Sub SLS", key: "subSls" },
+                          { label: "Tipe", key: "isPrelist" },
+                          { label: "Tgl. Kirim", key: "tgl_kirim" },
+                          { label: "Warning", key: "warning" },
+                          { label: "Status", key: "status" },
+                          { label: "Aksi", key: null }
+                        ]
+                    ).map(h => (
+                      <th
+                        key={h.label}
+                        onClick={() => {
+                          if (!h.key) return;
+                          if (sortColumn === h.key) {
+                            setSortDirection(prev => prev === "asc" ? "desc" : "asc");
+                          } else {
+                            setSortColumn(h.key);
+                            setSortDirection("asc");
+                          }
+                        }}
+                        className={`px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider select-none ${
+                          h.key ? 'cursor-pointer hover:text-slate-600' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{h.label}</span>
+                          {h.key && (
+                            <span className="text-slate-300">
+                              {sortColumn === h.key ? (
+                                sortDirection === "asc" ? " ▲" : " ▼"
+                              ) : (
+                                " ↕"
+                              )}
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedFiltered.map((r, index) => {
+                  {paginatedData.map((r, index) => {
                     const showPrelistHeader = index === 0 && r.isPrelist;
-                    const showTambahanHeader = (index === 0 && !r.isPrelist) || (index > 0 && !r.isPrelist && sortedFiltered[index - 1].isPrelist);
+                    const showTambahanHeader = (index === 0 && !r.isPrelist) || (index > 0 && !r.isPrelist && paginatedData[index - 1].isPrelist);
 
                     return (
                       <Fragment key={r.id}>
                         {showPrelistHeader && (
                           <tr className="bg-slate-50/30">
-                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-b border-slate-100/80">
+                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-b border-slate-100/80 whitespace-nowrap">
                               Target Prelist Desa ({sortedFiltered.filter(item => item.isPrelist).length} Keluarga)
                             </td>
                           </tr>
                         )}
                         {showTambahanHeader && (
                           <tr className="bg-indigo-50/10">
-                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-indigo-500 tracking-wider uppercase border-t border-b border-indigo-50/30">
+                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-indigo-500 tracking-wider uppercase border-t border-b border-indigo-50/30 whitespace-nowrap">
                               Temuan Baru / Tambahan Lapangan ({sortedFiltered.filter(item => !item.isPrelist).length} Keluarga)
                             </td>
                           </tr>
                         )}
                         <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-3.5 border-t border-slate-50">
+                          <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                             <span className="mono text-xs font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded-md">{r.id}</span>
                           </td>
-                          <td className="px-6 py-3.5 border-t border-slate-50 text-sm font-semibold text-slate-700">
+                          <td className="px-6 py-3.5 border-t border-slate-50 text-sm font-semibold text-slate-700 whitespace-nowrap">
                             {r.krt || r.nama_krt || "Kepala Rumah Tangga"}
                           </td>
                           {status === "draft" ? (
                             <>
-                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.desa}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.sls || "—"}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-medium">{r.subSls || "—"}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50">
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold whitespace-nowrap">{r.desa}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold whitespace-nowrap">{r.sls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-medium whitespace-nowrap">{r.subSls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                                 {r.isPrelist ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/50">
                                     Prelist
@@ -1928,7 +2329,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   </span>
                                 )}
                               </td>
-                              <td className="px-6 py-3.5 border-t border-slate-50">
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                                 <div className="flex items-center gap-2">
                                   <MultiSelectDropdown
                                     idPrefix={`pcl-${r.id}`}
@@ -1949,7 +2350,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   )}
                                 </div>
                               </td>
-                              <td className="px-6 py-3.5 border-t border-slate-50">
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                                 <div className="flex items-center gap-2">
                                   <MultiSelectDropdown
                                     idPrefix={`pml-${r.id}`}
@@ -1973,18 +2374,13 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             </>
                           ) : (
                             <>
-                              <td className="px-6 py-3.5 border-t border-slate-50">
-                                <div className="flex items-center gap-2.5">
-                                  <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-[10px] font-bold text-blue-600">
-                                    {r.petugas !== "Belum Ditugaskan" ? r.petugas.split(' ').map(n => n[0]).join('') : "?"}
-                                  </div>
-                                  <span className="text-sm font-semibold text-slate-700">{r.petugas}</span>
-                                </div>
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
+                                <span className="text-sm font-semibold text-slate-700">{r.petugas}</span>
                               </td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.desa}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold">{r.sls || "—"}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-medium">{r.subSls || "—"}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50">
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold whitespace-nowrap">{r.desa}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold whitespace-nowrap">{r.sls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-medium whitespace-nowrap">{r.subSls || "—"}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                                 {r.isPrelist ? (
                                   <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200/50">
                                     Prelist
@@ -1995,16 +2391,16 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   </span>
                                 )}
                               </td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 mono text-xs text-slate-400 font-semibold">{new Date(r.updated_at || r.created_at).toLocaleDateString('id-ID')}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50">
+                              <td className="px-6 py-3.5 border-t border-slate-50 mono text-xs text-slate-400 font-semibold whitespace-nowrap">{new Date(r.updated_at || r.created_at).toLocaleDateString('id-ID')}</td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                                 {r.flag > 0
                                   ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-600 rounded-md"><AlertTriangle size={11} />{r.flag}</span>
                                   : <span className="text-slate-200">—</span>}
                               </td>
-                              <td className="px-6 py-3.5 border-t border-slate-50"><Badge status={r.status} /></td>
+                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap"><Badge status={r.status} /></td>
                             </>
                           )}
-                          <td className="px-6 py-3.5 border-t border-slate-50">
+                          <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
                               <button
                                 onClick={() => handleOpenDetail(r)}
@@ -2013,7 +2409,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               >
                                 <Eye size={15} />
                               </button>
-                              {status !== "draft" && r.status === "pml_approved" && !isKegiatanAdmin && (
+                              {status !== "draft" && r.status === "approved" && !isKegiatanAdmin && (
                                 <>
                                   <button onClick={() => setModal({ ...r, type: "approve" })}
                                     className="w-8 h-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-emerald-600 transition-all bg-transparent"
@@ -2051,6 +2447,83 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {sortedFiltered.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/30">
+                <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                  <span>Tampilkan</span>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 font-semibold cursor-pointer outline-none focus:border-blue-500"
+                  >
+                    {[25, 50, 100].map(sz => (
+                      <option key={sz} value={sz}>{sz}</option>
+                    ))}
+                  </select>
+                  <span>baris per halaman</span>
+                </div>
+
+                <div className="text-xs text-slate-500 font-medium">
+                  Menampilkan <span className="font-semibold text-slate-700">{Math.min(sortedFiltered.length, (currentPage - 1) * pageSize + 1)}</span> – <span className="font-semibold text-slate-700">{Math.min(sortedFiltered.length, currentPage * pageSize)}</span> dari <span className="font-semibold text-slate-700">{sortedFiltered.length}</span> data
+                </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    <ChevronLeft size={15} />
+                  </button>
+                  
+                  {(() => {
+                    const totalPages = Math.ceil(sortedFiltered.length / pageSize);
+                    const pages = [];
+                    for (let i = 1; i <= totalPages; i++) {
+                      if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                        pages.push(i);
+                      } else if (pages[pages.length - 1] !== '...') {
+                        pages.push('...');
+                      }
+                    }
+                    return pages.map((p, idx) => {
+                      if (p === '...') {
+                        return <span key={`dots-${idx}`} className="px-2 text-slate-400 text-xs font-semibold">...</span>;
+                      }
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setCurrentPage(p)}
+                          className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            currentPage === p
+                              ? "bg-blue-600 text-white border-0 shadow-sm"
+                              : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-blue-600"
+                          }`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    });
+                  })()}
+
+                  <button
+                    type="button"
+                    disabled={currentPage >= Math.ceil(sortedFiltered.length / pageSize)}
+                    onClick={() => setCurrentPage(prev => Math.min(Math.ceil(sortedFiltered.length / pageSize), prev + 1))}
+                    className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-all cursor-pointer"
+                  >
+                    <ChevronRight size={15} />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2364,22 +2837,46 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       className="text-xs outline-none bg-transparent w-full font-semibold text-slate-700"
                     />
                   </div>
+                  {/* PCL Select All row */}
+                  {filteredPcls.length > 0 && (() => {
+                    const allPclSelected = filteredPcls.every(p => selectedSlsPcls.includes(p.username));
+                    const somePclSelected = filteredPcls.some(p => selectedSlsPcls.includes(p.username));
+                    return (
+                      <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 cursor-pointer hover:text-blue-600 transition-colors px-1 mb-1.5 select-none">
+                        <input
+                          type="checkbox"
+                          checked={allPclSelected}
+                          ref={el => { if (el) el.indeterminate = somePclSelected && !allPclSelected; }}
+                          onChange={() => {
+                            if (allPclSelected) {
+                              setSelectedSlsPcls(prev => prev.filter(n => !filteredPcls.some(p => p.username === n)));
+                            } else {
+                              const toAdd = filteredPcls.map(p => p.username);
+                              setSelectedSlsPcls(prev => Array.from(new Set([...prev, ...toAdd])));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                        />
+                        Pilih Semua ({filteredPcls.length})
+                      </label>
+                    );
+                  })()}
                   <div className="border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2.5 bg-white">
                     {filteredPcls.map(p => {
-                      const isChecked = selectedSlsPcls.includes(p.name);
+                      const isChecked = selectedSlsPcls.includes(p.username);
                       return (
-                        <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
+                        <label key={p.username} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
                           <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => {
                               setSelectedSlsPcls(prev =>
-                                prev.includes(p.name) ? prev.filter(n => n !== p.name) : [...prev, p.name]
+                                prev.includes(p.username) ? prev.filter(n => n !== p.username) : [...prev, p.username]
                               );
                             }}
                             className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
                           />
-                          <span className="truncate">{p.name}</span>
+                          <span className="truncate">{p.username}</span>
                         </label>
                       );
                     })}
@@ -2407,22 +2904,46 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       className="text-xs outline-none bg-transparent w-full font-semibold text-slate-700"
                     />
                   </div>
+                  {/* PML Select All row */}
+                  {filteredPmls.length > 0 && (() => {
+                    const allPmlSelected = filteredPmls.every(p => selectedSlsPmls.includes(p.username));
+                    const somePmlSelected = filteredPmls.some(p => selectedSlsPmls.includes(p.username));
+                    return (
+                      <label className="flex items-center gap-2 text-[10px] font-bold text-slate-500 cursor-pointer hover:text-blue-600 transition-colors px-1 mb-1.5 select-none">
+                        <input
+                          type="checkbox"
+                          checked={allPmlSelected}
+                          ref={el => { if (el) el.indeterminate = somePmlSelected && !allPmlSelected; }}
+                          onChange={() => {
+                            if (allPmlSelected) {
+                              setSelectedSlsPmls(prev => prev.filter(n => !filteredPmls.some(p => p.username === n)));
+                            } else {
+                              const toAdd = filteredPmls.map(p => p.username);
+                              setSelectedSlsPmls(prev => Array.from(new Set([...prev, ...toAdd])));
+                            }
+                          }}
+                          className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
+                        />
+                        Pilih Semua ({filteredPmls.length})
+                      </label>
+                    );
+                  })()}
                   <div className="border border-slate-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-2.5 bg-white">
                     {filteredPmls.map(p => {
-                      const isChecked = selectedSlsPmls.includes(p.name);
+                      const isChecked = selectedSlsPmls.includes(p.username);
                       return (
-                        <label key={p.name} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
+                        <label key={p.username} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 p-1 rounded transition-colors select-none">
                           <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => {
                               setSelectedSlsPmls(prev =>
-                                prev.includes(p.name) ? prev.filter(n => n !== p.name) : [...prev, p.name]
+                                prev.includes(p.username) ? prev.filter(n => n !== p.username) : [...prev, p.username]
                               );
                             }}
                             className="rounded text-blue-600 focus:ring-blue-500 border-slate-300 w-3.5 h-3.5 cursor-pointer"
                           />
-                          <span className="truncate">{p.name}</span>
+                          <span className="truncate">{p.username}</span>
                         </label>
                       );
                     })}

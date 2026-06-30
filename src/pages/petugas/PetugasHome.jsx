@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { WifiOff, Wifi, Bell, MapPin, FileText, Upload, Download, ChevronRight, CheckCircle, AlertCircle, Calendar, RefreshCw } from "lucide-react";
+import { WifiOff, Wifi, Bell, MapPin, FileText, Upload, Download, ChevronRight, CheckCircle, AlertCircle, Calendar, RefreshCw, Smartphone, Database, Save, Send, AlertTriangle, ChevronLeft } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
 import { offlineDB } from "../../services/offlineStorage";
@@ -47,6 +47,42 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadTime, setDownloadTime] = useState(localStorage.getItem(`last_download_${currentUser.id}`) || null);
 
+  const [currentNoteIndex, setCurrentNoteIndex] = useState(0);
+
+  const notes = [
+    {
+      icon: <Smartphone className="text-blue-600" size={18} />,
+      text: "Pastikan Aplikasi CANTIK sudah diinstall di beranda handphone, baik Android maupun iOS."
+    },
+    {
+      icon: <Database className="text-indigo-600" size={18} />,
+      text: "Jangan clear cache browser agar data tidak hilang."
+    },
+    {
+      icon: <RefreshCw className="text-emerald-600" size={18} />,
+      text: "Pastikan untuk unduh kuesioner terbaru dan refresh di tombol yang disediakan untuk mendapatkan yang terbaru."
+    },
+    {
+      icon: <Save className="text-amber-600" size={18} />,
+      text: "Pastikan untuk simpan sementara agar data tidak hilang."
+    },
+    {
+      icon: <Send className="text-violet-600" size={18} />,
+      text: "Langsung kirim kuesioner jawaban di menu Kirim agar langsung terkirim ke server."
+    },
+    {
+      icon: <AlertTriangle className="text-rose-600" size={18} />,
+      text: "Perhatikan warning dan error saat pengisian kuesioner."
+    }
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentNoteIndex((prev) => (prev === notes.length - 1 ? 0 : prev + 1));
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [notes.length]);
+
   const isLoading = loading || localLoading;
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
@@ -56,6 +92,13 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       showToast("Anda sedang dalam mode offline. Silakan aktifkan mode online untuk mengunduh kuesioner.", "warning");
       return;
     }
+
+    // Cek update aplikasi PWA terlebih dahulu sebelum mengunduh data offline
+    if (window.__checkForAppUpdates) {
+      const updating = await window.__checkForAppUpdates(false);
+      if (updating) return;
+    }
+
     setIsDownloading(true);
     try {
       // 1. Download documents (prelist) with deduplication
@@ -76,28 +119,56 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
         try {
           const idbDocs = await offlineDB.getAllDokumen();
           if (idbDocs && idbDocs.length > 0) localDocs = idbDocs;
-        } catch (e) {}
+        } catch (e) { }
       }
 
       localDocs.forEach(localDoc => {
-        const apiIdx = dedupedDocs.findIndex(d => 
-          (d.id && localDoc.id && d.id === localDoc.id) || 
+        const apiIdx = dedupedDocs.findIndex(d =>
+          (d.id && localDoc.id && d.id === localDoc.id) ||
           (d.kode && d.kode === localDoc.kode)
         );
 
         if (apiIdx >= 0) {
+          const apiDoc = dedupedDocs[apiIdx];
+          if (localDoc.kode && apiDoc.kode && localDoc.kode !== apiDoc.kode) {
+            if (offlineDB.isAvailable()) {
+              offlineDB.removeDokumen(localDoc.kode).catch(e => 
+                console.warn("Gagal hapus dokumen lama di IndexedDB saat download:", e)
+              );
+            }
+          }
+          const localValues = localDoc.values || {};
+          const apiValues = apiDoc.values || {};
+
+          const mergedValues = { ...apiValues };
+          Object.keys(localValues).forEach(k => {
+            const val = localValues[k];
+            if (val !== undefined && val !== null && val !== '') {
+              mergedValues[k] = val;
+            }
+          });
+
           const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
-          const apiTime = new Date(dedupedDocs[apiIdx].updated_at || dedupedDocs[apiIdx].created_at || 0).getTime();
+          const apiTime = new Date(apiDoc.updated_at || apiDoc.created_at || 0).getTime();
           if (localTime > apiTime && localDoc.sync === false) {
-            dedupedDocs[apiIdx] = localDoc;
+            dedupedDocs[apiIdx] = {
+              ...apiDoc,
+              ...localDoc,
+              values: mergedValues
+            };
           } else {
-            dedupedDocs[apiIdx] = { ...localDoc, ...dedupedDocs[apiIdx] };
+            dedupedDocs[apiIdx] = {
+              ...localDoc,
+              ...apiDoc,
+              values: mergedValues,
+              sync: (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved') ? true : (localDoc.sync === false ? false : apiDoc.sync)
+            };
           }
         } else if (localDoc.sync === false) {
           dedupedDocs.push(localDoc);
         }
       });
-      
+
       dedupedDocs = deduplicateDocs(dedupedDocs);
 
       setDocuments(dedupedDocs);
@@ -161,7 +232,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
           console.error("Gagal parse cached offline docs:", e);
         }
       }
-      
+
       if (localDocs.length === 0 && offlineDB.isAvailable()) {
         try {
           const idbDocs = await offlineDB.getAllDokumen();
@@ -184,29 +255,57 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
         try {
           const cached = localStorage.getItem(storageKey);
           if (cached) localDocs = JSON.parse(cached);
-        } catch (e) {}
+        } catch (e) { }
 
         if (localDocs.length === 0 && offlineDB.isAvailable()) {
           try {
             const idbDocs = await offlineDB.getAllDokumen();
             if (idbDocs && idbDocs.length > 0) localDocs = idbDocs;
-          } catch (e) {}
+          } catch (e) { }
         }
 
         const mergedDocs = [...docs];
         localDocs.forEach(localDoc => {
-          const apiIdx = mergedDocs.findIndex(d => 
-            (d.id && localDoc.id && d.id === localDoc.id) || 
+          const apiIdx = mergedDocs.findIndex(d =>
+            (d.id && localDoc.id && d.id === localDoc.id) ||
             (d.kode && d.kode === localDoc.kode)
           );
 
           if (apiIdx >= 0) {
+            const apiDoc = mergedDocs[apiIdx];
+            if (localDoc.kode && apiDoc.kode && localDoc.kode !== apiDoc.kode) {
+              if (offlineDB.isAvailable()) {
+                offlineDB.removeDokumen(localDoc.kode).catch(e => 
+                  console.warn("Gagal hapus dokumen lama di IndexedDB saat loadDocs:", e)
+                );
+              }
+            }
+            const localValues = localDoc.values || {};
+            const apiValues = apiDoc.values || {};
+
+            const mergedValues = { ...apiValues };
+            Object.keys(localValues).forEach(k => {
+              const val = localValues[k];
+              if (val !== undefined && val !== null && val !== '') {
+                mergedValues[k] = val;
+              }
+            });
+
             const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
-            const apiTime = new Date(mergedDocs[apiIdx].updated_at || mergedDocs[apiIdx].created_at || 0).getTime();
+            const apiTime = new Date(apiDoc.updated_at || apiDoc.created_at || 0).getTime();
             if (localTime > apiTime && localDoc.sync === false) {
-              mergedDocs[apiIdx] = localDoc;
+              mergedDocs[apiIdx] = {
+                ...apiDoc,
+                ...localDoc,
+                values: mergedValues
+              };
             } else {
-              mergedDocs[apiIdx] = { ...localDoc, ...mergedDocs[apiIdx] };
+              mergedDocs[apiIdx] = {
+                ...localDoc,
+                ...apiDoc,
+                values: mergedValues,
+                sync: (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved') ? true : (localDoc.sync === false ? false : apiDoc.sync)
+              };
             }
           } else if (localDoc.sync === false) {
             mergedDocs.push(localDoc);
@@ -282,7 +381,10 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
         <div className="min-h-screen bg-white animate-pulse pb-24">
           <div className="max-w-3xl mx-auto">
             {/* Header Skeleton */}
-            <div className="px-6 pt-12 pb-6 border-b border-solid border-slate-100 flex justify-between items-start">
+            <div
+              className="px-6 pb-6 border-b border-solid border-slate-100 flex justify-between items-start"
+              style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+            >
               <div className="space-y-2">
                 <div className="h-3 w-24 bg-slate-200 rounded"></div>
                 <div className="h-6 w-48 bg-slate-300 rounded"></div>
@@ -368,7 +470,10 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       <div className="min-h-screen bg-white slide-up pb-24">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+          <div
+            className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white"
+            style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+          >
             <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
             <div className="flex items-center justify-between relative z-10">
               <div className="flex items-center gap-4">
@@ -379,23 +484,28 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Desa Cantik Portal</p>
                   <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight">{currentPetugas.name || currentPetugas.username}</h2>
                   <div className="flex items-center gap-1.5 mt-1">
-                    <MapPin size={11} className="text-blue-500"/>
+                    <MapPin size={11} className="text-blue-500" />
                     <span className="text-[11px] text-slate-500 font-semibold">Desa {currentPetugas.desa || "Belum Ditentukan"}</span>
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <div
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold border border-solid transition-all ${
-                    isOffline 
-                      ? "bg-rose-50 text-rose-600 border-rose-100/50" 
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-bold border border-solid transition-all ${isOffline
+                      ? "bg-rose-50 text-rose-600 border-rose-100/50"
                       : "bg-emerald-50 text-emerald-700 border-emerald-100/50"
-                  }`}>
-                  {isOffline ? <WifiOff size={12}/> : <Wifi size={12}/>}
+                    }`}>
+                  {isOffline ? <WifiOff size={12} /> : <Wifi size={12} />}
                   <span className="hidden sm:inline">{isOffline ? "Offline" : "Online"}</span>
                 </div>
-                <button 
-                  onClick={loadDocs}
+                <button
+                  onClick={async () => {
+                    if (!isOffline && window.__checkForAppUpdates) {
+                      const updating = await window.__checkForAppUpdates(false);
+                      if (updating) return;
+                    }
+                    loadDocs();
+                  }}
                   className="w-9 h-9 bg-slate-50 hover:bg-slate-100 active:scale-95 text-slate-400 hover:text-slate-650 transition-all border border-solid border-slate-200/50 cursor-pointer rounded-xl flex items-center justify-center"
                 >
                   <RefreshCw size={14} className={loading ? "animate-spin text-blue-600" : ""} />
@@ -408,7 +518,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
             {/* Offline banner */}
             {isOffline && (
               <div className="mb-6 px-4 py-3 bg-amber-50 border border-solid border-amber-100 rounded-xl flex items-start gap-3" style={{ animation: 'slideUp 0.3s ease' }}>
-                <WifiOff size={16} className="text-amber-500 flex-shrink-0 mt-0.5"/>
+                <WifiOff size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="text-sm font-semibold text-amber-800">Mode Offline Aktif</p>
                   <p className="text-xs text-amber-600 mt-0.5">Data tersimpan otomatis di perangkat dan siap disinkronisasi.</p>
@@ -419,28 +529,28 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
             {/* Stats */}
             <div className="grid grid-cols-4 gap-3.5 mb-8">
               {[
-                { 
-                  l: "Target", 
-                  v: targetCount, 
-                  bg: "bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-100/70", 
+                {
+                  l: "Target",
+                  v: targetCount,
+                  bg: "bg-gradient-to-br from-blue-500/10 to-blue-600/5 border-blue-100/70",
                   c: "text-blue-700"
                 },
-                { 
-                  l: "Selesai", 
-                  v: selesaiCount, 
-                  bg: "bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-100/70", 
+                {
+                  l: "Selesai",
+                  v: selesaiCount,
+                  bg: "bg-gradient-to-br from-emerald-500/10 to-emerald-600/5 border-emerald-100/70",
                   c: "text-emerald-700"
                 },
-                { 
-                  l: "Kirim", 
-                  v: kirimCount, 
-                  bg: "bg-gradient-to-br from-indigo-500/10 to-indigo-600/5 border-indigo-100/70", 
+                {
+                  l: "Kirim",
+                  v: kirimCount,
+                  bg: "bg-gradient-to-br from-indigo-500/10 to-indigo-600/5 border-indigo-100/70",
                   c: "text-indigo-700"
                 },
-                { 
-                  l: "Ditolak", 
-                  v: ditolakCount, 
-                  bg: "bg-gradient-to-br from-rose-500/10 to-rose-600/5 border-rose-100/70", 
+                {
+                  l: "Ditolak",
+                  v: ditolakCount,
+                  bg: "bg-gradient-to-br from-rose-500/10 to-rose-600/5 border-rose-100/70",
                   c: "text-rose-700"
                 },
               ].map(s => (
@@ -451,25 +561,75 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
               ))}
             </div>
 
+            {/* Note Carousel */}
+            <div className="bg-gradient-to-r from-amber-50/65 to-yellow-50/70 border border-solid border-amber-200/50 rounded-2xl p-4 mb-8 relative overflow-hidden transition-all duration-300">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-yellow-400/15 rounded-full blur-2xl pointer-events-none -mr-8 -mt-8" />
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-white shadow-sm border border-solid border-amber-100 text-amber-600">
+                    {notes[currentNoteIndex].icon}
+                  </span>
+                  <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">💡 Petunjuk Penting</span>
+                </div>
+                {/* Navigation arrows */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => setCurrentNoteIndex((prev) => (prev === 0 ? notes.length - 1 : prev - 1))}
+                    className="w-6 h-6 rounded-lg bg-white hover:bg-slate-50 active:scale-95 border border-solid border-slate-200/50 text-slate-400 flex items-center justify-center transition-all cursor-pointer"
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <button
+                    onClick={() => setCurrentNoteIndex((prev) => (prev === notes.length - 1 ? 0 : prev + 1))}
+                    className="w-6 h-6 rounded-lg bg-white hover:bg-slate-50 active:scale-95 border border-solid border-slate-200/50 text-slate-400 flex items-center justify-center transition-all cursor-pointer"
+                  >
+                    <ChevronRight size={12} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Note Content */}
+              <div className="min-h-[44px] flex items-center px-1 overflow-hidden">
+                <p
+                  key={currentNoteIndex}
+                  className="text-sm font-semibold text-slate-750 leading-relaxed fade-in"
+                >
+                  {notes[currentNoteIndex].text}
+                </p>
+              </div>
+
+              {/* Progress Dots */}
+              <div className="flex items-center gap-1.5 mt-3 px-1">
+                {notes.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCurrentNoteIndex(idx)}
+                    className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer p-0 border-0 ${currentNoteIndex === idx ? "w-4.5 bg-amber-500" : "w-1.5 bg-amber-200"
+                      }`}
+                  />
+                ))}
+              </div>
+            </div>
+
             {/* Actions */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5 mb-10">
               <button onClick={() => onNavigate("questionnaire")}
                 className="bg-white rounded-2xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md hover:shadow-blue-500/5 group flex flex-col justify-between min-h-[140px] relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-2xl pointer-events-none -mr-6 -mt-6" />
                 <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center mb-3 group-hover:bg-blue-100 transition-colors">
-                  <FileText size={18} className="text-blue-600"/>
+                  <FileText size={18} className="text-blue-600" />
                 </div>
                 <div>
                   <p className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors">Isi Kuesioner</p>
                   <p className="text-[11px] text-slate-400 mt-1 font-semibold">Mulai mengisi dokumen baru atau edit draf yang tersimpan</p>
                 </div>
               </button>
-              
+
               <button onClick={() => onNavigate("petugas-sync")}
                 className="bg-gradient-to-br from-blue-600 to-indigo-700 rounded-2xl p-5 text-left cursor-pointer border-0 transition-all hover:shadow-lg hover:shadow-blue-600/25 group active:scale-[0.98] flex flex-col justify-between min-h-[140px] relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-24 h-24 bg-white/10 rounded-full blur-2xl pointer-events-none -mr-6 -mt-6" />
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center mb-3 bg-white/15 group-hover:bg-white/20 transition-colors">
-                  <Upload size={18} color="white"/>
+                  <Upload size={18} color="white" />
                 </div>
                 <div>
                   <p className="text-sm font-bold text-white tracking-tight">Sinkronisasi Data</p>
@@ -479,7 +639,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                 </div>
               </button>
 
-              <button 
+              <button
                 onClick={handleDownloadOfflineData}
                 disabled={isDownloading}
                 className="bg-white rounded-2xl p-5 border border-solid border-slate-100 text-left cursor-pointer transition-all hover:border-slate-300 hover:shadow-md group disabled:opacity-75 disabled:cursor-not-allowed flex flex-col justify-between min-h-[140px] relative overflow-hidden">
@@ -489,10 +649,10 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                     {isDownloading ? (
                       <RefreshCw size={16} className="text-blue-600 animate-spin" />
                     ) : (
-                      <Download size={16} className="text-slate-500"/>
+                      <Download size={16} className="text-slate-500" />
                     )}
                   </div>
-                  <ChevronRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors mt-1"/>
+                  <ChevronRight size={14} className="text-slate-300 group-hover:text-slate-500 transition-colors mt-1" />
                 </div>
                 <div className="mt-3">
                   <p className="text-sm font-bold text-slate-800 tracking-tight">Unduh Kuesioner</p>
@@ -513,7 +673,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                 {officerActivities.map((act) => (
                   <button key={act.name} onClick={() => onNavigate("questionnaire")}
                     className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md group relative overflow-hidden">
-                    
+
                     {/* Border accent indicator */}
                     <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${act.color || 'bg-blue-600'}`} />
 
@@ -526,7 +686,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                           {act.description}
                         </p>
                       </div>
-                      
+
                       {/* Role Badge */}
                       <div className="flex-shrink-0">
                         {act.role === "PML" ? (

@@ -80,7 +80,10 @@ function PetugasSettings({ onNavigate, currentUser }) {
         <div className="min-h-screen bg-white slide-up pb-28">
           <div className="max-w-3xl mx-auto">
             {/* Subpage Header */}
-            <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 bg-gradient-to-b from-blue-50/30 to-white overflow-hidden flex items-center gap-4">
+            <div 
+              className="relative px-6 pb-8 border-b border-solid border-slate-100 bg-gradient-to-b from-blue-50/30 to-white overflow-hidden flex items-center gap-4"
+              style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+            >
               <div className="absolute top-0 right-0 w-36 h-36 bg-blue-100/20 rounded-full blur-2xl pointer-events-none -mr-12 -mt-12" />
               <button 
                 onClick={() => setActiveSubPage(null)}
@@ -372,7 +375,10 @@ function PetugasSettings({ onNavigate, currentUser }) {
       <div className="min-h-screen bg-white slide-up pb-28">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+          <div 
+            className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white"
+            style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+          >
             <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
             <div className="flex items-center justify-between relative z-10 mb-6">
               <div>

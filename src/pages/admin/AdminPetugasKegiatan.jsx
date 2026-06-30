@@ -150,6 +150,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
 
   // States untuk Tambah Petugas (Assign Kegiatan) di view local (isGlobal === false)
   const [modalSearch, setModalSearch] = useState("");
+  const [modalDesaFilter, setModalDesaFilter] = useState(""); // filter desa di modal
   const [selectedModalOfficerIds, setSelectedModalOfficerIds] = useState([]); // Array of IDs
   const [modalOfficerRoles, setModalOfficerRoles] = useState({}); // { [id]: "PCL" | "PML" }
 
@@ -183,36 +184,53 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
   useEffect(() => {
     if (selectedPetugas && selectedProject && !isGlobal) {
       const assignedSlsList = selectedPetugas.assignments?.[selectedProject]?.sls || [];
-      const assignedName = assignedSlsList[0] || "";
+      const flatAssignedList = assignedSlsList.flat(2).filter(Boolean);
       
-      if (assignedName) {
-        const matchedSub = allWilayah.find(w => w.sub_sls === assignedName);
-        if (matchedSub) {
-          setSelectedDesaCode(matchedSub.desa);
-          setSelectedSlsCode(matchedSub.sls);
-          setSelectedSubSlsCode(matchedSub.sub_sls);
-          return;
-        }
+      if (flatAssignedList.length > 0) {
+        const firstVal = flatAssignedList[0];
+        const isLegacy = firstVal.includes('||');
+        const cleanFirst = isLegacy ? firstVal.split('||')[0] : firstVal.split(' [')[0];
+        const explicitDesa = isLegacy ? firstVal.split('||')[1] : firstVal.split(' [')[1]?.replace(']', '')?.split(' - ').pop();
         
-        const matchedSls = allWilayah.find(w => w.sls === assignedName);
-        if (matchedSls) {
-          setSelectedDesaCode(matchedSls.desa);
-          setSelectedSlsCode(matchedSls.sls);
-          setSelectedSubSlsCode("");
-          return;
+        let desa = "";
+        if (explicitDesa) {
+          desa = explicitDesa;
+        } else {
+          const desaMatch = allWilayah.find(w => w.sub_sls === cleanFirst || w.sls === cleanFirst || w.desa === cleanFirst);
+          desa = desaMatch ? desaMatch.desa : "";
         }
 
-        const matchedDesa = allWilayah.find(w => w.desa === assignedName);
-        if (matchedDesa) {
-          setSelectedDesaCode(matchedDesa.desa);
-          setSelectedSlsCode("");
-          setSelectedSubSlsCode("");
-          return;
-        }
+        const slsArr = [];
+        const subSlsArr = [];
+        let isSubSlsLevel = false;
+
+        flatAssignedList.forEach(assignedName => {
+          const isItemLegacy = assignedName.includes('||');
+          const cleanName = isItemLegacy ? assignedName.split('||')[0] : assignedName.split(' [')[0];
+          const cleanDesaMatch = isItemLegacy ? assignedName.split('||')[1] : assignedName.split(' [')[1]?.replace(']', '')?.split(' - ').pop();
+          
+          const matchedSub = allWilayah.find(w => w.sub_sls === cleanName && w.desa === (cleanDesaMatch || desa));
+          if (matchedSub && assignedName.includes(' - ')) {
+            isSubSlsLevel = true;
+            const parentSlsName = isItemLegacy ? `${matchedSub.sls}||${matchedSub.desa}` : `${matchedSub.sls} [${matchedSub.desa}]`;
+            if (!slsArr.includes(parentSlsName)) slsArr.push(parentSlsName);
+            if (!subSlsArr.includes(assignedName)) subSlsArr.push(assignedName);
+          } else {
+            const matchedSls = allWilayah.find(w => w.sls === cleanName && w.desa === (cleanDesaMatch || desa));
+            if (matchedSls) {
+              if (!slsArr.includes(assignedName)) slsArr.push(assignedName);
+            }
+          }
+        });
+
+        setSelectedDesaCode(desa);
+        setSelectedSlsCode(slsArr);
+        setSelectedSubSlsCode(isSubSlsLevel ? subSlsArr : (slsArr.length > 0 ? ["0"] : []));
+        return;
       }
       setSelectedDesaCode("");
-      setSelectedSlsCode("");
-      setSelectedSubSlsCode("");
+      setSelectedSlsCode([]);
+      setSelectedSubSlsCode([]);
     }
   }, [selectedPetugas, selectedProject, allWilayah, isGlobal]);
 
@@ -409,12 +427,15 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
       );
 
   // Search filter
-  const searchedData = filteredByStatus.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    p.desa.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    (p.username && p.username.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (p.id && p.id.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const searchedData = filteredByStatus.filter(p => {
+    if (!p) return false;
+    const query = (searchQuery || "").toLowerCase();
+    const nameMatch = p.name ? p.name.toLowerCase().includes(query) : false;
+    const desaMatch = p.desa ? p.desa.toLowerCase().includes(query) : false;
+    const usernameMatch = p.username ? p.username.toLowerCase().includes(query) : false;
+    const idMatch = (p.id !== undefined && p.id !== null) ? String(p.id).toLowerCase().includes(query) : false;
+    return nameMatch || desaMatch || usernameMatch || idMatch;
+  });
 
   // Sorting logic
   const filteredAndSearched = [...searchedData].sort((a, b) => {
@@ -778,20 +799,33 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
   // handlePmlSupervisionChange removed — replaced by handlePmlPclAdd / handlePmlPclRemove above
 
   const handleLocationDropdownChange = async (desaVal, slsVal, subSlsVal) => {
+    const flatSls = Array.isArray(slsVal) ? slsVal.flat(2).filter(Boolean) : (slsVal ? [slsVal] : []);
+    const flatSubSls = Array.isArray(subSlsVal) ? subSlsVal.flat(2).filter(Boolean) : (subSlsVal ? [subSlsVal] : []);
+
     setSelectedDesaCode(desaVal);
-    setSelectedSlsCode(slsVal);
-    setSelectedSubSlsCode(subSlsVal);
+    setSelectedSlsCode(flatSls);
+    setSelectedSubSlsCode(flatSubSls);
 
     if (!selectedPetugas || !activeActivity) return;
 
     try {
-      const finalVal = subSlsVal || slsVal;
+      let finalVal = [];
+      if (flatSubSls.length > 0 && flatSubSls[0] !== "0") {
+        finalVal = flatSubSls;
+      } else {
+        finalVal = flatSls;
+      }
+
+      if (finalVal.length === 0 && desaVal) {
+        finalVal = [desaVal];
+      }
+
       const currentAss = selectedPetugas.assignments?.[selectedProject] || {};
       const payload = {
         petugas_id: selectedPetugas.id,
         kegiatan_id: activeActivity.id,
         role: selectedPetugas.projectRoles?.[selectedProject] || 'PCL',
-        sls_assignments: finalVal ? [finalVal] : [],
+        sls_assignments: finalVal,
         pengawas: currentAss.pengawas || ''
       };
       const res = await api.petugas.assign(payload);
@@ -804,7 +838,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
             assignments: {
               ...currentAssignments,
               [selectedProject]: {
-                sls: finalVal ? [finalVal] : [],
+                sls: finalVal,
                 pengawas: currentAss.pengawas || ''
               }
             }
@@ -817,11 +851,16 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
   };
 
   /** Returns ALL PCLs supervised by this PML in the current project */
-  const getSupervisedPcls = (pmlName) => {
+  const getSupervisedPcls = (pmlIdentifier) => {
+    if (!pmlIdentifier) return [];
+    const pmlRecord = petugas.find(p => p.name === pmlIdentifier || p.username === pmlIdentifier);
+    const pmlName = pmlRecord?.name || pmlIdentifier;
+    const pmlUsername = pmlRecord?.username || pmlIdentifier;
     return petugas.filter(p => 
       p.projects?.includes(selectedProject) && 
       p.projectRoles?.[selectedProject] === "PCL" && 
-      p.assignments?.[selectedProject]?.pengawas === pmlName
+      (p.assignments?.[selectedProject]?.pengawas === pmlName || 
+       p.assignments?.[selectedProject]?.pengawas === pmlUsername)
     );
   };
 
@@ -2491,6 +2530,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
             setSelectedModalOfficerIds([]);
             setModalOfficerRoles({});
             setModalSearch("");
+            setModalDesaFilter("");
           }}
         >
           <div className="bg-white rounded-2xl p-8 w-full shadow-lg animate-spring-zoom"
@@ -2509,27 +2549,97 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
             </p>
 
             <form onSubmit={handleLocalAssignSubmit} className="space-y-4">
-              {/* Fitur Search Petugas */}
-              <div className="flex items-center gap-2 bg-slate-50 px-3.5 py-2.5 rounded-xl border border-slate-100 focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
-                <Search size={14} className="text-slate-400"/>
-                <input 
-                  value={modalSearch}
-                  onChange={e => setModalSearch(e.target.value)}
-                  className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-semibold" 
-                  placeholder="Cari nama petugas..."
-                />
-                {modalSearch && (
-                  <button type="button" onClick={() => setModalSearch("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-600 cursor-pointer">
-                    <X size={12}/>
-                  </button>
-                )}
+              {/* Search + Filter Desa Row */}
+              <div className="flex gap-2">
+                <div className="flex-1 flex items-center gap-2 bg-slate-50 px-3.5 py-2.5 rounded-xl border border-slate-100 focus-within:border-blue-500 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
+                  <Search size={14} className="text-slate-400 flex-shrink-0"/>
+                  <input 
+                    value={modalSearch}
+                    onChange={e => setModalSearch(e.target.value)}
+                    className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-semibold" 
+                    placeholder="Cari nama petugas..."
+                  />
+                  {modalSearch && (
+                    <button type="button" onClick={() => setModalSearch("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-600 cursor-pointer">
+                      <X size={12}/>
+                    </button>
+                  )}
+                </div>
+                {/* Filter by Desa */}
+                <select
+                  value={modalDesaFilter}
+                  onChange={e => setModalDesaFilter(e.target.value)}
+                  className="px-2 py-2 text-[11px] border border-slate-200 rounded-xl bg-slate-50 text-slate-700 font-semibold cursor-pointer focus:border-blue-500 outline-none max-w-[130px] truncate"
+                >
+                  <option value="">Semua Desa</option>
+                  {Array.from(new Set(unassignedOfficers.map(p => p.desa).filter(Boolean))).sort().map(d => (
+                    <option key={d} value={d}>Desa {d}</option>
+                  ))}
+                </select>
               </div>
+
+              {/* Select All Row */}
+              {(() => {
+                const visibleOfficers = unassignedOfficers
+                  .filter(p => p && p.name && p.name.toLowerCase().includes((modalSearch || "").toLowerCase()))
+                  .filter(p => p && (!modalDesaFilter || p.desa === modalDesaFilter));
+                const allVisibleSelected = visibleOfficers.length > 0 && visibleOfficers.every(p => selectedModalOfficerIds.includes(p.id));
+                const someSelected = visibleOfficers.some(p => selectedModalOfficerIds.includes(p.id));
+                return (
+                  <div className="flex items-center justify-between px-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (allVisibleSelected) {
+                          // Deselect all visible
+                          const visibleIds = visibleOfficers.map(p => p.id);
+                          setSelectedModalOfficerIds(prev => prev.filter(id => !visibleIds.includes(id)));
+                        } else {
+                          // Select all visible
+                          const visibleIds = visibleOfficers.map(p => p.id);
+                          setSelectedModalOfficerIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+                        }
+                      }}
+                      className="flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-600 transition-colors bg-transparent border-0 cursor-pointer p-0"
+                    >
+                      <span className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${
+                        allVisibleSelected
+                          ? 'bg-blue-600 border-blue-600 text-white'
+                          : someSelected
+                          ? 'bg-blue-100 border-blue-400 text-blue-600'
+                          : 'bg-white border-slate-300'
+                      }`}>
+                        {allVisibleSelected
+                          ? <Check size={10} strokeWidth={3}/>
+                          : someSelected
+                          ? <span className="w-2 h-0.5 bg-blue-500 rounded block"/>
+                          : null}
+                      </span>
+                      Pilih Semua ({visibleOfficers.length})
+                    </button>
+                    {selectedModalOfficerIds.length > 0 && (
+                      <span className="text-[10px] text-slate-400 font-medium">
+                        {selectedModalOfficerIds.length} terpilih
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* List Petugas */}
               <div className="space-y-2 mb-6 max-h-[250px] overflow-y-auto pr-1 scrollbar-thin">
-                {unassignedOfficers
-                  .filter(p => p.name.toLowerCase().includes(modalSearch.toLowerCase()))
-                  .map(p => {
+                {(() => {
+                  const visibleOfficers = unassignedOfficers
+                    .filter(p => p && p.name && p.name.toLowerCase().includes((modalSearch || "").toLowerCase()))
+                    .filter(p => p && (!modalDesaFilter || p.desa === modalDesaFilter));
+                  if (visibleOfficers.length === 0) {
+                    return (
+                      <div className="py-8 text-center text-slate-400 text-xs font-medium">
+                        Tidak ada petugas master yang ditemukan
+                      </div>
+                    );
+                  }
+                  return visibleOfficers.map(p => {
                     const isChecked = selectedModalOfficerIds.includes(p.id);
                     const role = modalOfficerRoles[p.id] || "PCL";
                     return (
@@ -2578,12 +2688,8 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                         </div>
                       </div>
                     );
-                  })}
-                {unassignedOfficers.filter(p => p.name.toLowerCase().includes(modalSearch.toLowerCase())).length === 0 && (
-                  <div className="py-8 text-center text-slate-400 text-xs font-medium">
-                    Tidak ada petugas master yang ditemukan
-                  </div>
-                )}
+                  });
+                })()}
               </div>
 
               <div className="flex gap-3 pt-4">
@@ -2594,6 +2700,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                     setSelectedModalOfficerIds([]);
                     setModalOfficerRoles({});
                     setModalSearch("");
+                    setModalDesaFilter("");
                   }}
                   className="flex-1 py-3 bg-slate-50 hover:bg-slate-100 rounded-xl text-sm font-semibold text-slate-600 cursor-pointer transition-all border-0"
                 >
@@ -2611,6 +2718,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
           </div>
         </div>
       )}
+
 
       {/* Assign Petugas Modal */}
       {showAssignModal && selectedPetugas && (

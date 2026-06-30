@@ -505,25 +505,67 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
         slsList.forEach(s => assignedLocations.add(s));
       });
 
+      const normalizeSlsCode = (sls) => {
+        if (!sls) return '';
+        const match = sls.toLowerCase().match(/\d+/);
+        if (match) {
+          return parseInt(match[0], 10).toString();
+        }
+        return sls.toLowerCase().trim();
+      };
+
+      const assignedClean = Array.from(assignedLocations).map(loc => {
+        const isLegacy = loc.includes('||');
+        const cleanFirst = isLegacy ? loc.split('||')[0] : loc.split(' [')[0];
+        const cleanDesa = isLegacy ? loc.split('||')[1] : loc.split(' [')[1]?.replace(']', '')?.split(' - ').pop();
+        return {
+          sls: normalizeSlsCode(cleanFirst),
+          desa: cleanDesa ? cleanDesa.trim().toLowerCase() : ""
+        };
+      });
+
       if (lokus.subSls && lokus.subSls.length > 0) {
         lokus.subSls.forEach(sub => {
-          if (!assignedLocations.has(sub)) {
+          const isLegacy = sub.includes('||');
+          const cleanFirst = isLegacy ? sub.split('||')[0] : sub.split(' [')[0];
+          const cleanDesa = isLegacy ? sub.split('||')[1] : sub.split(' [')[1]?.replace(']', '')?.split(' - ').pop();
+          const subCode = normalizeSlsCode(cleanFirst);
+          const subDesa = cleanDesa ? cleanDesa.trim().toLowerCase() : "";
+
+          const isAssigned = assignedClean.some(a => 
+            a.sls === subCode && 
+            (!subDesa || !a.desa || a.desa === subDesa)
+          );
+          if (!isAssigned) {
             errors.push(`Sub-SLS "${sub}" belum ditugaskan ke PCL manapun.`);
           }
         });
       } else if (lokus.sls && lokus.sls.length > 0) {
         lokus.sls.forEach(s => {
-          if (!assignedLocations.has(s)) {
+          const isLegacy = s.includes('||');
+          const cleanFirst = isLegacy ? s.split('||')[0] : s.split(' [')[0];
+          const cleanDesa = isLegacy ? s.split('||')[1] : s.split(' [')[1]?.replace(']', '');
+          const sCode = normalizeSlsCode(cleanFirst);
+          const sDesa = cleanDesa ? cleanDesa.trim().toLowerCase() : "";
+
+          const isAssigned = assignedClean.some(a => 
+            a.sls === sCode && 
+            (!sDesa || !a.desa || a.desa === sDesa)
+          );
+          if (!isAssigned) {
             errors.push(`SLS "${s}" belum ditugaskan ke PCL manapun.`);
           }
         });
       } else if (lokus.desa && lokus.desa.length > 0) {
         lokus.desa.forEach(d => {
-          if (!assignedLocations.has(d)) {
+          const dNorm = d.trim().toLowerCase();
+          const isAssigned = assignedClean.some(a => a.desa === dNorm);
+          if (!isAssigned) {
             errors.push(`Desa "${d}" belum ditugaskan ke PCL manapun.`);
           }
         });
       } else if (lokus.kecamatan && lokus.kecamatan.length > 0) {
+        // Simple fallback
         lokus.kecamatan.forEach(k => {
           if (!assignedLocations.has(k)) {
             errors.push(`Kecamatan "${k}" belum ditugaskan ke PCL manapun.`);

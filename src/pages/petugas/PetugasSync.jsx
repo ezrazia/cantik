@@ -28,7 +28,18 @@ const evaluateCondition = (c, values) => {
   const val = values[c.question_id];
   if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
     if (val === undefined || val === null || val === '') return false;
-    const numericVal = parseFloat(val);
+    let actualVal = val;
+    if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) {
+          actualVal = parsed[0];
+        } else if (parsed && 'value' in parsed) {
+          actualVal = parsed.value;
+        }
+      } catch (e) { }
+    }
+    const numericVal = parseFloat(actualVal);
     const targetVal = parseFloat(c.value);
     if (isNaN(numericVal) || isNaN(targetVal)) return false;
     switch (c.operator) {
@@ -53,11 +64,848 @@ const evaluateCondition = (c, values) => {
  * @param {boolean} props.isOffline
  * @returns {React.ReactElement}
  */
-function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
+function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, petugas }) {
   const { showToast, showAlert, showConfirm } = useNotification();
   const [localRtList, setLocalRtList] = useState([]);
   const [syncingAll, setSyncingAll] = useState(false);
   const [fetchingData, setFetchingData] = useState(false);
+
+  const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
+
+  const saveSingleDocLocally = async (updatedDoc) => {
+    const storageKey = `offline_docs_${currentUser.id}`;
+    let cachedList = [];
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) cachedList = JSON.parse(cached);
+    } catch (e) {
+      cachedList = [];
+    }
+    
+    const idx = cachedList.findIndex(d => {
+      if (updatedDoc.id && d.id === updatedDoc.id) return true;
+      return d.kode === updatedDoc.kode;
+    });
+    
+    if (idx > -1) {
+      cachedList[idx] = updatedDoc;
+    } else {
+      cachedList.push(updatedDoc);
+    }
+    
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(cachedList));
+    } catch (e) {
+      console.warn("localStorage penuh saat update single doc:", e);
+    }
+    
+    if (offlineDB.isAvailable()) {
+      try {
+        await offlineDB.saveDokumen({
+          ...updatedDoc,
+          sync_status: updatedDoc.sync_status || (updatedDoc.sync !== false ? 'synced' : 'pending')
+        });
+      } catch (err) {
+        console.warn("Gagal simpan ke IndexedDB:", err);
+      }
+    }
+    
+    setLocalRtList(cachedList);
+  };
+
+  const autoFillAndEvaluateFormulas = (item, questions, blocks) => {
+    let values = {};
+    if (item.values) {
+      try {
+        values = typeof item.values === 'string' ? JSON.parse(item.values) : item.values;
+      } catch (e) {
+        values = {};
+      }
+    }
+    if (!values) values = {};
+    
+    let isChanged = false;
+    const updatedValues = { ...values };
+
+    const parseValidation = (str) => {
+      if (!str) return {};
+      const trimmed = str.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          return JSON.parse(trimmed);
+        } catch (e) {}
+      }
+      return {};
+    };
+
+    const getManualLoopCount = (q) => {
+      if (!q) return null;
+      
+      let loopGroupName = "";
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          if (parsed && parsed.loop_group) {
+            loopGroupName = parsed.loop_group;
+          }
+        } catch (e) {}
+      }
+      
+      if (loopGroupName) {
+        const groupQs = questions.filter(x => {
+          if (x.blok_id !== q.blok_id) return false;
+          if (!x.validation) return false;
+          try {
+            const parsed = JSON.parse(x.validation);
+            return parsed && parsed.loop_group === loopGroupName;
+          } catch (e) {
+            return false;
+          }
+        });
+        const masterQ = groupQs.find(x => {
+          if (!x.validation) return false;
+          try {
+            const parsed = JSON.parse(x.validation);
+            return parsed && parsed.is_loop && parsed.loop_type === "manual";
+          } catch (e) {
+            return false;
+          }
+        });
+        if (masterQ && masterQ.id !== q.id) {
+          return getManualLoopCount(masterQ);
+        }
+      }
+
+      const qVal = parseValidation(q.validation);
+      if (qVal.is_loop && qVal.loop_type === "manual") {
+        const savedCount = updatedValues[`${q.id}_loop_count`];
+        if (savedCount !== undefined && savedCount !== null && savedCount !== '') {
+          return parseInt(savedCount, 10);
+        }
+        return 1;
+      }
+      if (q.parent_id) {
+        const parent = questions.find(x => x.id === q.parent_id);
+        if (parent) {
+          return getManualLoopCount(parent);
+        }
+      }
+      return null;
+    };
+
+    const getQuestionLoopGroup = (q) => {
+      if (!q) return "";
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          if (parsed && parsed.loop_group) {
+            return parsed.loop_group;
+          }
+        } catch (e) {}
+      }
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (parent) {
+          return getQuestionLoopGroup(parent);
+        }
+      }
+      return "";
+    };
+
+    const getQuestionLoopCount = (q) => {
+      if (!q) return 1;
+
+      const loopGroupName = getQuestionLoopGroup(q);
+      const qVal = parseValidation(q.validation);
+      const isLoopQ = qVal.is_loop || !!loopGroupName;
+
+      if (!isLoopQ) {
+        const parentId = q.parent_id || q.parentId;
+        if (parentId) {
+          const parent = questions.find(p => p.id === parentId);
+          if (parent) {
+            return getQuestionLoopCount(parent);
+          }
+        }
+      }
+
+      if (loopGroupName) {
+        const groupQs = questions.filter(x => x.blok_id === q.blok_id && getQuestionLoopGroup(x) === loopGroupName);
+        const masterQ = groupQs.find(x => {
+          if (!x.validation) return false;
+          try {
+            const parsed = JSON.parse(x.validation);
+            return parsed && parsed.is_loop;
+          } catch (e) {
+            return false;
+          }
+        }) || groupQs[0];
+
+        if (masterQ && masterQ.id !== q.id) {
+          return getQuestionLoopCount(masterQ);
+        }
+      }
+
+      if (qVal.is_loop) {
+        if (qVal.loop_by_question_id) {
+          let triggerValue = updatedValues[qVal.loop_by_question_id];
+          if (typeof triggerValue === 'string' && triggerValue.trim().startsWith('[')) {
+            try {
+              const arr = JSON.parse(triggerValue);
+              if (Array.isArray(arr)) triggerValue = arr[0];
+            } catch(e) {}
+          }
+          const parsedTrigger = parseInt(triggerValue, 10);
+          if (!isNaN(parsedTrigger) && parsedTrigger > 0) {
+            return Math.max(0, parsedTrigger);
+          }
+          // Fallback for prelist array mapping
+          try {
+            const val = updatedValues[q.id];
+            if (typeof val === 'string' && val.startsWith('[')) {
+              const arr = JSON.parse(val);
+              if (Array.isArray(arr) && arr.length > 0) return arr.length;
+            }
+          } catch (e) { }
+          return 0;
+        }
+        if (qVal.loop_type === "manual") {
+          const manualCount = getManualLoopCount(q);
+          return manualCount !== null ? manualCount : 1;
+        }
+      }
+
+      return 1;
+    };
+
+    const getLoopValueFromValues = (qId, idx) => {
+      const raw = updatedValues[qId];
+      if (!raw) return "";
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed[idx] !== undefined && parsed[idx] !== null ? String(parsed[idx]) : "";
+        } else if (typeof parsed === 'object' && parsed !== null) {
+          return parsed[idx] !== undefined && parsed[idx] !== null ? String(parsed[idx]) : "";
+        }
+      } catch (e) {}
+      return idx === 0 ? String(raw) : "";
+    };
+
+    const romanToDecimal = (roman) => {
+      const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+      let dec = 0;
+      const str = roman.toLowerCase();
+      for (let i = 0; i < str.length; i++) {
+        const current = map[str[i]];
+        const next = map[str[i + 1]];
+        if (next && current < next) { dec += next - current; i++; } else { dec += current; }
+      }
+      return dec || 0;
+    };
+
+    const questionCodesMap = new Map();
+    const getCode = (q) => {
+      const cacheKey = String(q.id);
+      if (questionCodesMap.has(cacheKey)) return questionCodesMap.get(cacheKey);
+
+      const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+      let blockIdx = 0;
+      if (block) {
+        const kodeStr = String(block.kode || block.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          blockIdx = romanToDecimal(match[1]);
+        }
+      }
+
+      if (!blockIdx) {
+        const standardBlocks = blocks.filter(b => {
+          const idStr = String(b.kode || b.id || "");
+          return idStr.startsWith("Blok ");
+        });
+        blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
+      }
+      if (blockIdx === 0) {
+        questionCodesMap.set(cacheKey, "");
+        return "";
+      }
+      
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (!parent) {
+          questionCodesMap.set(cacheKey, "");
+          return "";
+        }
+        const parentCode = getCode(parent);
+        
+        const siblings = questions.filter(s => s.blok_id === q.blok_id && (s.parent_id === parentId || s.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const sibIdx = siblings.findIndex(s => s.id === q.id);
+        
+        if (parent.parent_id || parent.parentId) {
+          const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+          const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
+          const code = `${parentCode}.${suffix}`;
+          questionCodesMap.set(cacheKey, code);
+          return code;
+        } else {
+          const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0));
+          const code = `${parentCode}${letter}`;
+          questionCodesMap.set(cacheKey, code);
+          return code;
+        }
+      } else {
+        const mainQs = questions.filter(s => s.blok_id === q.blok_id && !s.parent_id && !s.parentId && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        
+        let startIndex = 1;
+        const firstQ = mainQs[0];
+        if (firstQ) {
+          const firstValStr = firstQ.validation || firstQ.val;
+          if (firstValStr && firstValStr.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(firstValStr);
+              const custom = parsed.custom_code || parsed.customCode || "";
+              if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
+                startIndex = 0;
+              }
+            } catch (e) {}
+          }
+        }
+
+        const qIdx = mainQs.findIndex(s => s.id === q.id) + startIndex;
+        const padded = qIdx.toString().padStart(2, '0');
+        const code = `${blockIdx}${padded}`;
+        questionCodesMap.set(cacheKey, code);
+        return code;
+      }
+    };
+
+    questions.forEach(q => {
+      getCode(q);
+    });
+
+    const getQuestionCode = (q) => {
+      if (!q) return "";
+      return questionCodesMap.get(String(q.id)) || "";
+    };
+
+    const questionMapByCode = new Map();
+    questions.forEach(q => {
+      const qCode = getQuestionCode(q);
+      if (qCode) {
+        const normalized = qCode.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+        questionMapByCode.set(normalized, q);
+      }
+    });
+
+    const findQuestionByCode = (codeStr) => {
+      if (!codeStr) return null;
+      const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+      return questionMapByCode.get(normalizedCode) || null;
+    };
+
+    const isQuestionInLoop = (q) => {
+      if (!q) return false;
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => String(p.id) === String(parentId));
+        if (parent && isQuestionInLoop(parent)) {
+          return true;
+        }
+      }
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          if (parsed) {
+            if (parsed.is_loop || parsed.isLoop || parsed.loop_group || parsed.loop_by_question_id || parsed.loopByQuestionId) {
+              return true;
+            }
+          }
+        } catch (e) {}
+      }
+      return false;
+    };
+
+    const evaluateFormula = (formulaStr, currentValues, idx = null) => {
+      if (!formulaStr) return "0";
+      let evalStr = formulaStr.trim();
+
+      // Helper: extract numeric values from a stored loop-array value or plain value
+      const extractNumbers = (raw) => {
+        if (raw === undefined || raw === null || raw === "") return [];
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed.map(x => {
+              if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+              if (typeof x === 'string' && x.startsWith('{')) {
+                try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
+              }
+              return parseFloat(x);
+            }).filter(x => !isNaN(x));
+          } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+            const n = parseFloat(parsed.value);
+            return isNaN(n) ? [] : [n];
+          } else {
+            const n = parseFloat(parsed);
+            return isNaN(n) ? [] : [n];
+          }
+        } catch (e) {
+          const n = parseFloat(raw);
+          return isNaN(n) ? [] : [n];
+        }
+      };
+
+      const getLoopValueFromValuesLocal = (qId, idx) => {
+        const raw = currentValues[qId];
+        const targetQ = questions.find(x => x.id === qId);
+        const isSerialNumber = targetQ && targetQ.type === 'number' && (
+          targetQ.label.toLowerCase().includes('no. urut') ||
+          targetQ.label.toLowerCase().includes('nomor urut') ||
+          targetQ.label.toLowerCase().includes('no urut')
+        ) && isQuestionInLoop(targetQ);
+
+        if (!raw) {
+          return isSerialNumber ? String(idx + 1) : "";
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const val = parsed[idx];
+            if (isSerialNumber && (val === undefined || val === null || val === '')) {
+              return String(idx + 1);
+            }
+            return val !== undefined && val !== null ? val : (isSerialNumber ? String(idx + 1) : "");
+          } else if (typeof parsed === 'object' && parsed !== null) {
+            if (parsed.hasOwnProperty('value')) {
+              return idx === 0 ? raw : "";
+            }
+            const val = parsed[idx];
+            if (isSerialNumber && (val === undefined || val === null || val === '')) {
+              return String(idx + 1);
+            }
+            return val !== undefined && val !== null ? val : "";
+          }
+        } catch (e) { }
+        if (isSerialNumber && idx > 0) {
+          return String(idx + 1);
+        }
+        return idx === 0 ? raw : "";
+      };
+
+      // 1. Handle AGE function (e.g. AGE(R410))
+      const ageRegex = /AGE\((R[0-9a-zA-Z.]+)\)/gi;
+      evalStr = evalStr.replace(ageRegex, (match, code) => {
+        const targetQ = findQuestionByCode(code);
+        if (!targetQ) return "0";
+
+        let birthDateStr = "";
+        if (idx !== null) {
+          birthDateStr = getLoopValueFromValuesLocal(targetQ.id, idx);
+        } else {
+          birthDateStr = currentValues[targetQ.id] || "";
+        }
+
+        if (!birthDateStr) return "0";
+
+        // Clean value if it is wrapped in an object or array (defensive)
+        if (birthDateStr.trim().startsWith('{') || birthDateStr.trim().startsWith('[')) {
+          try {
+            const parsed = JSON.parse(birthDateStr);
+            if (Array.isArray(parsed)) {
+              birthDateStr = parsed[0] || "";
+            } else if (parsed && parsed.value) {
+              birthDateStr = parsed.value;
+            }
+          } catch (e) { }
+        }
+
+        const birthDate = new Date(birthDateStr);
+        if (isNaN(birthDate.getTime())) return "0";
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+          age--;
+        }
+        return String(age >= 0 ? age : 0);
+      });
+
+      // 2. Handle aggregation functions on loop/array values: e.g. MAX(R401)
+      const funcRegex = /(MAX|MIN|SUM|AVG|COUNT)\((R[0-9a-zA-Z.]+)\)/gi;
+      evalStr = evalStr.replace(funcRegex, (match, op, code) => {
+        const targetQ = findQuestionByCode(code);
+        if (!targetQ) return "0";
+
+        const targetQVal = parseValidation(targetQ.validation);
+        const isTargetLoop = targetQVal.isLoop || targetQVal.is_loop || !!targetQ.parent_id || !!targetQ.parentId || !!targetQVal.loop_group;
+
+        let numbers = [];
+        if (isTargetLoop) {
+          const loopCount = getQuestionLoopCount(targetQ);
+          if (loopCount > 0) {
+            for (let i = 0; i < loopCount; i++) {
+              const val = getLoopValueFromValuesLocal(targetQ.id, i);
+              const num = parseFloat(val);
+              if (!isNaN(num)) {
+                numbers.push(num);
+              }
+            }
+          }
+        } else {
+          numbers = extractNumbers(currentValues[targetQ.id]);
+        }
+
+        if (numbers.length === 0 && targetQ.validation) {
+          try {
+            const vParsed = JSON.parse(targetQ.validation);
+            if (vParsed && vParsed.loop_group) {
+              const groupQs = questions.filter(x => {
+                if (!x.validation) return false;
+                try { const p = JSON.parse(x.validation); return p && p.loop_group === vParsed.loop_group; }
+                catch (e) { return false; }
+              });
+              groupQs.forEach(gq => {
+                numbers = numbers.concat(extractNumbers(currentValues[gq.id]));
+              });
+            }
+          } catch (e) { }
+        }
+
+        if (numbers.length === 0) {
+          const loopCountRaw = currentValues[`${targetQ.id}_loop_count`];
+          const loopCount = loopCountRaw ? parseInt(loopCountRaw, 10) : 0;
+          if (loopCount > 0) {
+            const raw = currentValues[targetQ.id];
+            if (raw) {
+              try {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                  numbers = arr.slice(0, loopCount).map(x => parseFloat(x)).filter(x => !isNaN(x));
+                }
+              } catch (e) { }
+            }
+          }
+        }
+
+        if (numbers.length === 0) return "0";
+        switch (op.toUpperCase()) {
+          case "MAX": return String(Math.max(...numbers));
+          case "MIN": return String(Math.min(...numbers));
+          case "SUM": return String(numbers.reduce((a, b) => a + b, 0));
+          case "AVG": return String(numbers.reduce((a, b) => a + b, 0) / numbers.length);
+          case "COUNT": return String(numbers.length);
+          default: return "0";
+        }
+      });
+
+      const codeRegex = /R[0-9a-zA-Z.]+/g;
+      const codes = evalStr.match(codeRegex) || [];
+
+      for (const code of codes) {
+        const targetQ = findQuestionByCode(code);
+        if (targetQ) {
+          let val = "";
+          if (idx !== null) {
+            val = getLoopValueFromValuesLocal(targetQ.id, idx);
+          } else {
+            val = currentValues[targetQ.id] || "0";
+          }
+          let valNum = parseFloat(val);
+          if (isNaN(valNum)) {
+            try {
+              const parsed = JSON.parse(val);
+              if (Array.isArray(parsed)) {
+                const numbers = parsed.map(x => {
+                  if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+                  if (typeof x === 'string' && x.startsWith('{')) {
+                    try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
+                  }
+                  return parseFloat(x);
+                }).filter(x => !isNaN(x));
+                valNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+              } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+                valNum = parseFloat(parsed.value);
+              }
+            } catch (e) {
+              valNum = 0;
+            }
+          }
+          evalStr = evalStr.replace(new RegExp(code, 'g'), isNaN(valNum) ? "0" : String(valNum));
+        } else {
+          evalStr = evalStr.replace(new RegExp(code, 'g'), "0");
+        }
+      }
+
+      try {
+        const result = new Function(`return (${evalStr})`)();
+        return isNaN(result) ? "0" : String(result);
+      } catch (e) {
+        return "0";
+      }
+    };
+
+    const resolveDynamicOptions = (q) => {
+      let qVal = null;
+      try { qVal = JSON.parse(q.validation || "{}"); } catch(e) {}
+      
+      if (qVal && qVal.options_source_question_id) {
+        const sourceVal = updatedValues[qVal.options_source_question_id];
+        if (sourceVal && typeof sourceVal === 'string' && sourceVal.startsWith('[')) {
+          try {
+            const arr = JSON.parse(sourceVal);
+            if (Array.isArray(arr)) {
+              return arr.map((item, idx) => ({
+                value: String(idx + 1).padStart(3, '0'),
+                label: String(item)
+              }));
+            }
+          } catch(e) {}
+        }
+      }
+      
+      let opts = q.options;
+      if (typeof opts === 'string') {
+        try { opts = JSON.parse(opts); } catch(e) { opts = []; }
+      }
+      return Array.isArray(opts) ? opts : [];
+    };
+
+    const selectedActivity = (activities || []).find(a => a.id === item.kegiatan_id);
+    const docPclId = item.petugas_id;
+    const docPetugas = docPclId ? (petugas || []).find(p => p.id === docPclId) : null;
+    const currentPetugas = docPetugas || currentUser;
+
+    questions.forEach(q => {
+      const lowerLabel = (q.label || "").toLowerCase();
+      let matchedText = "";
+      let defaultVal = null;
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          defaultVal = parsed.default_val || parsed.defaultVal || null;
+        } catch(e) {}
+      }
+
+      const qVal = parseValidation(q.validation);
+      const isLoop = qVal.is_loop || !!q.parent_id || !!q.parentId || !!qVal.loop_group;
+      const loopCount = getQuestionLoopCount(q);
+
+      for (let idx = 0; idx < loopCount; idx++) {
+        let currentVal = isLoop ? getLoopValueFromValues(q.id, idx) : updatedValues[q.id];
+
+        if (currentVal === undefined || currentVal === null || currentVal === '') {
+          if (q.type === 'pcl' || lowerLabel.includes("nama pcl") || lowerLabel.includes("nama pencacah")) {
+            matchedText = currentPetugas.name || currentUser.name || "";
+          } 
+          else if (q.type === 'pml' || lowerLabel.includes("nama pml") || lowerLabel.includes("nama pengawas")) {
+            matchedText = (docPetugas || currentPetugas).assignments?.[selectedActivity?.name]?.pengawas || "";
+          } 
+          else if (lowerLabel.includes("provinsi")) {
+            matchedText = defaultVal || "Kalimantan Utara";
+          } else if (lowerLabel.includes("kabupaten") || lowerLabel.includes("kota")) {
+            matchedText = defaultVal || "Tana Tidung";
+          } else if (lowerLabel.includes("kecamatan") && item.kecamatan) {
+            matchedText = item.kecamatan;
+          } else if ((lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) && item.desa) {
+            matchedText = item.desa;
+          } else if ((lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) && item.sub_sls) {
+            matchedText = item.sub_sls;
+          } else if ((lowerLabel.includes("sls") || lowerLabel.match(/\brt\b/)) && item.sls) {
+            matchedText = item.sls;
+          } else if ((lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) && item.alamat) {
+            matchedText = item.alamat;
+          } else if ((lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) && item.krt && item.krt !== "Tanpa Nama") {
+            matchedText = item.krt;
+          } else if (defaultVal !== null) {
+            matchedText = defaultVal;
+          }
+
+          if (matchedText && q.type !== 'note') {
+            let finalVal = matchedText;
+            if (q.type === 'select' || q.type === 'search') {
+              const opts = resolveDynamicOptions(q);
+              const match = opts.find(o => 
+                String(o.value).toLowerCase() === String(matchedText).toLowerCase() ||
+                String(o.label).toLowerCase() === String(matchedText).toLowerCase()
+              );
+              finalVal = match ? match.value : matchedText;
+            }
+
+            if (isLoop) {
+              let arr = [];
+              try { arr = JSON.parse(updatedValues[q.id]); } catch(e) { arr = []; }
+              if (!Array.isArray(arr)) arr = [];
+              arr[idx] = finalVal;
+              updatedValues[q.id] = JSON.stringify(arr);
+            } else {
+              updatedValues[q.id] = finalVal;
+            }
+            isChanged = true;
+          }
+        }
+      }
+    });
+
+    const formulaQs = questions.filter(q => {
+      const qVal = parseValidation(q.validation);
+      return qVal && qVal.formula;
+    });
+
+    formulaQs.forEach(q => {
+      const qVal = parseValidation(q.validation);
+      if (qVal && qVal.formula) {
+        const isLoop = qVal.is_loop || !!q.parent_id || !!q.parentId || !!qVal.loop_group;
+        const loopCount = getQuestionLoopCount(q);
+
+        if (isLoop) {
+          const computedArray = [];
+          for (let idx = 0; idx < loopCount; idx++) {
+            computedArray.push(evaluateFormula(qVal.formula, updatedValues, idx));
+          }
+          const computedStr = JSON.stringify(computedArray);
+          if (updatedValues[q.id] !== computedStr) {
+            updatedValues[q.id] = computedStr;
+            isChanged = true;
+          }
+        } else {
+          const computedVal = evaluateFormula(qVal.formula, updatedValues);
+          if (updatedValues[q.id] !== computedVal) {
+            updatedValues[q.id] = computedVal;
+            isChanged = true;
+          }
+        }
+      }
+    });
+
+    return { updatedValues, isChanged };
+  };
+
+  const officerActivities = ((currentPetugas && currentPetugas.projects) || [])
+    .map(projName => {
+      const act = activities?.find(a => a.name === projName);
+      if (!act) return null;
+      return act;
+    })
+    .filter(act => act && act.status !== "draft" && act.status !== "selesai");
+
+  const downloadFormStructures = async () => {
+    if (isOffline) return;
+    if (officerActivities && officerActivities.length > 0) {
+      for (const act of officerActivities) {
+        try {
+          const res = await api.form.getStructure(act.id);
+          if (res && res.success) {
+            localStorage.setItem(`form_structure_${act.id}`, JSON.stringify({
+              blocks: res.blocks,
+              questions: res.questions
+            }));
+            if (offlineDB.isAvailable()) {
+              await offlineDB.saveFormStructure(act.id, res.blocks, res.questions);
+            }
+          }
+        } catch (e) {
+          console.error(`Gagal mengunduh struktur form untuk kegiatan ${act.name}:`, e);
+        }
+      }
+    }
+  };
+
+  const mergeDocument = (apiDoc, localDoc) => {
+    if (!localDoc) return apiDoc;
+    if (!apiDoc) return localDoc;
+
+    const mergedValues = { ...(apiDoc.values || {}), ...(localDoc.values || {}) };
+    const hasLocalUnsynced = localDoc.sync === false;
+    const serverHasPriority = apiDoc.status === 'terkirim' || 
+                              apiDoc.review_status === 'approved' || 
+                              apiDoc.review_status === 'rejected';
+
+    let mergedDoc = { ...localDoc, ...apiDoc };
+
+    if (hasLocalUnsynced && !serverHasPriority) {
+      mergedDoc = {
+        ...apiDoc,
+        ...localDoc,
+        krt: localDoc.krt || apiDoc.krt,
+        alamat: localDoc.alamat || apiDoc.alamat,
+        kecamatan: localDoc.kecamatan || apiDoc.kecamatan,
+        desa: localDoc.desa || apiDoc.desa,
+        sls: localDoc.sls || apiDoc.sls,
+        sub_sls: localDoc.sub_sls || apiDoc.sub_sls,
+        status: localDoc.status || apiDoc.status,
+        review_status: localDoc.review_status || apiDoc.review_status,
+      };
+    } else if (serverHasPriority) {
+      mergedDoc = {
+        ...localDoc,
+        ...apiDoc,
+        status: apiDoc.status,
+        review_status: apiDoc.review_status,
+      };
+    } else {
+      const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
+      const apiTime = new Date(apiDoc.updated_at || apiDoc.created_at || 0).getTime();
+      if (localTime > apiTime) {
+        mergedDoc = { ...apiDoc, ...localDoc };
+      } else {
+        mergedDoc = { ...localDoc, ...apiDoc };
+      }
+    }
+
+    mergedDoc.values = mergedValues;
+    mergedDoc.sync = (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved') 
+      ? true 
+      : (localDoc.sync === false ? false : apiDoc.sync);
+
+    return mergedDoc;
+  };
+
+  const mergeServerWithLocalDocs = (serverDocs, localDocs) => {
+    const merged = [...serverDocs];
+    localDocs.forEach(localDoc => {
+      const apiIdx = merged.findIndex(d => 
+        (d.id && localDoc.id && d.id === localDoc.id) || 
+        (d.kode && d.kode === localDoc.kode)
+      );
+
+      if (apiIdx >= 0) {
+        const apiDoc = merged[apiIdx];
+        if (localDoc.kode && apiDoc.kode && localDoc.kode !== apiDoc.kode) {
+          if (offlineDB.isAvailable()) {
+            offlineDB.removeDokumen(localDoc.kode).catch(e => 
+              console.warn("Gagal hapus dokumen lama di IndexedDB saat merge:", e)
+            );
+          }
+        }
+        merged[apiIdx] = mergeDocument(apiDoc, localDoc);
+      } else {
+        merged.push(localDoc);
+      }
+    });
+    return deduplicateDocs(merged);
+  };
+
+  const getLocalDocs = async () => {
+    let localDocs = [];
+    const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+    if (cached) {
+      try {
+        localDocs = JSON.parse(cached);
+      } catch (e) {}
+    }
+    if (localDocs.length === 0 && offlineDB.isAvailable()) {
+      try {
+        const idbDocs = await offlineDB.getAllDokumen();
+        if (idbDocs && idbDocs.length > 0) {
+          localDocs = idbDocs;
+        }
+      } catch (e) {}
+    }
+    return deduplicateDocs(localDocs);
+  };
 
 
   /**
@@ -142,27 +990,34 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     }
     setFetchingData(true);
     try {
-      const docs = await api.dokumen.getByPetugas(currentUser.id);
+      // 1. Download latest form structures
+      await downloadFormStructures();
 
-      // Deduplicate sebelum menyimpan
+      // 2. Fetch and merge documents
+      const docs = await api.dokumen.getByPetugas(currentUser.id);
       const dedupedDocs = deduplicateDocs(docs);
+      const localDocs = await getLocalDocs();
+      const finalDocs = mergeServerWithLocalDocs(dedupedDocs, localDocs);
 
       // Hybrid storage: simpan ke localStorage + IndexedDB
       try {
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedDocs));
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(finalDocs));
       } catch (e) {
         console.warn('localStorage penuh saat refresh:', e.message);
       }
       // Simpan juga ke IndexedDB
-      dedupedDocs.forEach(doc => {
+      for (const doc of finalDocs) {
         try {
-          offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+          await offlineDB.saveDokumen({
+            ...doc,
+            sync_status: doc.sync_status || (doc.sync !== false ? 'synced' : 'pending')
+          });
         } catch (idbErr) {
           console.warn('Gagal simpan ke IndexedDB:', idbErr);
         }
-      });
+      }
 
-      setLocalRtList(dedupedDocs);
+      setLocalRtList(finalDocs);
     } catch (e) {
       console.error("Gagal refresh data dari server:", e);
       // Fallback ke localStorage atau IndexedDB
@@ -215,6 +1070,13 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       return { isValid: true, errors: [] };
     }
     
+    // Auto-fill and evaluate formulas BEFORE validation!
+    const { updatedValues, isChanged } = autoFillAndEvaluateFormulas(item, questions, blocks);
+    if (isChanged) {
+      item.values = updatedValues;
+      await saveSingleDocLocally(item);
+    }
+
     const errors = [];
     const values = item.values || {};
 
@@ -250,6 +1112,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       
       if (loopGroupName) {
         const groupQs = questions.filter(x => {
+          if (x.blok_id !== q.blok_id) return false;
           if (!x.validation) return false;
           try {
             const parsed = JSON.parse(x.validation);
@@ -291,13 +1154,6 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
 
     const getQuestionLoopGroup = (q) => {
       if (!q) return "";
-      const parentId = q.parent_id || q.parentId;
-      if (parentId) {
-        const parent = questions.find(p => p.id === parentId);
-        if (parent) {
-          return getQuestionLoopGroup(parent);
-        }
-      }
       if (q.validation) {
         try {
           const parsed = JSON.parse(q.validation);
@@ -306,25 +1162,38 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
           }
         } catch (e) {}
       }
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (parent) {
+          return getQuestionLoopGroup(parent);
+        }
+      }
       return "";
     };
 
     const getQuestionLoopCount = (q) => {
       if (!q) return 1;
 
-      // 1. Parent relationship
-      const parentId = q.parent_id || q.parentId;
-      if (parentId) {
-        const parent = questions.find(p => p.id === parentId);
-        if (parent) {
-          return getQuestionLoopCount(parent);
+      // Check if it is a loop question (directly or loop group)
+      const loopGroupName = getQuestionLoopGroup(q);
+      const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
+      const isLoopQ = isLoop || !!loopGroupName;
+
+      if (!isLoopQ) {
+        // 1. Parent relationship
+        const parentId = q.parent_id || q.parentId;
+        if (parentId) {
+          const parent = questions.find(p => p.id === parentId);
+          if (parent) {
+            return getQuestionLoopCount(parent);
+          }
         }
       }
 
       // 2. Loop Group relationship
-      const loopGroupName = getQuestionLoopGroup(q);
       if (loopGroupName) {
-        const groupQs = questions.filter(x => getQuestionLoopGroup(x) === loopGroupName);
+        const groupQs = questions.filter(x => x.blok_id === q.blok_id && getQuestionLoopGroup(x) === loopGroupName);
         // Find the master loop question in the group
         const masterQ = groupQs.find(x => {
           if (!x.validation) return false;
@@ -342,12 +1211,28 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       }
 
       // 3. Direct loop configuration
-      const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
       if (isLoop) {
         if (loopByQuestionId) {
-          const triggerValue = values[loopByQuestionId];
+          let triggerValue = values[loopByQuestionId];
+          if (typeof triggerValue === 'string' && triggerValue.trim().startsWith('[')) {
+            try {
+              const arr = JSON.parse(triggerValue);
+              if (Array.isArray(arr)) triggerValue = arr[0];
+            } catch(e) {}
+          }
           const parsedTrigger = parseInt(triggerValue, 10);
-          return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
+          if (!isNaN(parsedTrigger) && parsedTrigger > 0) {
+            return Math.max(0, parsedTrigger);
+          }
+          // Fallback for prelist array mapping
+          try {
+            const val = values[q.id];
+            if (typeof val === 'string' && val.startsWith('[')) {
+              const arr = JSON.parse(val);
+              if (Array.isArray(arr) && arr.length > 0) return arr.length;
+            }
+          } catch (e) { }
+          return 0;
         }
         if (loopType === "manual") {
           const manualCount = getManualLoopCount(q);
@@ -398,6 +1283,14 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
     };
 
     const isQuestionVisibleIgnoreBlock = (q, activeInstanceIdx = null) => {
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => String(p.id) === String(parentId));
+        if (parent && !isQuestionVisibleIgnoreBlock(parent, activeInstanceIdx)) {
+          return false;
+        }
+      }
+
       const resolvedValues = getResolvedValuesForIndex(values, activeInstanceIdx);
       const showIfValue = q.show_if_value || q.showIfValue;
       if (showIfValue) {
@@ -643,7 +1536,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       for (let idx = 0; idx < loopCount; idx++) {
         // Evaluate visibility relative to the loop index/instance!
         if (!isQuestionVisible(q, (loopCount > 1 || manualCount !== null) ? idx : null)) continue;
-        const val = loopCount > 1 ? getLoopValue(q.id, idx) : values[q.id];
+        const rawVal = values[q.id];
+        const val = (loopCount > 1 || (typeof rawVal === 'string' && rawVal.startsWith('['))) 
+          ? getLoopValue(q.id, idx) 
+          : rawVal;
         const block = blocks.find(b => b.id === q.blok_id);
         const blockName = block ? block.kode : "Form";
         const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
@@ -686,6 +1582,55 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
                   errors.push(`[${blockName}] Nilai ${q.label}${suffix} diluar rentang yang diizinkan.`);
                 }
               }
+            }
+          } else if (q.type === 'text' && q.validation) {
+            const trimmed = q.validation.trim();
+            if (trimmed.startsWith('{')) {
+              try {
+                const parsed = JSON.parse(trimmed);
+                const type = parsed.text_validation_type;
+                if (type && type !== 'none') {
+                  let patternValid = true;
+                  if (type === 'nik') {
+                    patternValid = /^\d{16}$/.test(val);
+                  } else if (type === 'digits_only') {
+                    patternValid = /^\d+$/.test(val);
+                  } else if (type === 'letters_only') {
+                    patternValid = /^[a-zA-Z\s]+$/.test(val);
+                  } else if (type === 'alphanumeric') {
+                    patternValid = /^[a-zA-Z0-9\s]+$/.test(val);
+                  } else if (type === 'email') {
+                    patternValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+                  }
+
+                  if (!patternValid) {
+                    let patternMsg = "format tidak valid";
+                    if (type === 'nik') patternMsg = "harus tepat 16 digit angka (Format NIK)";
+                    else if (type === 'digits_only') patternMsg = "harus berupa angka saja";
+                    else if (type === 'letters_only') patternMsg = "harus berupa huruf saja";
+                    else if (type === 'alphanumeric') patternMsg = "harus berupa huruf/angka saja";
+                    else if (type === 'email') patternMsg = "harus berformat email valid";
+                    errors.push(`[${blockName}] Isian ${q.label}${suffix} ${patternMsg}.`);
+                  } else if (type !== 'email') {
+                    if (parsed.text_validation_or_lengths) {
+                      const allowedLengths = parsed.text_validation_or_lengths.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+                      if (allowedLengths.length > 0 && !allowedLengths.includes(val.length)) {
+                        errors.push(`[${blockName}] Isian ${q.label}${suffix} harus memiliki panjang ${allowedLengths.join(' atau ')} karakter.`);
+                      }
+                    } else {
+                      const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
+                      const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
+                      if (val.length < min || val.length > max) {
+                        if (min === max) {
+                          errors.push(`[${blockName}] Isian ${q.label}${suffix} harus tepat ${min} karakter.`);
+                        } else {
+                          errors.push(`[${blockName}] Isian ${q.label}${suffix} harus berukuran ${min} sampai ${max} karakter.`);
+                        }
+                      }
+                    }
+                  }
+                }
+              } catch(e) {}
             }
           }
         } else if (q.required) {
@@ -774,28 +1719,52 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
 
       const res = await api.dokumen.sync(currentUser.id, [payloadDoc]);
       if (res.success) {
-        // Fetch fresh state from server
-        const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
+        // 1. Download latest form structures
+        await downloadFormStructures();
 
-        // Deduplicate sebelum menyimpan
+        // 2. Fetch fresh state and merge with local docs
+        const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
         const dedupedFresh = deduplicateDocs(freshDocs);
+        const localDocs = await getLocalDocs();
+        
+        if (res.syncResults && Array.isArray(res.syncResults)) {
+          res.syncResults.forEach(r => {
+            const idx = localDocs.findIndex(d => d.kode === r.tempKode);
+            if (idx > -1) {
+              const oldKode = localDocs[idx].kode;
+              localDocs[idx].id = r.id;
+              localDocs[idx].kode = r.kode;
+              localDocs[idx].sync = true;
+              if (oldKode && oldKode !== r.kode && offlineDB.isAvailable()) {
+                offlineDB.removeDokumen(oldKode).catch(e => 
+                  console.warn("Gagal hapus dokumen lama di IndexedDB saat sync:", e)
+                );
+              }
+            }
+          });
+        }
+        
+        const finalDocs = mergeServerWithLocalDocs(dedupedFresh, localDocs);
 
         // Hybrid storage: simpan ke localStorage + IndexedDB
         try {
-          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedFresh));
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(finalDocs));
         } catch (e) {
           console.warn('localStorage penuh saat sync:', e.message);
         }
         // Simpan juga ke IndexedDB
-        dedupedFresh.forEach(doc => {
+        for (const doc of finalDocs) {
           try {
-            offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+            await offlineDB.saveDokumen({
+              ...doc,
+              sync_status: doc.sync_status || (doc.sync !== false ? 'synced' : 'pending')
+            });
           } catch (idbErr) {
             console.warn('Gagal simpan ke IndexedDB:', idbErr);
           }
-        });
+        }
 
-        setLocalRtList(dedupedFresh);
+        setLocalRtList(finalDocs);
         showToast("Dokumen berhasil disinkronisasi!", "success");
       } else {
         showAlert("Gagal sinkronisasi: " + res.message, "Gagal Sinkronisasi", "error");
@@ -864,28 +1833,52 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
 
       const res = await api.dokumen.sync(currentUser.id, payloadDocs);
       if (res.success) {
-        // Fetch fresh state from server
-        const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
+        // 1. Download latest form structures
+        await downloadFormStructures();
 
-        // Deduplicate sebelum menyimpan
+        // 2. Fetch fresh state and merge with local docs
+        const freshDocs = await api.dokumen.getByPetugas(currentUser.id);
         const dedupedFresh = deduplicateDocs(freshDocs);
+        const localDocs = await getLocalDocs();
+        
+        if (res.syncResults && Array.isArray(res.syncResults)) {
+          res.syncResults.forEach(r => {
+            const idx = localDocs.findIndex(d => d.kode === r.tempKode);
+            if (idx > -1) {
+              const oldKode = localDocs[idx].kode;
+              localDocs[idx].id = r.id;
+              localDocs[idx].kode = r.kode;
+              localDocs[idx].sync = true;
+              if (oldKode && oldKode !== r.kode && offlineDB.isAvailable()) {
+                offlineDB.removeDokumen(oldKode).catch(e => 
+                  console.warn("Gagal hapus dokumen lama di IndexedDB saat sync all:", e)
+                );
+              }
+            }
+          });
+        }
+        
+        const finalDocs = mergeServerWithLocalDocs(dedupedFresh, localDocs);
 
         // Hybrid storage: simpan ke localStorage + IndexedDB
         try {
-          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(dedupedFresh));
+          localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(finalDocs));
         } catch (e) {
           console.warn('localStorage penuh saat sync all:', e.message);
         }
         // Simpan juga ke IndexedDB
-        dedupedFresh.forEach(doc => {
+        for (const doc of finalDocs) {
           try {
-            offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+            await offlineDB.saveDokumen({
+              ...doc,
+              sync_status: doc.sync_status || (doc.sync !== false ? 'synced' : 'pending')
+            });
           } catch (idbErr) {
             console.warn('Gagal simpan ke IndexedDB:', idbErr);
           }
-        });
+        }
 
-        setLocalRtList(dedupedFresh);
+        setLocalRtList(finalDocs);
         showToast(`Berhasil menyinkronkan ${antriKirim.length} dokumen!`, "success");
       } else {
         showAlert("Gagal sinkronisasi massal: " + res.message, "Gagal Sinkronisasi", "error");
@@ -903,26 +1896,43 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       showToast("Anda sedang offline. Silakan online terlebih dahulu.", "warning");
       return;
     }
+
+    // Cek update aplikasi PWA terlebih dahulu sebelum mengunduh data baru
+    if (window.__checkForAppUpdates) {
+      const updating = await window.__checkForAppUpdates(false);
+      if (updating) return;
+    }
+
     setSyncingAll(true);
     try {
+      // 1. Download latest form structures
+      await downloadFormStructures();
+
+      // 2. Fetch fresh documents and merge with local ones
       const docs = await api.dokumen.getByPetugas(currentUser.id);
+      const dedupedDocs = deduplicateDocs(docs);
+      const localDocs = await getLocalDocs();
+      const finalDocs = mergeServerWithLocalDocs(dedupedDocs, localDocs);
 
       // Hybrid storage: simpan ke localStorage + IndexedDB
       try {
-        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(docs));
+        localStorage.setItem(`offline_docs_${currentUser.id}`, JSON.stringify(finalDocs));
       } catch (e) {
         console.warn('localStorage penuh saat download:', e.message);
       }
       // Simpan juga ke IndexedDB
-      docs.forEach(doc => {
+      for (const doc of finalDocs) {
         try {
-          offlineDB.saveDokumen({ ...doc, sync_status: 'synced' });
+          await offlineDB.saveDokumen({
+            ...doc,
+            sync_status: doc.sync_status || (doc.sync !== false ? 'synced' : 'pending')
+          });
         } catch (idbErr) {
           console.warn('Gagal simpan ke IndexedDB:', idbErr);
         }
-      });
+      }
 
-      setLocalRtList(docs);
+      setLocalRtList(finalDocs);
       showToast("Data berhasil diunduh dari server!", "success");
     } catch (e) {
       console.error("Download error:", e);
@@ -940,7 +1950,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
         <div className="min-h-screen bg-white animate-pulse pb-28">
           <div className="max-w-3xl mx-auto">
             {/* Header Skeleton */}
-            <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex justify-between items-center">
+            <div 
+              className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex justify-between items-center"
+              style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+            >
               <div className="space-y-2">
                 <div className="h-3 w-16 bg-slate-200 rounded"></div>
                 <div className="h-6 w-32 bg-slate-350 rounded"></div>
@@ -1004,7 +2017,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading }) {
       <div className="min-h-screen bg-white slide-up pb-28">
         <div className="max-w-3xl mx-auto">
           {/* Header */}
-          <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+          <div 
+            className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white"
+            style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+          >
             <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
             <div className="flex items-center justify-between relative z-10">
               <div>

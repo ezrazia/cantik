@@ -8,9 +8,7 @@
  * - Production: /api (relative, same-origin via reverse proxy)
  */
 
-const API_BASE = import.meta.env.PROD
-  ? '/api'
-  : 'http://localhost:3001/api';
+const API_BASE = '/api';
 
 // Expose API_BASE for syncQueue module
 export { API_BASE };
@@ -114,7 +112,7 @@ export const api = {
     save: (data) => request('/dokumen', { method: 'POST', body: data }),
     sync: (petugasId, documents) => request('/dokumen/sync', { method: 'POST', body: { petugas_id: petugasId, documents } }),
     backup: (petugasId, documents) => request('/dokumen/backup', { method: 'POST', body: { petugas_id: petugasId, documents } }),
-    review: (id, review_status, notes = '') => request(`/dokumen/review/${id}`, { method: 'POST', body: { review_status, notes } }),
+    review: (id, review_status, notes = '', role = '') => request(`/dokumen/review/${id}`, { method: 'POST', body: { review_status, notes, role } }),
     delete: (id) => request(`/dokumen/${id}`, { method: 'DELETE' }),
     assignMultiple: (dbId, pcls, pmls) => request('/dokumen/assign-multiple', { method: 'POST', body: { dbId, assigned_pcls: pcls, assigned_pmls: pmls } }),
     assignSls: (kegiatanId, sls, pcls, pmls) => request('/dokumen/assign-sls', { method: 'POST', body: { kegiatan_id: kegiatanId, sls, assigned_pcls: pcls, assigned_pmls: pmls } }),

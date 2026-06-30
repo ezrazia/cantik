@@ -23,7 +23,10 @@ function PetugasLayout({ activeTab, onNavigate, children, hideNav = false }) {
     <>
       {children}
       {!hideNav && (
-        <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-100 px-4 pb-5 pt-2 md:pb-3 md:pt-3">
+        <div 
+          className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-100 px-4 pt-2 md:pt-3"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px) * 0.5, 0.75rem)" }}
+        >
           <div className="max-w-lg mx-auto w-full flex justify-around items-center">
             {NAV_ITEMS.map(item => {
               const isActive = item.nav === activeTab;

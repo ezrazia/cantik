@@ -45,7 +45,15 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
   };
 
   const actualVal = getActualValue(value);
-  const selectedOption = options.find(opt => String(opt.value) === String(actualVal));
+  let selectedOption = options.find(opt => String(opt.value) === String(actualVal));
+  if (!selectedOption && actualVal) {
+    const matchedByLabel = options.find(opt => 
+      String(opt.label).toLowerCase() === String(actualVal).toLowerCase()
+    );
+    if (matchedByLabel) {
+      selectedOption = matchedByLabel;
+    }
+  }
 
   const filteredOptions = options.filter(opt =>
     (opt.label || "").toLowerCase().includes(search.toLowerCase()) ||

@@ -2,9 +2,9 @@ import React from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { api } from "../../services/api";
 import { useState, useEffect, useRef } from "react";
-import { 
-  Hash, Eye, Save, Settings, Plus, ChevronDown, List, Type, 
-  Trash2, Upload, Database, FileText, X, Check, GripVertical, 
+import {
+  Hash, Eye, Save, Settings, Plus, ChevronDown, List, Type,
+  Trash2, Upload, Database, FileText, X, Check, GripVertical,
   CornerDownRight, Edit3, Trash, AlertTriangle, ArrowRight, MapPin, Variable,
   StickyNote, Bold, Italic, Calendar, User, Users, Smartphone, Copy, Clock
 } from "lucide-react";
@@ -78,11 +78,11 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
   });
   console.log('[getOrderedQuestionsInBlock] ordered.length:', ordered.length);
   return ordered;
-}function getQuestionCode(q, allQuestions, allBlocks) {
+} function getQuestionCode(q, allQuestions, allBlocks) {
   if (!q) return "";
   // Notes do NOT count in the R-numbering
   if (q.type === 'note') return "";
-  
+
   // Support custom code set in validation JSON
   const valStr = q.validation || q.val;
   if (valStr && valStr.trim().startsWith('{')) {
@@ -91,7 +91,7 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
       if (parsed.custom_code || parsed.customCode) {
         return parsed.custom_code || parsed.customCode;
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   const block = allBlocks.find(b => b.id === q.blokId || b.kode === q.blokId);
@@ -128,17 +128,17 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
     blockIdx = standardBlocks.findIndex(b => (b.id === q.blokId || b.kode === q.blokId)) + 1;
   }
   if (blockIdx === 0) return "";
-  
+
   if (q.parentId) {
     const parent = allQuestions.find(p => p.id === q.parentId);
     if (!parent) return "";
     const parentCode = getQuestionCode(parent, allQuestions, allBlocks);
     if (!parentCode) return "";
-    
+
     // Sibling sub-questions of same parent
     const siblings = allQuestions.filter(s => s.blokId === q.blokId && s.parentId === q.parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
     const sibIdx = siblings.findIndex(s => s.id === q.id);
-    
+
     // Check if the parent itself has a parent (making q a grandchild / level 2 sub-question)
     if (parent.parentId) {
       const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
@@ -151,7 +151,7 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
   } else {
     // Index among main non-note questions of the block
     const mainQs = allQuestions.filter(s => s.blokId === q.blokId && !s.parentId && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-    
+
     let startIndex = 1;
     const firstQ = mainQs[0];
     if (firstQ) {
@@ -163,7 +163,7 @@ function getOrderedQuestionsInBlock(blockId, allQuestions) {
           if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
             startIndex = 0;
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -184,7 +184,7 @@ function renderNoteText(text) {
   if (resolvedText.includes("{{no_bangunan_terakhir}}")) {
     resolvedText = resolvedText.replace(/\{\{no_bangunan_terakhir\}\}/g, "[No. Bangunan Terakhir]");
   }
-  
+
   // Handle generic dynamic tags like {{MAXPCLR101}}, {{MAXALLR101}}, {{MAX_PCL_R101}}
   const tagRegex = /\{\{(MAX|MIN|AVG|SUM|LAST)_?(PCL|ALL)?_?([a-zA-Z0-9.]+)\}\}/gi;
   resolvedText = resolvedText.replace(tagRegex, (match, op, scope, code) => {
@@ -256,7 +256,7 @@ function renderLabelWithVars(label) {
           className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 rounded mx-0.5 align-middle"
           title={`Variabel: merujuk ke jawaban ${part.slice(1)}`}
         >
-          <Variable size={8}/> {part.slice(1)}
+          <Variable size={8} /> {part.slice(1)}
         </span>
       );
     }
@@ -270,7 +270,7 @@ function RuleBuilder({ ruleVal, onChange, label, questions, blocks, currentQuest
       try {
         const obj = JSON.parse(ruleVal);
         if (obj && Array.isArray(obj.conditions)) return obj;
-      } catch (e) {}
+      } catch (e) { }
     }
     // Convert old string format if relevant
     return {
@@ -507,9 +507,9 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           subLabel: parsed.sub_label || "",
           formula: parsed.formula || ""
         };
-      } catch (e) {}
+      } catch (e) { }
     }
-    
+
     if (trimmed.startsWith('range:')) {
       return {
         rangeText: `Rentang: ${trimmed.replace('range:', '').trim()}`,
@@ -550,7 +550,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         subLabel: ""
       };
     }
-    
+
     return {
       rangeText: "",
       hintText: "",
@@ -583,14 +583,37 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
           });
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     return triggerOptions.includes(String(val));
   };
 
   const isEvaluatingPreviewRef = useRef(false);
 
-  const findQuestionByCode = (codeStr) => {
+  const isQuestionInLoop = (q) => {
+    if (!q) return false;
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent && isQuestionInLoop(parent)) {
+        return true;
+      }
+    }
+    const qValStr = q.val || q.validation;
+    if (qValStr) {
+      try {
+        const parsed = JSON.parse(qValStr);
+        if (parsed) {
+          if (parsed.is_loop || parsed.isLoop || parsed.loop_group || parsed.loop_by_question_id || parsed.loopByQuestionId) {
+            return true;
+          }
+        }
+      } catch (e) { }
+    }
+    return false;
+  };
+
+  function findQuestionByCode(codeStr) {
     if (!codeStr) return null;
     const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
     return questions.find(q => {
@@ -598,12 +621,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       const normalizedQCode = qCode.toLowerCase().replace(/\s/g, "");
       return normalizedQCode === normalizedCode;
     });
-  };
+  }
 
-  const evaluatePreviewFormula = (formulaStr, currentValues) => {
+  const evaluatePreviewFormula = (formulaStr, currentValues, idx = null) => {
     if (!formulaStr) return "";
     let evalStr = formulaStr;
-    
+
     const extractNumbers = (raw) => {
       if (raw === undefined || raw === null || raw === "") return [];
       try {
@@ -612,7 +635,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           return parsed.map(x => {
             if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
             if (typeof x === 'string' && x.startsWith('{')) {
-              try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch(e){}
+              try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
             }
             return parseFloat(x);
           }).filter(x => !isNaN(x));
@@ -636,7 +659,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         targetQ.label.toLowerCase().includes('no. urut') ||
         targetQ.label.toLowerCase().includes('nomor urut') ||
         targetQ.label.toLowerCase().includes('no urut')
-      );
+      ) && isQuestionInLoop(targetQ);
 
       if (!raw) {
         return isSerialNumber ? String(idx + 1) : "";
@@ -659,13 +682,51 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           }
           return val !== undefined && val !== null ? val : "";
         }
-      } catch (e) {}
+      } catch (e) { }
       if (isSerialNumber && idx > 0) {
         return String(idx + 1);
       }
       return idx === 0 ? raw : "";
     };
 
+    // 1. Handle AGE function (e.g. AGE(R410))
+    const ageRegex = /AGE\((R[0-9a-zA-Z.]+)\)/gi;
+    evalStr = evalStr.replace(ageRegex, (match, code) => {
+      const targetQ = findQuestionByCode(code);
+      if (!targetQ) return "0";
+
+      let birthDateStr = "";
+      if (idx !== null) {
+        birthDateStr = getLoopValueFromValues(targetQ.id, idx);
+      } else {
+        birthDateStr = currentValues[targetQ.id] || "";
+      }
+
+      if (!birthDateStr) return "0";
+
+      if (birthDateStr.trim().startsWith('{') || birthDateStr.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(birthDateStr);
+          if (Array.isArray(parsed)) {
+            birthDateStr = parsed[0] || "";
+          } else if (parsed && parsed.value) {
+            birthDateStr = parsed.value;
+          }
+        } catch (e) { }
+      }
+
+      const birthDate = new Date(birthDateStr);
+      if (isNaN(birthDate.getTime())) return "0";
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return String(age >= 0 ? age : 0);
+    });
+
+    // 2. Handle aggregation functions on loop/array values: e.g. MAX(R401)
     const funcRegex = /(MAX|MIN|SUM|AVG|COUNT)\((R[0-9a-zA-Z.]+)\)/gi;
     evalStr = evalStr.replace(funcRegex, (match, op, code) => {
       const targetQ = findQuestionByCode(code);
@@ -678,8 +739,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       if (isTargetLoop) {
         const loopCount = getQuestionLoopCount(targetQ);
         if (loopCount > 0) {
-          for (let idx = 0; idx < loopCount; idx++) {
-            const val = getLoopValueFromValues(targetQ.id, idx);
+          for (let i = 0; i < loopCount; i++) {
+            const val = getLoopValueFromValues(targetQ.id, i);
             const num = parseFloat(val);
             if (!isNaN(num)) {
               numbers.push(num);
@@ -698,13 +759,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               const valStr = x.val || x.validation;
               if (!valStr) return false;
               try { const p = JSON.parse(valStr); return p && p.loop_group === vParsed.loop_group; }
-              catch(e) { return false; }
+              catch (e) { return false; }
             });
             groupQs.forEach(gq => {
               numbers = numbers.concat(extractNumbers(currentValues[gq.id]));
             });
           }
-        } catch(e) {}
+        } catch (e) { }
       }
 
       if (numbers.length === 0) return "0";
@@ -720,11 +781,16 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
     const codeRegex = /R[0-9a-zA-Z.]+/g;
     const codes = evalStr.match(codeRegex) || [];
-    
+
     for (const code of codes) {
       const targetQ = findQuestionByCode(code);
       if (targetQ) {
-        const val = currentValues[targetQ.id] || "0";
+        let val = "";
+        if (idx !== null) {
+          val = getLoopValueFromValues(targetQ.id, idx);
+        } else {
+          val = currentValues[targetQ.id] || "0";
+        }
         let valNum = parseFloat(val);
         if (isNaN(valNum)) {
           try {
@@ -732,11 +798,16 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             if (Array.isArray(parsed)) {
               const numbers = parsed.map(x => {
                 if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+                if (typeof x === 'string' && x.startsWith('{')) {
+                  try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
+                }
                 return parseFloat(x);
               }).filter(x => !isNaN(x));
               valNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+            } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+              valNum = parseFloat(parsed.value);
             }
-          } catch(e) {
+          } catch (e) {
             valNum = 0;
           }
         }
@@ -745,7 +816,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         evalStr = evalStr.replace(new RegExp(code, 'g'), "0");
       }
     }
-    
+
     try {
       const result = new Function(`return (${evalStr})`)();
       return isNaN(result) ? "0" : String(result);
@@ -772,10 +843,24 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     formulaQs.forEach(q => {
       const qVal = parseValidation(q.val || q.validation);
       if (qVal && qVal.formula) {
-        const computedVal = evaluatePreviewFormula(qVal.formula, newValues);
-        if (newValues[q.id] !== computedVal) {
-          newValues[q.id] = computedVal;
-          updated = true;
+        const isLoop = qVal.isLoop || !!q.parent_id || !!q.parentId || !!qVal.loop_group;
+        if (isLoop) {
+          const loopCount = getQuestionLoopCount(q);
+          const computedArray = [];
+          for (let idx = 0; idx < loopCount; idx++) {
+            computedArray.push(evaluatePreviewFormula(qVal.formula, newValues, idx));
+          }
+          const computedStr = JSON.stringify(computedArray);
+          if (newValues[q.id] !== computedStr) {
+            newValues[q.id] = computedStr;
+            updated = true;
+          }
+        } else {
+          const computedVal = evaluatePreviewFormula(qVal.formula, newValues);
+          if (newValues[q.id] !== computedVal) {
+            newValues[q.id] = computedVal;
+            updated = true;
+          }
         }
       }
     });
@@ -784,7 +869,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       setPreviewAnswers(newValues);
     }
     isEvaluatingPreviewRef.current = false;
-  }, [previewAnswers, showPreview, questions]);
+  }, [previewAnswers, showPreview, questions, getQuestionLoopCount]);
 
   const evaluateCondition = (c, values) => {
     const val = values[c.question_id];
@@ -797,7 +882,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           if (parsed && 'value' in parsed) {
             actualVal = parsed.value;
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       const numericVal = parseFloat(actualVal);
       const targetVal = parseFloat(c.value);
@@ -815,7 +900,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     return checkOptionTrigger(val, triggerOptions);
   };
 
-  const getManualLoopCount = (q) => {
+  function getManualLoopCount(q) {
     if (!q) return null;
     let loopGroupName = "";
     const qValStr = q.val || q.validation;
@@ -825,11 +910,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         if (parsed && parsed.loop_group) {
           loopGroupName = parsed.loop_group;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (loopGroupName) {
       const groupQs = questions.filter(x => {
+        if (x.blok_id !== q.blok_id) return false;
         const v = x.val || x.validation;
         if (!v) return false;
         try {
@@ -880,7 +966,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 maxFilledCount = filledCount;
               }
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
       return Math.max(maxArrayLength, maxFilledCount, 1);
@@ -908,7 +994,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               return parsed.length;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       return 1;
     }
@@ -921,17 +1007,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       }
     }
     return null;
-  };
+  }
 
-  const getQuestionLoopCount = (q) => {
+  function getQuestionLoopCount(q) {
     if (!q) return 1;
-    const parentId = q.parent_id || q.parentId;
-    if (parentId) {
-      const parent = questions.find(p => p.id === parentId);
-      if (parent) {
-        return getQuestionLoopCount(parent);
-      }
-    }
 
     let loopGroupName = "";
     const qValStr = q.val || q.validation;
@@ -941,11 +1020,25 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         if (parsed && parsed.loop_group) {
           loopGroupName = parsed.loop_group;
         }
-      } catch (e) {}
+      } catch (e) { }
+    }
+
+    const { isLoop, loopType, loopByQuestionId } = parseValidation(q.val || q.validation);
+    const isLoopQ = isLoop || !!loopGroupName;
+
+    if (!isLoopQ) {
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (parent) {
+          return getQuestionLoopCount(parent);
+        }
+      }
     }
 
     if (loopGroupName) {
       const groupQs = questions.filter(x => {
+        if (x.blok_id !== q.blok_id) return false;
         const v = x.val || x.validation;
         if (!v) return false;
         try {
@@ -971,10 +1064,15 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       }
     }
 
-    const { isLoop, loopType, loopByQuestionId } = parseValidation(q.val || q.validation);
     if (isLoop) {
       if (loopByQuestionId) {
-        const triggerValue = previewAnswers[loopByQuestionId];
+        let triggerValue = previewAnswers[loopByQuestionId];
+        if (typeof triggerValue === 'string' && triggerValue.trim().startsWith('[')) {
+          try {
+            const arr = JSON.parse(triggerValue);
+            if (Array.isArray(arr)) triggerValue = arr[0];
+          } catch(e) {}
+        }
         const parsedTrigger = parseInt(triggerValue, 10);
         return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
       }
@@ -984,7 +1082,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       }
     }
     return 1;
-  };
+  }
 
   const getLoopValue = (qId, idx) => {
     const raw = previewAnswers[qId];
@@ -993,7 +1091,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       q.label.toLowerCase().includes('no. urut') ||
       q.label.toLowerCase().includes('nomor urut') ||
       q.label.toLowerCase().includes('no urut')
-    );
+    ) && isQuestionInLoop(q);
 
     if (!raw) {
       return isSerialNumber ? String(idx + 1) : "";
@@ -1016,7 +1114,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         }
         return val !== undefined && val !== null ? val : "";
       }
-    } catch (e) {}
+    } catch (e) { }
     if (isSerialNumber && idx > 0) {
       return String(idx + 1);
     }
@@ -1058,7 +1156,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           if (parsed && parsed.loop_group) {
             loopGroupName = parsed.loop_group;
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (loopGroupName) {
@@ -1118,7 +1216,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           if (parsed && parsed.loop_group) {
             loopGroupName = parsed.loop_group;
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       if (loopGroupName) {
@@ -1152,7 +1250,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             }
             updatedValues[id] = JSON.stringify(parsed);
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
     setPreviewAnswers(updatedValues);
@@ -1161,14 +1259,14 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const handleValueChange = (q, val, idx = 0, instancesLength = 1) => {
     setPreviewAnswers(prev => {
       const newValues = { ...prev };
-      
+
       const qValStr = q.val || q.validation;
       let isTargetLoop = false;
       if (qValStr && qValStr.trim().startsWith('{')) {
         try {
           const parsed = JSON.parse(qValStr);
           isTargetLoop = !!parsed.is_loop || !!parsed.loop_group;
-        } catch (e) {}
+        } catch (e) { }
       }
       const parentId = q.parent_id || q.parentId;
       if (parentId) {
@@ -1180,7 +1278,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             try {
               const parsed = JSON.parse(pValStr);
               if (parsed.is_loop || parsed.loop_group) return true;
-            } catch (e) {}
+            } catch (e) { }
           }
           const nextParentId = parent.parent_id || parent.parentId;
           return nextParentId ? checkParentLoop(nextParentId) : false;
@@ -1217,8 +1315,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     const qValStr = q.val || q.validation;
     try {
       qVal = JSON.parse(qValStr || "{}");
-    } catch(e) {}
-    
+    } catch (e) { }
+
     if (qVal && qVal.options_source_question_id) {
       const sourceQId = qVal.options_source_question_id;
       const val = previewAnswers[sourceQId];
@@ -1231,12 +1329,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               label: `${idx + 1}. ${name}`
             })).filter(o => o.label && o.label.trim() !== "");
           }
-        } catch(e) {}
+        } catch (e) { }
         return [{ value: "1", label: `1. ${val}` }];
       }
       return [];
     }
-    
+
     let rawOpts = [];
     if (q.options) {
       if (Array.isArray(q.options)) {
@@ -1328,7 +1426,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
           matchesShowIf = operator === "OR" ? results.some(r => r) : results.every(r => r);
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (isJson) {
         if (!matchesShowIf) {
@@ -1447,7 +1545,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     const parsed = JSON.parse(val);
                     selectedVal = String(parsed.value);
                     otherText = parsed.text || "";
-                  } catch (e) {}
+                  } catch (e) { }
                 } else {
                   selectedVal = String(val);
                 }
@@ -1502,7 +1600,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               return (
                 <div key={idx} className="space-y-1">
                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                  <input 
+                  <input
                     type="text"
                     value={val}
                     disabled={true}
@@ -1521,7 +1619,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               return (
                 <div key={idx} className="space-y-1">
                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                  <input 
+                  <input
                     type="text"
                     value={val}
                     disabled={true}
@@ -1540,7 +1638,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               return (
                 <div key={idx} className="space-y-1">
                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                  <input 
+                  <input
                     type="text"
                     value={val}
                     placeholder={`Isi ${q.label}${instances.length > 1 ? ` ke-${idx + 1}` : ""}`}
@@ -1581,7 +1679,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           </button>
                         )}
                         <div className="flex-1 flex items-center justify-between bg-white border border-solid border-slate-200 rounded-xl px-4 py-2.5 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all">
-                          <input 
+                          <input
                             type="text"
                             value={val}
                             placeholder={isFormula ? "Kalkulasi otomatis..." : "Masukkan angka..."}
@@ -1648,7 +1746,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       try {
                         const val = getLoopValue(q.id, idx);
                         selectedMap = JSON.parse(val || "{}");
-                      } catch (e) {}
+                      } catch (e) { }
                       isSelected = !!selectedMap[opt.value];
                     } else {
                       const val = getLoopValue(q.id, idx);
@@ -1656,23 +1754,23 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         try {
                           const parsed = JSON.parse(val);
                           isSelected = String(parsed.value) === String(opt.value);
-                        } catch (e) {}
+                        } catch (e) { }
                       } else {
                         isSelected = String(val) === String(opt.value);
                       }
                     }
 
                     return (
-                      <button 
-                        key={opt.value} 
-                        type="button" 
+                      <button
+                        key={opt.value}
+                        type="button"
                         onClick={() => {
                           if (q.type === 'select') {
                             let selectedMap = {};
                             try {
                               const val = getLoopValue(q.id, idx);
                               selectedMap = JSON.parse(val || "{}");
-                            } catch (e) {}
+                            } catch (e) { }
                             if (selectedMap[opt.value]) {
                               delete selectedMap[opt.value];
                             } else {
@@ -1681,27 +1779,25 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             const valStr = JSON.stringify(selectedMap);
                             handleValueChange(q, valStr, idx, instances.length);
                           } else {
-                            const val = opt.is_other 
+                            const val = opt.is_other
                               ? JSON.stringify({ value: opt.value, text: "" })
                               : opt.value;
                             handleValueChange(q, val, idx, instances.length);
                           }
                         }}
-                        className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left cursor-pointer ${
-                          isSelected 
-                            ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
+                        className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left cursor-pointer ${isSelected
+                            ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
                             : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
-                        }`}
+                          }`}
                       >
-                        <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${
-                          q.type === 'select'
+                        <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${q.type === 'select'
                             ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
                             : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
-                        }`}>
+                          }`}>
                           {isSelected && (
                             q.type === 'select'
                               ? <Check size={10} className="text-white stroke-[3px]" />
-                              : <div className="w-2 h-2 rounded-full bg-blue-600"/>
+                              : <div className="w-2 h-2 rounded-full bg-blue-600" />
                           )}
                         </div>
                         {opt.value}. {opt.label}
@@ -1716,7 +1812,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     let selectedMap = {};
                     try {
                       selectedMap = JSON.parse(val || "{}");
-                    } catch (e) {}
+                    } catch (e) { }
                     const otherOpts = resolveDynamicOptions(q).filter(o => o.is_other && selectedMap[o.value] !== undefined);
                     if (otherOpts.length === 0) return null;
                     return (
@@ -1729,8 +1825,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               value={selectedMap[opt.value] === 1 || selectedMap[opt.value] === '1' ? "" : (selectedMap[opt.value] || "")}
                               placeholder="Sebutkan..."
                               onChange={(e) => {
-                                  selectedMap[opt.value] = e.target.value;
-                                  handleValueChange(q, JSON.stringify(selectedMap), idx, instances.length);
+                                selectedMap[opt.value] = e.target.value;
+                                handleValueChange(q, JSON.stringify(selectedMap), idx, instances.length);
                               }}
                               className="w-full px-4 py-2.5 text-xs bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800"
                             />
@@ -1749,7 +1845,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           const parsed = JSON.parse(val);
                           selectedVal = String(parsed.value);
                           otherText = parsed.text || "";
-                        } catch (e) {}
+                        } catch (e) { }
                       } else {
                         selectedVal = String(val);
                       }
@@ -1790,7 +1886,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
                 <div className="flex flex-col gap-3">
                   <div className="flex gap-2">
-                    <input 
+                    <input
                       type="text"
                       value={getLoopValue(q.id, idx)}
                       placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
@@ -1825,7 +1921,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   const parsed = JSON.parse(valStr);
                   dateType = parsed.date_type || "date";
                   isAutoNow = !!parsed.auto_now;
-                } catch (e) {}
+                } catch (e) { }
               }
 
               const handleAutoNowClick = () => {
@@ -1849,7 +1945,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 <div key={idx} className="space-y-1">
                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
                   <div className="flex flex-col sm:flex-row gap-2">
-                    <input 
+                    <input
                       type={dateType}
                       value={getLoopValue(q.id, idx)}
                       onChange={(e) => {
@@ -1906,19 +2002,19 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     if (hasChildren && parentMode === "empty") {
       return (
         <div key={q.id} className="space-y-4 w-full animate-fade-in">
-          {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth, forceCard, activeInstanceIdx))}
+          {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth, forceCard, activeInstanceIdx))}
         </div>
       );
     }
 
     if (depth === 0 || forceCard) {
       return (
-        <QCard 
-          key={q.id} 
-          r={qCode} 
-          label={resolveLabelText(q.label, activeInstanceIdx)} 
+        <QCard
+          key={q.id}
+          r={qCode}
+          label={resolveLabelText(q.label, activeInstanceIdx)}
           subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
-          required={!!q.req} 
+          required={!!q.req}
           description={description}
         >
           {hasChildren ? (
@@ -1938,7 +2034,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         </span>
                       </div>
                       <div className="space-y-4">
-                        {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, idx))}
+                        {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, idx))}
                       </div>
                     </div>
                   ))}
@@ -1946,7 +2042,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               )}
               {isLoop && activeInstanceIdx !== null && (
                 <div className="space-y-4 mt-4">
-                  {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                  {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                 </div>
               )}
             </div>
@@ -2003,7 +2099,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   </div>
                 )}
                 <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
-                  {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                  {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderPreviewQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                 </div>
               </div>
             ) : (
@@ -2153,7 +2249,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               if (parsed.is_search) {
                 typeVal = 'search';
               }
-            } catch (e) {}
+            } catch (e) { }
           }
           // Debug: Log validation for loop/group questions
           if (q.validation && q.validation.includes('is_loop')) {
@@ -2217,25 +2313,25 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     const container = listContainerRef.current;
     if (!container) return;
     const containerRect = container.getBoundingClientRect();
-    
+
     const newArrows = [];
     const blockQs = getOrderedQuestionsInBlock(activeBlok, questions);
-    
+
     blockQs.forEach(q => {
       if (q.skipTarget) {
         const sourceEl = document.getElementById(`q-card-${q.id}`);
         const targetEl = document.getElementById(`q-card-${q.skipTarget}`);
-        
+
         if (sourceEl && targetEl) {
           const sourceRect = sourceEl.getBoundingClientRect();
           const targetRect = targetEl.getBoundingClientRect();
-          
+
           const startX = sourceRect.right - containerRect.left;
           const startY = (sourceRect.top + sourceRect.bottom) / 2 - containerRect.top;
-          
+
           const endX = targetRect.right - containerRect.left;
           const endY = (targetRect.top + targetRect.bottom) / 2 - containerRect.top;
-          
+
           newArrows.push({
             id: q.id,
             x1: startX,
@@ -2264,7 +2360,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     if (!newBlockTitle.trim() || !activeActivity) return;
     try {
       const activeIdx = blocks.findIndex(b => b.id === activeBlok);
-      
+
       let nextSortOrder = blocks.length;
       if (newBlockPosition === "start") {
         nextSortOrder = blocks.length > 0 ? (blocks[0].sort_order || 0) - 1 : 0;
@@ -2284,7 +2380,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         kode = `Blok ${nextRoman}`;
         title = newBlockTitle.trim();
       }
-      
+
       await api.form.createBlock({
         kegiatan_id: activeActivity.id,
         kode: kode,
@@ -2345,7 +2441,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   const handleUpdateBlockHideLogic = async (hideLogic) => {
     const block = blocks.find(b => b.id === activeBlok);
     if (!block) return;
-    
+
     // Update local state first
     setProjectData(prev => {
       const current = prev[selectedProject] || { blocks: [], questions: [] };
@@ -2550,7 +2646,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
         if (freshQuestion.val && freshQuestion.val.trim().startsWith('{')) {
           parsed = JSON.parse(freshQuestion.val);
         }
-      } catch (e) {}
+      } catch (e) { }
       parsed.is_search = true;
       finalVal = JSON.stringify(parsed);
     } else {
@@ -2847,7 +2943,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
       await fetchFormStructure();
       setIsSuccess(true);
-      
+
       setTimeout(() => {
         setIsUploadModalOpen(false);
         setUploadedFile(null);
@@ -3050,7 +3146,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             });
             return JSON.stringify(parsed);
           }
-        } catch (e) {}
+        } catch (e) { }
         return jsonStr;
       };
 
@@ -3104,8 +3200,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       const needsPass3 = sourceQs.filter(srcQ => {
         // Skip if already handled in Pass 2
         if ((srcQ.skipTarget && idMap[srcQ.skipTarget]) ||
-            (srcQ.showIfParentId && idMap[srcQ.showIfParentId]) ||
-            srcQ.skip) {
+          (srcQ.showIfParentId && idMap[srcQ.showIfParentId]) ||
+          srcQ.skip) {
           return false;
         }
         // Need Pass 3 if source had a parent that exists in idMap
@@ -3251,7 +3347,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
   return (
     <AdminLayout tab="admin-builder" onNavigate={onNavigate} selectedProject={selectedProject} onProjectChange={onProjectChange} activities={activities}>
       <div className="p-6 lg:p-8 w-full slide-up lg:h-[calc(100vh-72px)] lg:flex lg:flex-col lg:overflow-hidden">
-        
+
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
           <div>
@@ -3272,23 +3368,22 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={handleOpenPreview}
               className="flex items-center gap-2 px-4 py-2.5 text-xs font-medium bg-white border border-slate-200 rounded-xl text-slate-500 cursor-pointer hover:bg-slate-50 transition-all"
             >
-              <Eye size={14}/> Preview
+              <Eye size={14} /> Preview
             </button>
-            <button 
+            <button
               onClick={() => alert("Perubahan kuesioner berhasil disinkronkan. Sistem selalu menyimpan perubahan Anda secara otomatis ke database!")}
               disabled={!canEdit}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl border-0 transition-all ${
-                canEdit 
-                  ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-[0.98]" 
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl border-0 transition-all ${canEdit
+                  ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-[0.98]"
                   : "bg-slate-100 text-slate-400 cursor-not-allowed"
-              }`}
+                }`}
               title={!canEdit ? "Kuesioner hanya dapat diedit ketika berstatus Draft atau Published" : "Simpan kuesioner"}
             >
-              <Save size={14}/> Simpan
+              <Save size={14} /> Simpan
             </button>
           </div>
         </div>
@@ -3300,7 +3395,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               <div className="px-4 py-3 border-b border-slate-50 flex items-center justify-between">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Struktur Blok</h3>
                 {canEdit && (
-                  <button 
+                  <button
                     onClick={() => {
                       setNewBlockTitle("");
                       setShowAddBlock(true);
@@ -3308,7 +3403,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     className="p-1 hover:bg-blue-50 text-blue-600 rounded border-0 bg-transparent cursor-pointer transition-all"
                     title="Tambah Blok Baru"
                   >
-                    <Plus size={14}/>
+                    <Plus size={14} />
                   </button>
                 )}
               </div>
@@ -3320,21 +3415,21 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Tipe Blok</label>
                     <div className="flex gap-3">
                       <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 cursor-pointer">
-                        <input 
-                          type="radio" 
-                          name="newBlockType" 
-                          checked={newBlockType === "standard"} 
-                          onChange={() => setNewBlockType("standard")} 
+                        <input
+                          type="radio"
+                          name="newBlockType"
+                          checked={newBlockType === "standard"}
+                          onChange={() => setNewBlockType("standard")}
                           className="accent-blue-600"
                         />
                         Berpenomoran
                       </label>
                       <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 cursor-pointer">
-                        <input 
-                          type="radio" 
-                          name="newBlockType" 
-                          checked={newBlockType === "text"} 
-                          onChange={() => setNewBlockType("text")} 
+                        <input
+                          type="radio"
+                          name="newBlockType"
+                          checked={newBlockType === "text"}
+                          onChange={() => setNewBlockType("text")}
                           className="accent-blue-600"
                         />
                         Teks Saja
@@ -3370,13 +3465,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   </div>
 
                   <div className="flex gap-1.5 justify-end">
-                    <button 
-                      onClick={() => setShowAddBlock(false)} 
+                    <button
+                      onClick={() => setShowAddBlock(false)}
                       className="px-2.5 py-1 text-[10px] font-medium text-slate-400 bg-transparent border-0 cursor-pointer hover:bg-slate-100 rounded"
                     >
                       Batal
                     </button>
-                    <button 
+                    <button
                       onClick={() => setIsConfirmAddBlockOpen(true)}
                       disabled={!newBlockTitle.trim()}
                       className="px-2.5 py-1 text-[10px] font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 border-0 cursor-pointer rounded"
@@ -3394,17 +3489,16 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   const isCurrent = activeBlok === b.id;
                   const blockQuestionCount = questions.filter(q => q.blokId === b.id).length;
                   return (
-                    <div 
-                      key={b.id} 
+                    <div
+                      key={b.id}
                       onClick={() => {
                         if (!isEditing) {
                           setActiveBlok(b.id);
                           setSelectedId(null);
                         }
                       }}
-                      className={`group flex items-center justify-between px-4 py-3 cursor-pointer transition-all ${
-                        isCurrent ? "bg-blue-50/40 border-r-2 border-blue-600" : "bg-transparent hover:bg-slate-50/50"
-                      }`}
+                      className={`group flex items-center justify-between px-4 py-3 cursor-pointer transition-all ${isCurrent ? "bg-blue-50/40 border-r-2 border-blue-600" : "bg-transparent hover:bg-slate-50/50"
+                        }`}
                     >
                       <div className="flex-1 min-w-0 pr-2">
                         <p className={`font-bold text-xs ${isCurrent ? 'text-blue-600' : 'text-slate-800'}`}>{b.id}</p>
@@ -3417,10 +3511,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               className="px-2 py-0.5 text-[11px] bg-white border border-slate-200 rounded outline-none focus:border-blue-500 font-medium text-slate-700 flex-1"
                             />
                             <button onClick={handleSaveEditBlock} className="p-1 hover:bg-emerald-50 text-emerald-600 border-0 bg-transparent cursor-pointer rounded">
-                              <Check size={12}/>
+                              <Check size={12} />
                             </button>
                             <button onClick={() => setEditingBlockId(null)} className="p-1 hover:bg-red-50 text-red-500 border-0 bg-transparent cursor-pointer rounded">
-                              <X size={12}/>
+                              <X size={12} />
                             </button>
                           </div>
                         ) : (
@@ -3429,24 +3523,24 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           )
                         )}
                       </div>
-                      
+
                       <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
                         {canEdit && !isEditing && (
                           <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity duration-150">
-                            <button 
-                              onClick={(e) => handleStartEditBlock(b, e)} 
+                            <button
+                              onClick={(e) => handleStartEditBlock(b, e)}
                               className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 border-0 bg-transparent cursor-pointer rounded"
                               title="Edit Deskripsi Blok"
                             >
-                              <Edit3 size={11}/>
+                              <Edit3 size={11} />
                             </button>
                             {blocks.length > 1 && (
-                              <button 
-                                onClick={() => setBlockToDelete(b)} 
+                              <button
+                                onClick={() => setBlockToDelete(b)}
                                 className="p-1 hover:bg-red-50 text-red-400 hover:text-red-600 border-0 bg-transparent cursor-pointer rounded"
                                 title="Hapus Blok"
                               >
-                                <Trash2 size={11}/>
+                                <Trash2 size={11} />
                               </button>
                             )}
                           </div>
@@ -3459,14 +3553,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             className="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-bold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded cursor-pointer transition-all"
                             title={`Paste pertanyaan ${copiedBlockId} ke ${b.id}`}
                           >
-                            <Copy size={9}/> Paste
+                            <Copy size={9} /> Paste
                           </button>
                         )}
 
                         {!isEditing && (
-                          <span className={`mono text-[10px] px-2 py-0.5 rounded-md font-medium ${
-                            isCurrent ? 'bg-blue-100 text-blue-600' : 'bg-slate-50 text-slate-400'
-                          }`}>{blockQuestionCount}</span>
+                          <span className={`mono text-[10px] px-2 py-0.5 rounded-md font-medium ${isCurrent ? 'bg-blue-100 text-blue-600' : 'bg-slate-50 text-slate-400'
+                            }`}>{blockQuestionCount}</span>
                         )}
                       </div>
                     </div>
@@ -3480,7 +3573,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   className="px-3 py-2.5 bg-violet-50 border-t border-violet-100 flex items-center gap-2"
                   style={{ animation: 'slideDown 0.15s ease' }}
                 >
-                  <Copy size={11} className="text-violet-500 flex-shrink-0"/>
+                  <Copy size={11} className="text-violet-500 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[10px] font-bold text-violet-700 leading-tight">Mode Paste Aktif</p>
                     <p className="text-[9px] text-violet-400 truncate">{copiedBlockId} disalin</p>
@@ -3490,7 +3583,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     className="flex items-center gap-0.5 px-2 py-1 text-[9px] font-bold text-violet-600 hover:text-red-600 hover:bg-red-50 border border-violet-200 hover:border-red-200 rounded transition-all border-solid bg-white cursor-pointer flex-shrink-0"
                     title="Batalkan mode paste"
                   >
-                    <X size={9}/> Batalkan
+                    <X size={9} /> Batalkan
                   </button>
                 </div>
               )}
@@ -3508,9 +3601,9 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     onClick={() => setShowBlockMenu(!showBlockMenu)}
                     className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-650 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg cursor-pointer transition-all shadow-sm"
                   >
-                    <Settings size={13} className="text-slate-400"/>
+                    <Settings size={13} className="text-slate-400" />
                     <span>Menu Blok</span>
-                    <ChevronDown size={11} className={`transition-transform duration-200 ${showBlockMenu ? 'rotate-180' : ''}`}/>
+                    <ChevronDown size={11} className={`transition-transform duration-200 ${showBlockMenu ? 'rotate-180' : ''}`} />
                   </button>
                   {showBlockMenu && (
                     <>
@@ -3521,49 +3614,48 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           onClick={() => { setSelectedId(null); setShowBlockMenu(false); }}
                           className={`w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium hover:bg-slate-50 border-0 bg-transparent cursor-pointer ${selectedId === null ? 'text-blue-600 font-semibold bg-blue-50/30' : 'text-slate-700'}`}
                         >
-                          <Settings size={13} className="text-slate-400"/>
+                          <Settings size={13} className="text-slate-400" />
                           <span>Properti Blok</span>
                         </button>
                         {/* ── Copy Block Questions ─────────────────────────────── */}
-                        <button 
+                        <button
                           type="button"
                           disabled={!canEdit}
                           onClick={copiedBlockId === activeBlok ? () => { setCopiedBlockId(null); setShowBlockMenu(false); } : handleCopyBlock}
-                          className={`w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium border-0 bg-transparent cursor-pointer ${
-                            copiedBlockId === activeBlok
+                          className={`w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium border-0 bg-transparent cursor-pointer ${copiedBlockId === activeBlok
                               ? 'hover:bg-red-50 text-red-600 disabled:opacity-40'
                               : 'hover:bg-violet-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent'
-                          }`}
+                            }`}
                         >
                           {copiedBlockId === activeBlok ? (
                             <>
-                              <X size={13} className="text-red-400"/>
+                              <X size={13} className="text-red-400" />
                               <span className="font-semibold">Batalkan Salinan</span>
                             </>
                           ) : (
                             <>
-                              <Copy size={13} className="text-slate-400"/>
+                              <Copy size={13} className="text-slate-400" />
                               <span>Salin Pertanyaan Blok Ini</span>
                             </>
                           )}
                         </button>
-                        <div className="my-1 border-t border-slate-50"/>
-                        <button 
+                        <div className="my-1 border-t border-slate-50" />
+                        <button
                           type="button"
                           disabled={!canEdit}
                           onClick={() => { setIsCopyModalOpen(true); setShowBlockMenu(false); }}
                           className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent border-0 bg-transparent cursor-pointer"
                         >
-                          <Copy size={13} className="text-slate-400"/>
+                          <Copy size={13} className="text-slate-400" />
                           <span>Salin Kuesioner (Antar Kegiatan)</span>
                         </button>
-                        <button 
+                        <button
                           type="button"
                           disabled={!canEdit}
                           onClick={() => { setIsUploadModalOpen(true); setShowBlockMenu(false); }}
                           className="w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent border-0 bg-transparent cursor-pointer"
                         >
-                          <Upload size={13} className="text-slate-400"/>
+                          <Upload size={13} className="text-slate-400" />
                           <span>Impor Excel</span>
                         </button>
                       </div>
@@ -3574,27 +3666,25 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 <button
                   disabled={!canEdit}
                   onClick={handleAddNote}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${
-                    canEdit
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${canEdit
                       ? "text-amber-700 bg-amber-50 hover:bg-amber-100 cursor-pointer"
                       : "bg-slate-50 text-slate-300 cursor-not-allowed"
-                  }`}
+                    }`}
                   title={!canEdit ? "Catatan dinonaktifkan untuk kegiatan published" : "Tambah catatan/instruksi di antara pertanyaan"}
                 >
-                  <StickyNote size={13}/>
+                  <StickyNote size={13} />
                   <span>+ Catatan</span>
                 </button>
-                <button 
+                <button
                   disabled={!canEdit}
                   onClick={() => { setInsertMode('after_selected'); setShowAdd(!showAdd); }}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${
-                    canEdit 
-                      ? "text-blue-600 bg-blue-50 hover:bg-blue-100 cursor-pointer" 
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${canEdit
+                      ? "text-blue-600 bg-blue-50 hover:bg-blue-100 cursor-pointer"
                       : "bg-slate-50 text-slate-300 cursor-not-allowed"
-                  }`}
+                    }`}
                   title={!canEdit ? "Tambah dinonaktifkan untuk kegiatan published" : "Tambah rincian secara manual"}
                 >
-                  <Plus size={13}/>
+                  <Plus size={13} />
                   <span>Tambah</span>
                 </button>
               </div>
@@ -3602,7 +3692,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
             {/* Questions Container with relation lines */}
             <div className="relative lg:flex-1 lg:overflow-y-auto lg:min-h-0" ref={listContainerRef}>
-              
+
               {/* Skip logic relationship SVG lines */}
               {arrows.length > 0 && (
                 <svg className="absolute inset-0 pointer-events-none w-full h-full overflow-visible" style={{ zIndex: 10 }}>
@@ -3617,20 +3707,20 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     return (
                       <g key={arrow.id}>
                         {/* Shadow path for highlight hover */}
-                        <path 
-                          d={`M ${arrow.x1} ${arrow.y1} C ${arrow.x1 + 35 + depthOffset} ${arrow.y1}, ${arrow.x2 + 35 + depthOffset} ${arrow.y2}, ${arrow.x2} ${arrow.y2}`} 
-                          fill="none" 
-                          stroke="transparent" 
+                        <path
+                          d={`M ${arrow.x1} ${arrow.y1} C ${arrow.x1 + 35 + depthOffset} ${arrow.y1}, ${arrow.x2 + 35 + depthOffset} ${arrow.y2}, ${arrow.x2} ${arrow.y2}`}
+                          fill="none"
+                          stroke="transparent"
                           strokeWidth="8"
                           className="cursor-pointer pointer-events-auto"
                           title={`Lompat dari R.${arrow.sourceCode} ke R.${arrow.targetCode}`}
                         />
                         {/* Relationship line */}
-                        <path 
-                          d={`M ${arrow.x1} ${arrow.y1} C ${arrow.x1 + 35 + depthOffset} ${arrow.y1}, ${arrow.x2 + 35 + depthOffset} ${arrow.y2}, ${arrow.x2} ${arrow.y2}`} 
-                          fill="none" 
-                          stroke="#3b82f6" 
-                          strokeWidth="1.5" 
+                        <path
+                          d={`M ${arrow.x1} ${arrow.y1} C ${arrow.x1 + 35 + depthOffset} ${arrow.y1}, ${arrow.x2 + 35 + depthOffset} ${arrow.y2}, ${arrow.x2} ${arrow.y2}`}
+                          fill="none"
+                          stroke="#3b82f6"
+                          strokeWidth="1.5"
                           strokeDasharray="4 3"
                           markerEnd="url(#arrow)"
                         />
@@ -3711,27 +3801,25 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             id={`q-card-${q.id}`}
                             onClick={() => setSelectedId(isSelected ? null : q.id)}
                             {...dragProps}
-                            className={`group/card flex-1 min-w-0 flex items-start gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
-                              isSelected
+                            className={`group/card flex-1 min-w-0 flex items-start gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${isSelected
                                 ? 'border-amber-300 bg-amber-50/80'
                                 : 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:bg-amber-50/70'
-                            }`}
+                              }`}
                           >
                             {canDrag && (
-                              <div className={`cursor-grab flex-shrink-0 p-0.5 mt-0.5 ${
-                                depth === 0
+                              <div className={`cursor-grab flex-shrink-0 p-0.5 mt-0.5 ${depth === 0
                                   ? 'text-amber-300 group-hover/card:text-amber-400'
                                   : 'text-amber-200 group-hover/card:text-amber-300'
-                              }`}>
-                                <GripVertical size={depth === 0 ? 13 : 11}/>
+                                }`}>
+                                <GripVertical size={depth === 0 ? 13 : 11} />
                               </div>
                             )}
                             <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 bg-amber-100 text-amber-600 mt-0.5">
-                              <StickyNote size={13}/>
+                              <StickyNote size={13} />
                             </div>
                             <div className="flex-1 min-w-0">
                               <span className="inline-flex items-center gap-1 text-[9px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full mb-1">
-                                <StickyNote size={8}/> CATATAN
+                                <StickyNote size={8} /> CATATAN
                               </span>
                               <p className="text-xs font-medium text-amber-900 leading-relaxed break-words">
                                 {renderNoteText(q.label)}
@@ -3743,42 +3831,39 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 className="opacity-0 group-hover/card:opacity-100 w-6 h-6 rounded flex items-center justify-center text-amber-400 hover:text-red-500 hover:bg-red-50 border-0 bg-transparent cursor-pointer transition-all flex-shrink-0 mt-0.5"
                                 title="Hapus catatan"
                               >
-                                <Trash size={11}/>
+                                <Trash size={11} />
                               </button>
                             )}
                           </div>
                         ) : (
                           /* Regular question card */
-                          <div 
+                          <div
                             id={`q-card-${q.id}`}
                             onClick={() => setSelectedId(isSelected ? null : q.id)}
                             {...dragProps}
-                            className={`group/card flex-1 min-w-0 flex items-center gap-3 p-4 rounded-xl text-left border cursor-pointer transition-all ${
-                              isSelected 
-                                ? "border-blue-200 bg-blue-50/50 shadow-sm" 
+                            className={`group/card flex-1 min-w-0 flex items-center gap-3 p-4 rounded-xl text-left border cursor-pointer transition-all ${isSelected
+                                ? "border-blue-200 bg-blue-50/50 shadow-sm"
                                 : isAddingSubHere
                                   ? "border-blue-200 bg-blue-50/30"
                                   : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
-                            }`}
+                              }`}
                           >
                             {canDrag && (
-                              <div className={`cursor-grab flex-shrink-0 p-0.5 ${
-                                depth === 0
+                              <div className={`cursor-grab flex-shrink-0 p-0.5 ${depth === 0
                                   ? 'text-slate-300 group-hover/card:text-slate-400'
                                   : 'text-slate-200 group-hover/card:text-slate-300'
-                              }`}>
-                                <GripVertical size={depth === 0 ? 13 : 11}/>
+                                }`}>
+                                <GripVertical size={depth === 0 ? 13 : 11} />
                               </div>
                             )}
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                              isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-50 text-slate-400"
-                            }`}>
-                              <Icon size={14}/>
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isSelected ? "bg-blue-100 text-blue-600" : "bg-slate-50 text-slate-400"
+                              }`}>
+                              <Icon size={14} />
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
                                 <span className="mono text-[9px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">R.{qCode}</span>
-                                {q.req && <span className="w-1 h-1 rounded-full bg-red-400"/>}
+                                {q.req && <span className="w-1 h-1 rounded-full bg-red-400" />}
                                 {(() => {
                                   try {
                                     const parsed = JSON.parse(q.validation || '{}');
@@ -3798,7 +3883,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                       );
                                     }
                                     return badges;
-                                  } catch(e) {}
+                                  } catch (e) { }
                                   return null;
                                 })()}
                               </div>
@@ -3806,7 +3891,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 {renderLabelWithVars(q.label)}
                               </p>
                             </div>
-                            
+
                             <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                               {/* Delete button — appears on hover */}
                               {canEdit && (
@@ -3815,12 +3900,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                   className="opacity-0 group-hover/card:opacity-100 text-[10px] font-semibold px-2 py-1 rounded transition-all border-0 cursor-pointer bg-slate-50 hover:bg-red-50 text-slate-400 hover:text-red-500"
                                   title="Hapus rincian pertanyaan ini"
                                 >
-                                  <Trash2 size={11}/>
+                                  <Trash2 size={11} />
                                 </button>
                               )}
                               {/* "+ Sub" button for main questions */}
                               {depth < 2 && canEdit && (
-                                <button 
+                                <button
                                   onClick={() => {
                                     if (isAddingSubHere) {
                                       setAddingSubParent(null);
@@ -3829,11 +3914,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                       setNewSubLabel("");
                                     }
                                   }}
-                                  className={`text-[10px] font-semibold px-2 py-1 rounded transition-all border-0 cursor-pointer ${
-                                    isAddingSubHere
+                                  className={`text-[10px] font-semibold px-2 py-1 rounded transition-all border-0 cursor-pointer ${isAddingSubHere
                                       ? 'opacity-100 bg-blue-100 text-blue-700'
                                       : 'opacity-0 group-hover/card:opacity-100 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600'
-                                  }`}
+                                    }`}
                                   title={isAddingSubHere ? "Tutup" : "Tambah Sub-Pertanyaan"}
                                 >
                                   {isAddingSubHere ? '✕ Sub' : '+ Sub'}
@@ -3843,7 +3927,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 <span className="text-[9px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded flex-shrink-0">Alur</span>
                               )}
                               {q.showIfParentId && (
-                                 <span className="text-[9px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded flex-shrink-0">Kondisi</span>
+                                <span className="text-[9px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded flex-shrink-0">Kondisi</span>
                               )}
                             </div>
                           </div>
@@ -3860,9 +3944,9 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           <div className="flex items-stretch gap-0">
                             {/* Connector line */}
                             <div className="flex flex-col items-center mr-3 flex-shrink-0">
-                              <div className="w-px flex-1 bg-blue-200" style={{ minHeight: '8px' }}/>
-                              <CornerDownRight size={13} className="text-blue-400 flex-shrink-0 my-0.5"/>
-                              <div className="w-px flex-1 bg-transparent"/>
+                              <div className="w-px flex-1 bg-blue-200" style={{ minHeight: '8px' }} />
+                              <CornerDownRight size={13} className="text-blue-400 flex-shrink-0 my-0.5" />
+                              <div className="w-px flex-1 bg-transparent" />
                             </div>
                             {/* Form card */}
                             <div className="flex-1 bg-blue-50/70 border border-blue-200 rounded-xl p-4 shadow-sm mb-1">
@@ -3888,13 +3972,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                   <p className="text-[9px] text-slate-400 mt-1">Enter untuk simpan · Esc untuk batal</p>
                                 </div>
                                 <div className="flex gap-2 justify-end">
-                                  <button 
+                                  <button
                                     onClick={() => setAddingSubParent(null)}
                                     className="px-3 py-1.5 text-xs font-semibold text-slate-400 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 cursor-pointer transition-all"
                                   >
                                     Batal
                                   </button>
-                                  <button 
+                                  <button
                                     onClick={handleAddSubQuestion}
                                     disabled={!newSubLabel.trim()}
                                     className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-lg border-0 cursor-pointer transition-all"
@@ -3918,9 +4002,9 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           <div className="flex items-stretch gap-0">
                             {/* Connector line */}
                             <div className="flex flex-col items-center mr-3 flex-shrink-0">
-                              <div className="w-px flex-1 bg-blue-200" style={{ minHeight: '8px' }}/>
-                              <CornerDownRight size={13} className="text-blue-400 flex-shrink-0 my-0.5"/>
-                              <div className="w-px flex-1 bg-transparent"/>
+                              <div className="w-px flex-1 bg-blue-200" style={{ minHeight: '8px' }} />
+                              <CornerDownRight size={13} className="text-blue-400 flex-shrink-0 my-0.5" />
+                              <div className="w-px flex-1 bg-transparent" />
                             </div>
                             {/* Form card */}
                             <div className="flex-1 bg-white border border-blue-200 rounded-xl p-4 shadow-sm mb-1">
@@ -3930,7 +4014,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <div className="grid grid-cols-2 gap-3 mb-3">
                                 <div>
                                   <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tipe</label>
-                                  <select value={newQ.type} onChange={e => setNewQ({...newQ, type: e.target.value})}
+                                  <select value={newQ.type} onChange={e => setNewQ({ ...newQ, type: e.target.value })}
                                     className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer">
                                     <option value="text">Text</option>
                                     <option value="number">Number</option>
@@ -3945,15 +4029,15 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 </div>
                                 <div className="flex items-end mb-1">
                                   <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
-                                    <input type="checkbox" checked={newQ.req} onChange={e => setNewQ({...newQ, req: e.target.checked})} className="rounded accent-blue-600"/>
+                                    <input type="checkbox" checked={newQ.req} onChange={e => setNewQ({ ...newQ, req: e.target.checked })} className="rounded accent-blue-600" />
                                     Wajib diisi
                                   </label>
                                 </div>
                               </div>
                               <div className="mb-3">
                                 <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Label Pertanyaan</label>
-                                <input value={newQ.label} onChange={e => setNewQ({...newQ, label: e.target.value})}
-                                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700" placeholder="Contoh: Nama Kepala Rumah Tangga" autoFocus/>
+                                <input value={newQ.label} onChange={e => setNewQ({ ...newQ, label: e.target.value })}
+                                  className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700" placeholder="Contoh: Nama Kepala Rumah Tangga" autoFocus />
                               </div>
                               <div className="flex gap-2 justify-end mt-4">
                                 <button onClick={() => setShowAdd(false)} className="px-3 py-1.5 text-xs font-semibold text-slate-400 bg-white hover:bg-slate-100 rounded-lg border border-slate-200 cursor-pointer transition-all">Batal</button>
@@ -3969,7 +4053,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
                 {orderedBlockQs.length === 0 && (
                   <div className="bg-slate-50/50 rounded-xl border border-slate-100/70 p-12 text-center">
-                    <AlertTriangle size={24} className="text-slate-300 mx-auto mb-2.5"/>
+                    <AlertTriangle size={24} className="text-slate-300 mx-auto mb-2.5" />
                     <p className="text-xs text-slate-400 font-semibold">Blok ini masih kosong</p>
                     <p className="text-[11px] text-slate-300 mt-1">Gunakan tombol 'Tambah' atau 'Impor Excel' untuk mengisi kuesioner</p>
                   </div>
@@ -3979,18 +4063,18 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 {canEdit && (
                   <div className="space-y-4 mt-6">
                     <div className="flex items-center justify-center gap-3">
-                      <button 
+                      <button
                         onClick={() => { setInsertMode('bottom'); setShowAdd(!showAdd); }}
                         className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-blue-600 bg-blue-50/50 hover:bg-blue-50 border border-blue-100 hover:border-blue-200 rounded-xl cursor-pointer transition-all shadow-sm"
                       >
-                        <Plus size={14}/>
+                        <Plus size={14} />
                         <span>Tambah Rincian Pertanyaan</span>
                       </button>
-                      <button 
+                      <button
                         onClick={handleAddNote}
                         className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-amber-700 bg-amber-50/50 hover:bg-amber-50 border border-amber-100 hover:border-amber-200 rounded-xl cursor-pointer transition-all shadow-sm"
                       >
-                        <StickyNote size={14}/>
+                        <StickyNote size={14} />
                         <span>Tambah Catatan</span>
                       </button>
                     </div>
@@ -4012,7 +4096,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tipe</label>
-                            <select value={newQ.type} onChange={e => setNewQ({...newQ, type: e.target.value})}
+                            <select value={newQ.type} onChange={e => setNewQ({ ...newQ, type: e.target.value })}
                               className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer">
                               <option value="text">Text</option>
                               <option value="number">Number</option>
@@ -4028,12 +4112,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         </div>
                         <div className="mb-3">
                           <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Label Pertanyaan</label>
-                          <input value={newQ.label} onChange={e => setNewQ({...newQ, label: e.target.value})}
-                            className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700" placeholder="Contoh: Nama Kepala Rumah Tangga"/>
+                          <input value={newQ.label} onChange={e => setNewQ({ ...newQ, label: e.target.value })}
+                            className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700" placeholder="Contoh: Nama Kepala Rumah Tangga" />
                         </div>
                         <div className="flex items-center justify-between">
                           <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer">
-                            <input type="checkbox" checked={newQ.req} onChange={e => setNewQ({...newQ, req: e.target.checked})} className="rounded accent-blue-600"/>
+                            <input type="checkbox" checked={newQ.req} onChange={e => setNewQ({ ...newQ, req: e.target.checked })} className="rounded accent-blue-600" />
                             Wajib diisi
                           </label>
                           <div className="flex gap-2">
@@ -4052,912 +4136,941 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           {/* Right: Properties & Sub-Question Addition Modal */}
           {showRightPanel && (
             <div className="lg:col-span-4 relative z-20 animate-sidebar-enter lg:h-full lg:flex lg:flex-col lg:min-h-0">
-            
-            {/* Inline Subquestion Creator */}
-{/* Sub-question form is now inline below each question card */}
 
-            {/* Properties Panel */}
-            {selected ? (() => {
-              // === NOTE EDITOR (early return) ===
-              if (selected.type === 'note') {
-                return (
-                  <div className="bg-white rounded-xl border border-amber-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
-                    <div className="px-5 py-4 border-b border-amber-50 flex items-center justify-between bg-amber-50/50 flex-shrink-0">
-                      <div className="flex items-center gap-2">
-                        <StickyNote size={14} className="text-amber-600"/>
-                        <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider">Edit Catatan</h3>
+              {/* Inline Subquestion Creator */}
+              {/* Sub-question form is now inline below each question card */}
+
+              {/* Properties Panel */}
+              {selected ? (() => {
+                // === NOTE EDITOR (early return) ===
+                if (selected.type === 'note') {
+                  return (
+                    <div className="bg-white rounded-xl border border-amber-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+                      <div className="px-5 py-4 border-b border-amber-50 flex items-center justify-between bg-amber-50/50 flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                          <StickyNote size={14} className="text-amber-600" />
+                          <h3 className="text-xs font-bold text-amber-700 uppercase tracking-wider">Edit Catatan</h3>
+                        </div>
+                        <span className="text-[9px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full">CATATAN</span>
                       </div>
-                      <span className="text-[9px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full">CATATAN</span>
+                      {!canEdit && (
+                        <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                          Catatan hanya dapat direview (Mode Read-Only)
+                        </div>
+                      )}
+                      <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-[11px] font-semibold text-slate-400 uppercase">Isi Catatan</label>
+                            {canEdit && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    applyNoteFormat('note-textarea', '**', '**', selected.label, (val) => handleUpdateQuestion('label', val));
+                                  }}
+                                  className="w-7 h-7 flex items-center justify-center text-xs font-extrabold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded cursor-pointer transition-all"
+                                  title="Bold — pilih teks lalu klik"
+                                >
+                                  <Bold size={12} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    applyNoteFormat('note-textarea', '*', '*', selected.label, (val) => handleUpdateQuestion('label', val));
+                                  }}
+                                  className="w-7 h-7 flex items-center justify-center italic font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded cursor-pointer transition-all"
+                                  title="Italic — pilih teks lalu klik"
+                                >
+                                  <Italic size={12} />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                          <textarea
+                            id="note-textarea"
+                            value={selected.label}
+                            readOnly={!canEdit}
+                            onChange={e => handleUpdateQuestion('label', e.target.value)}
+                            rows={4}
+                            placeholder="Tulis catatan untuk petugas... **tebal** *miring*"
+                            className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-amber-400 leading-relaxed ${canEdit ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+                          />
+                          <p className="text-[9px] text-slate-400 mt-1 leading-relaxed">
+                            Gunakan <code className="bg-slate-50 px-1 rounded font-bold">**teks**</code> tebal, <code className="bg-slate-50 px-1 rounded">*teks*</code> miring.<br />
+                            <strong>Variabel Dinamis (Agregasi):</strong><br />
+                            • Khusus PCL Aktif: <code className="bg-slate-50 px-1 rounded font-bold">{"{{MAXPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{MINPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{SUMPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{AVGPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{LASTPCLR108}}"}</code>.<br />
+                            • Keseluruhan Database (ALL): <code className="bg-slate-50 px-1 rounded font-bold">{"{{MAXALLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{MINALLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{SUMALLR108}}"}</code>, dsb. (Dapat ditulis menggunakan/tanpa garis bawah, cth: <code className="bg-slate-50 px-1 rounded font-bold">{"{{MAX_PCL_R108}}"}</code>).
+                          </p>
+                        </div>
+                        {selected.label && (
+                          <div className="px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl">
+                            <span className="text-[9px] font-bold text-amber-600 uppercase block mb-1.5">Preview</span>
+                            <p className="text-xs text-amber-900 font-medium leading-relaxed">{renderNoteText(selected.label)}</p>
+                          </div>
+                        )}
+                        {canEdit && (
+                          <button
+                            onClick={() => handleDeleteQuestion(selected.id)}
+                            className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
+                          >
+                            <Trash2 size={13} /> Hapus Catatan
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                }
+
+                // === REGULAR QUESTION PROPERTIES ===
+                let parsedVal = { type: "unlimited", min: "", max: "", hint: "", sub_label: "" };
+                if (selected.val) {
+                  const trimmed = selected.val.trim();
+                  if (trimmed.startsWith('{')) {
+                    try { parsedVal = { ...parsedVal, ...JSON.parse(trimmed) }; } catch (e) { }
+                    // Debug: Log parsed validation to see if loop settings are present
+                    console.log('[FormBuilder] parsedVal for question', selected.id, ':', parsedVal);
+                  } else if (trimmed.startsWith('range:')) {
+                    const parts = trimmed.replace('range:', '').trim().split('-');
+                    parsedVal.type = "range"; parsedVal.min = parts[0] || ""; parsedVal.max = parts[1] || "";
+                  } else if (trimmed.startsWith('min:')) {
+                    parsedVal.type = "min"; parsedVal.min = trimmed.replace('min:', '').trim();
+                  } else if (trimmed.startsWith('gt:')) {
+                    parsedVal.type = "gt"; parsedVal.min = trimmed.replace('gt:', '').trim();
+                  } else { parsedVal.hint = trimmed; }
+                }
+                const updateValObj = (updates) => {
+                  console.log('[FormBuilder] updateValObj called with:', updates);
+                  handleUpdateQuestion("val", JSON.stringify({ ...parsedVal, ...updates }));
+                };
+                const optionsList = Array.isArray(selected.options) ? selected.options : [];
+
+                return (
+                  <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+                    <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
+                      <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Properti Rincian</h3>
+                      <Settings size={14} className="text-slate-300 animate-spin-slow" />
                     </div>
                     {!canEdit && (
                       <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0"/>
-                        Catatan hanya dapat direview (Mode Read-Only)
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                        Properti hanya dapat direview (Mode Read-Only)
                       </div>
                     )}
                     <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">No. Rincian</label>
+                          <input
+                            value={`R.${getQuestionCode(selected, questions, blocks)}`}
+                            readOnly
+                            className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-500 font-bold mono outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Kode Rincian Kustom (opsional)</label>
+                          <input
+                            type="text"
+                            value={parsedVal.custom_code || ""}
+                            readOnly={!canEdit}
+                            placeholder="Misal: R400 (Kosongkan utk default)"
+                            onChange={e => updateValObj({ custom_code: e.target.value })}
+                            className={`w-full px-3 py-2.5 text-xs border rounded-lg font-bold mono outline-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
+                          />
+                        </div>
+                      </div>
+
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[11px] font-semibold text-slate-400 uppercase">Isi Catatan</label>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase">Pertanyaan Utama</label>
                           {canEdit && (
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  applyNoteFormat('note-textarea', '**', '**', selected.label, (val) => handleUpdateQuestion('label', val));
-                                }}
-                                className="w-7 h-7 flex items-center justify-center text-xs font-extrabold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded cursor-pointer transition-all"
-                                title="Bold — pilih teks lalu klik"
-                              >
-                                <Bold size={12}/>
-                              </button>
-                              <button
-                                type="button"
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  applyNoteFormat('note-textarea', '*', '*', selected.label, (val) => handleUpdateQuestion('label', val));
-                                }}
-                                className="w-7 h-7 flex items-center justify-center italic font-bold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded cursor-pointer transition-all"
-                                title="Italic — pilih teks lalu klik"
-                              >
-                                <Italic size={12}/>
-                              </button>
-                            </div>
+                            <VariableInserterDropdown
+                              questions={questions}
+                              blocks={blocks}
+                              currentQuestionId={selectedId}
+                              onInsert={(code) => {
+                                const textarea = document.getElementById('label-textarea-main');
+                                const start = textarea?.selectionStart ?? selected.label.length;
+                                const end = textarea?.selectionEnd ?? selected.label.length;
+                                const newLabel = selected.label.slice(0, start) + `$R${code}` + selected.label.slice(end);
+                                handleUpdateQuestion('label', newLabel);
+                                setTimeout(() => {
+                                  if (textarea) {
+                                    textarea.focus();
+                                    const pos = start + `$R${code}`.length;
+                                    textarea.setSelectionRange(pos, pos);
+                                  }
+                                }, 50);
+                              }}
+                            />
                           )}
                         </div>
                         <textarea
-                          id="note-textarea"
+                          id="label-textarea-main"
                           value={selected.label}
                           readOnly={!canEdit}
-                          onChange={e => handleUpdateQuestion('label', e.target.value)}
-                          rows={4}
-                          placeholder="Tulis catatan untuk petugas... **tebal** *miring*"
-                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-amber-400 leading-relaxed ${canEdit ? 'bg-white border-slate-200 text-slate-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}
+                          onChange={e => handleUpdateQuestion("label", e.target.value)}
+                          rows={2}
+                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-semibold outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
                         />
-                        <p className="text-[9px] text-slate-400 mt-1 leading-relaxed">
-                          Gunakan <code className="bg-slate-50 px-1 rounded font-bold">**teks**</code> tebal, <code className="bg-slate-50 px-1 rounded">*teks*</code> miring.<br/>
-                          <strong>Variabel Dinamis (Agregasi):</strong><br/>
-                          • Khusus PCL Aktif: <code className="bg-slate-50 px-1 rounded font-bold">{"{{MAXPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{MINPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{SUMPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{AVGPCLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{LASTPCLR108}}"}</code>.<br/>
-                          • Keseluruhan Database (ALL): <code className="bg-slate-50 px-1 rounded font-bold">{"{{MAXALLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{MINALLR108}}"}</code>, <code className="bg-slate-50 px-1 rounded font-bold">{"{{SUMALLR108}}"}</code>, dsb. (Dapat ditulis menggunakan/tanpa garis bawah, cth: <code className="bg-slate-50 px-1 rounded font-bold">{"{{MAX_PCL_R108}}"}</code>).
-                        </p>
+                        {selected.label.includes('$R') && (
+                          <div className="mt-1.5 px-3 py-2 bg-amber-50/60 border border-amber-100 rounded-lg text-xs text-slate-600 leading-relaxed">
+                            <span className="text-[9px] font-bold text-amber-600 uppercase block mb-0.5">Preview Variabel</span>
+                            {renderLabelWithVars(selected.label)}
+                          </div>
+                        )}
                       </div>
-                      {selected.label && (
-                        <div className="px-4 py-3 bg-amber-50 border border-amber-100 rounded-xl">
-                          <span className="text-[9px] font-bold text-amber-600 uppercase block mb-1.5">Preview</span>
-                          <p className="text-xs text-amber-900 font-medium leading-relaxed">{renderNoteText(selected.label)}</p>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Label Pertanyaan</label>
+                        <textarea
+                          value={parsedVal.sub_label || ""}
+                          readOnly={!canEdit}
+                          placeholder="Contoh: Pastikan kembali ke responden..."
+                          onChange={e => updateValObj({ sub_label: e.target.value })}
+                          rows={2}
+                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Petunjuk Pengisian (Keterangan)</label>
+                        <textarea
+                          value={parsedVal.hint || ""}
+                          readOnly={!canEdit}
+                          placeholder="Contoh: SHM = Surat Hak Milik..."
+                          onChange={e => updateValObj({ hint: e.target.value })}
+                          rows={8}
+                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-y focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
+                        />
+                      </div>
+
+                      {questions.some(c => c.parentId === selected.id || c.parent_id === selected.id) && (
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Mode Rincian Induk</label>
+                          {canEdit ? (
+                            <select
+                              value={parsedVal.parent_mode || "label"}
+                              onChange={e => updateValObj({ parent_mode: e.target.value })}
+                              className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
+                            >
+                              <option value="label">Pertanyaan Label (Tanpa Input Petugas)</option>
+                              <option value="original">Pertanyaan Asli (Butuh Input Petugas)</option>
+                              <option value="empty">Kosong (Langsung Skip/Tampilkan Sub-pertanyaan)</option>
+                            </select>
+                          ) : (
+                            <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold">
+                              {parsedVal.parent_mode === "original" ? "Pertanyaan Asli (Butuh Input Petugas)" : parsedVal.parent_mode === "empty" ? "Kosong (Langsung Skip/Tampilkan Sub-pertanyaan)" : "Pertanyaan Label (Tanpa Input Petugas)"}
+                            </div>
+                          )}
                         </div>
                       )}
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tipe Input</label>
+                          {canEdit ? (
+                            <select
+                              value={selected.type}
+                              onChange={e => handleUpdateQuestion("type", e.target.value)}
+                              className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
+                            >
+                              <option value="text">Text (Kapital)</option>
+                              <option value="number">Number</option>
+                              <option value="radio">Radio</option>
+                              <option value="select">Select (Multi-Select)</option>
+                              <option value="search">Searchable Dropdown</option>
+                              <option value="location">Geotagging</option>
+                              <option value="date">Tanggal/Waktu</option>
+                              <option value="pcl">PCL (Daftar Petugas)</option>
+                              <option value="pml">PML (Daftar Pengawas)</option>
+                              <option value="signature">Tanda Tangan</option>
+                            </select>
+                          ) : (
+                            <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type === "search" ? "Searchable Dropdown" : selected.type}</div>
+                          )}
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Wajib diisi</label>
+                          {canEdit ? (
+                            <select
+                              value={selected.req ? "Ya" : "Tidak"}
+                              onChange={e => handleUpdateQuestion("req", e.target.value === "Ya")}
+                              className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
+                            >
+                              <option value="Ya">Ya</option>
+                              <option value="Tidak">Tidak</option>
+                            </select>
+                          ) : (
+                            <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"}`}>{selected.req ? "Ya" : "Tidak"}</div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Satuan Kuesioner (Opsional)</label>
+                        <input
+                          type="text"
+                          value={parsedVal.satuan || ""}
+                          readOnly={!canEdit}
+                          placeholder="Contoh: Rupiah, Kg, dll."
+                          onChange={e => updateValObj({ satuan: e.target.value })}
+                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-bold outline-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
+                        />
+                      </div>
+
+                      {selected.type === "number" && (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Batasan Angka</label>
+                          <div>
+                            <select
+                              value={parsedVal.type}
+                              disabled={!canEdit}
+                              onChange={e => updateValObj({ type: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
+                            >
+                              <option value="unlimited">Tidak Dibatasi</option>
+                              <option value="range">Rentang Nilai (Min-Max)</option>
+                              <option value="min">Lebih Dari / Sama Dengan (&gt;=)</option>
+                              <option value="gt">Lebih Dari (&gt;)</option>
+                              <option value="max">Kurang Dari / Sama Dengan (&lt;=)</option>
+                              <option value="lt">Kurang Dari (&lt;)</option>
+                            </select>
+                          </div>
+                          {parsedVal.type === "range" && (
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Min</label>
+                                <input type="number" value={parsedVal.min} disabled={!canEdit} onChange={e => updateValObj({ min: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600" />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Max</label>
+                                <input type="number" value={parsedVal.max} disabled={!canEdit} onChange={e => updateValObj({ max: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600" />
+                              </div>
+                            </div>
+                          )}
+                          {(parsedVal.type === "min" || parsedVal.type === "gt") && (
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Batas Nilai Minimal</label>
+                              <input type="number" value={parsedVal.min} disabled={!canEdit} onChange={e => updateValObj({ min: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600" />
+                            </div>
+                          )}
+                          {(parsedVal.type === "max" || parsedVal.type === "lt") && (
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Batas Nilai Maksimal</label>
+                              <input type="number" value={parsedVal.max} disabled={!canEdit} onChange={e => updateValObj({ max: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600" />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {selected.type === "number" && (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Tipe Bilangan</label>
+                          <div>
+                            <select
+                              value={parsedVal.number_type || "decimal"}
+                              disabled={!canEdit}
+                              onChange={e => updateValObj({ number_type: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
+                            >
+                              <option value="decimal">Bilangan Desimal (Bisa Koma)</option>
+                              <option value="integer">Bilangan Bulat (Tidak Bisa Koma)</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+
+                      {selected.type === "number" && (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Formula Kalkulasi Otomatis</label>
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Rumus Operasi (misal: R101a + R101b atau AGE(R410))</label>
+                            <input
+                              type="text"
+                              value={parsedVal.formula || ""}
+                              disabled={!canEdit}
+                              onChange={e => updateValObj({ formula: e.target.value })}
+                              placeholder="Kosongkan jika diinput manual"
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500 mb-1"
+                            />
+                            <p className="text-[9px] text-slate-400 leading-normal">
+                              Tips: Gunakan <strong className="text-slate-600">AGE(R410)</strong> untuk menghitung umur otomatis berdasarkan tanggal lahir dari pertanyaan berkode R410.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {selected.type === "text" && (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Isian Teks</label>
+                          <div>
+                            <select
+                              value={parsedVal.text_validation_type || "none"}
+                              disabled={!canEdit}
+                              onChange={e => updateValObj({
+                                text_validation_type: e.target.value,
+                                text_validation_min: "",
+                                text_validation_max: ""
+                              })}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
+                            >
+                              <option value="none">Tanpa Validasi</option>
+                              <option value="digits_only">Hanya Angka</option>
+                              <option value="letters_only">Hanya Huruf</option>
+                              <option value="alphanumeric">Huruf & Angka</option>
+                              <option value="email">Format E-mail</option>
+                              <option value="length">Panjang Karakter (Min/Max)</option>
+                            </select>
+                          </div>
+                          {parsedVal.text_validation_type !== "none" && parsedVal.text_validation_type !== "email" && (
+                            <div className="space-y-2">
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Min Karakter</label>
+                                  <input
+                                    type="number"
+                                    value={parsedVal.text_validation_min || ""}
+                                    disabled={!canEdit}
+                                    onChange={e => updateValObj({ text_validation_min: e.target.value })}
+                                    className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Max Karakter</label>
+                                  <input
+                                    type="number"
+                                    value={parsedVal.text_validation_max || ""}
+                                    disabled={!canEdit}
+                                    onChange={e => updateValObj({ text_validation_max: e.target.value })}
+                                    className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
+                                  />
+                                </div>
+                              </div>
+                              <div className="border-t border-slate-100 pt-2">
+                                <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Panjang Karakter Alternatif (ATAU)</label>
+                                <input
+                                  type="text"
+                                  placeholder="Pisahkan dengan koma, cth: 4,16"
+                                  value={parsedVal.text_validation_or_lengths || ""}
+                                  disabled={!canEdit}
+                                  onChange={e => updateValObj({ text_validation_or_lengths: e.target.value })}
+                                  className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500"
+                                />
+                                <p className="text-[8px] text-slate-400 mt-0.5">Jika diisi, validasi Min/Max di atas akan diabaikan.</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {selected.type === "date" && (
+                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Pengaturan Tanggal/Waktu</label>
+                          <div>
+                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Format</label>
+                            <select
+                              value={parsedVal.date_type || "date"}
+                              disabled={!canEdit}
+                              onChange={e => updateValObj({ date_type: e.target.value })}
+                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
+                            >
+                              <option value="date">Tanggal Saja (YYYY-MM-DD)</option>
+                              <option value="datetime-local">Tanggal & Waktu (Local)</option>
+                              <option value="time">Waktu Saja (HH:MM)</option>
+                            </select>
+                          </div>
+                          <div className="flex items-center justify-between pt-1">
+                            <label className="text-xs font-semibold text-slate-500 cursor-pointer">
+                              Sediakan tombol "Ambil Waktu Sekarang"
+                            </label>
+                            {canEdit ? (
+                              <input
+                                type="checkbox"
+                                checked={!!parsedVal.auto_now}
+                                onChange={e => updateValObj({ auto_now: e.target.checked })}
+                                className="rounded accent-blue-600 cursor-pointer"
+                              />
+                            ) : (
+                              <div className="text-xs font-semibold text-slate-500">{parsedVal.auto_now ? "Ya" : "Tidak"}</div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {(selected.type === "radio" || selected.type === "select" || selected.type === "search") && (
+                        <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Sumber Opsi Dinamis (Ambil dari Looping):</label>
+                            {canEdit ? (
+                              <select
+                                value={parsedVal.options_source_question_id || ""}
+                                onChange={e => updateValObj({ options_source_question_id: e.target.value ? parseInt(e.target.value, 10) : null })}
+                                className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer"
+                              >
+                                <option value="">-- Gunakan Pilihan Manual --</option>
+                                {questions
+                                  .filter(q => q.id !== selected.id && q.type !== 'note')
+                                  .map(q => (
+                                    <option key={q.id} value={q.id}>R.{getQuestionCode(q, questions, blocks)}: {q.label.substring(0, 40)}...</option>
+                                  ))
+                                }
+                              </select>
+                            ) : (
+                              <div className="text-xs font-semibold text-slate-500">
+                                {parsedVal.options_source_question_id
+                                  ? `Mengambil dari R.${getQuestionCode(questions.find(x => x.id === parsedVal.options_source_question_id), questions, blocks)}`
+                                  : "Pilihan Manual"}
+                              </div>
+                            )}
+                          </div>
+
+                          {!parsedVal.options_source_question_id && (
+                            <>
+                              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                <label className="block text-[10px] font-bold text-slate-500 uppercase">Daftar Pilihan Opsi</label>
+                                {canEdit && (
+                                  <button type="button" onClick={() => handleAddOption(selected, optionsList)} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded border-0 cursor-pointer">
+                                    + Opsi
+                                  </button>
+                                )}
+                              </div>
+                              {canEdit && (
+                                <details className="mb-3 bg-white p-2 border border-slate-200 rounded-lg">
+                                  <summary className="text-[10px] font-bold text-slate-500 cursor-pointer outline-none">Import Opsi dari JSON (Otomatis)</summary>
+                                  <div className="mt-2">
+                                    <textarea id={`json-import-${selected.id}`} className="w-full text-xs p-2 border border-slate-200 rounded-lg outline-none font-mono" rows="4" placeholder='Contoh:\n[\n  {"kode": "000", "pekerjaan": "Tidak Bekerja"},\n  {"kode": "001", "pekerjaan": "PNS"}\n]'></textarea>
+                                    <button type="button" onClick={(e) => {
+                                      const textarea = document.getElementById(`json-import-${selected.id}`);
+                                      const jsonStr = textarea.value;
+                                      if (!jsonStr) return;
+                                      try {
+                                        const parsed = JSON.parse(jsonStr);
+                                        if (Array.isArray(parsed) && parsed.length > 0) {
+                                          const newOptions = parsed.map(item => {
+                                            const keys = Object.keys(item);
+                                            if (keys.length >= 2) {
+                                              return { value: String(item[keys[0]]), label: String(item[keys[1]]) };
+                                            } else if (keys.length === 1) {
+                                              return { value: String(item[keys[0]]), label: String(item[keys[0]]) };
+                                            }
+                                            return null;
+                                          }).filter(Boolean);
+                                          // Auto append to existing options
+                                          handleUpdateQuestion("options", [...optionsList, ...newOptions]);
+                                          textarea.value = "";
+                                          e.target.parentElement.parentElement.removeAttribute("open");
+                                          alert(`${newOptions.length} Opsi berhasil diimport!`);
+                                        } else {
+                                          alert("Gagal: JSON harus berupa array of objects.");
+                                        }
+                                      } catch (err) {
+                                        alert("Gagal: Format JSON tidak valid (" + err.message + ")");
+                                      }
+                                    }} className="mt-2 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded border-0 cursor-pointer w-full transition-colors">
+                                      Proses JSON
+                                    </button>
+                                  </div>
+                                </details>
+                              )}
+                              <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
+                                {optionsList.map((opt, idx) => (
+                                  <div key={idx} className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200">
+                                    {canEdit ? (
+                                      <input
+                                        type="text"
+                                        value={opt.value}
+                                        onChange={e => handleUpdateOptionValue(optionsList, idx, e.target.value)}
+                                        placeholder="Nilai"
+                                        className="w-10 px-1 py-1 text-center text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 focus:border-blue-300 rounded outline-none uppercase"
+                                        title="Nilai/Kode Opsi"
+                                      />
+                                    ) : (
+                                      <span className="w-10 h-6 flex items-center justify-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-md uppercase">{opt.value}</span>
+                                    )}
+                                    <input type="text" value={opt.label} readOnly={!canEdit} onChange={e => handleUpdateOptionLabel(optionsList, idx, e.target.value)} className="flex-1 px-2 py-1 text-xs border border-transparent hover:border-slate-100 focus:border-blue-300 rounded outline-none font-medium text-slate-700 bg-transparent" />
+                                    <label className="flex items-center gap-1 text-[9px] font-semibold text-slate-500 cursor-pointer select-none">
+                                      <input
+                                        type="checkbox"
+                                        checked={!!opt.is_other}
+                                        disabled={!canEdit}
+                                        onChange={() => handleToggleOptionOther(optionsList, idx)}
+                                        className="rounded accent-blue-600 cursor-pointer w-3 h-3"
+                                      />
+                                      <span>Tambah Input Text</span>
+                                    </label>
+                                    {canEdit && (
+                                      <button type="button" onClick={() => handleDeleteOption(selected, optionsList, idx)} className="p-1 hover:bg-red-50 text-red-500 hover:text-red-700 border-0 bg-transparent cursor-pointer rounded">
+                                        <Trash size={12} />
+                                      </button>
+                                    )}
+                                  </div>
+                                ))}
+                                {optionsList.length === 0 && <p className="text-[10px] text-slate-400 text-center italic py-2">Belum ada pilihan opsi</p>}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Auto-fill & Copy Configuration Section */}
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Pengaturan Auto-fill & Salin</label>
+
+                        <div>
+                          <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Nilai Default (Bawaan):</label>
+                          {canEdit ? (
+                            <input
+                              type="text"
+                              value={parsedVal.default_val || ""}
+                              onChange={e => updateValObj({ default_val: e.target.value })}
+                              placeholder="Contoh: Kalimantan Utara"
+                              className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none focus:border-blue-500"
+                            />
+                          ) : (
+                            <div className="text-xs font-semibold text-slate-600">{parsedVal.default_val || "-"}</div>
+                          )}
+                        </div>
+
+                        <div className="space-y-2 pt-1 border-t border-slate-100">
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-slate-500 cursor-pointer">
+                              Gunakan sebagai Kunci Pencarian (Lookup Key)
+                            </label>
+                            {canEdit ? (
+                              <input
+                                type="checkbox"
+                                checked={!!parsedVal.is_lookup_key}
+                                onChange={e => updateValObj({ is_lookup_key: e.target.checked })}
+                                className="rounded accent-blue-600 cursor-pointer"
+                              />
+                            ) : (
+                              <div className="text-xs font-semibold text-slate-500">{parsedVal.is_lookup_key ? "Ya" : "Tidak"}</div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-slate-500 cursor-pointer">
+                              Salin Nilai Jika Kunci Pencarian Cocok
+                            </label>
+                            {canEdit ? (
+                              <input
+                                type="checkbox"
+                                checked={!!parsedVal.copy_on_key_match}
+                                onChange={e => updateValObj({ copy_on_key_match: e.target.checked })}
+                                className="rounded accent-blue-600 cursor-pointer"
+                              />
+                            ) : (
+                              <div className="text-xs font-semibold text-slate-500">{parsedVal.copy_on_key_match ? "Ya" : "Tidak"}</div>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-dashed border-slate-250">
+                            <label className="text-xs font-semibold text-slate-550 cursor-pointer">
+                              Hanya Baca (Read Only / Kunci Isian)
+                            </label>
+                            {canEdit ? (
+                              <input
+                                type="checkbox"
+                                checked={!!parsedVal.read_only}
+                                onChange={e => updateValObj({ read_only: e.target.checked })}
+                                className="rounded accent-blue-600 cursor-pointer"
+                              />
+                            ) : (
+                              <div className="text-xs font-semibold text-slate-500">{parsedVal.read_only ? "Ya" : "Tidak"}</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Loop / Perulangan Section */}
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Ulangi Pertanyaan (Looping)</label>
+                          {canEdit && (
+                            <input
+                              type="checkbox"
+                              checked={!!parsedVal.is_loop}
+                              onChange={e => {
+                                updateValObj({
+                                  is_loop: e.target.checked,
+                                  loop_by_question_id: e.target.checked ? (parsedVal.loop_by_question_id || "") : null
+                                });
+                              }}
+                              className="rounded accent-blue-600 cursor-pointer"
+                            />
+                          )}
+                        </div>
+                        {parsedVal.is_loop && (
+                          <div className="space-y-3 pt-1 border-t border-slate-100">
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Tipe Pengulangan:</label>
+                              {canEdit ? (
+                                <select
+                                  value={parsedVal.loop_type || "question"}
+                                  onChange={e => updateValObj({
+                                    loop_type: e.target.value,
+                                    loop_by_question_id: e.target.value === "manual" ? null : (parsedVal.loop_by_question_id || "")
+                                  })}
+                                  className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none cursor-pointer focus:border-blue-500"
+                                >
+                                  <option value="question">Berdasarkan Rincian Lain</option>
+                                  <option value="manual">Dinamis oleh Petugas (Tombol Tambah/Kurang)</option>
+                                </select>
+                              ) : (
+                                <div className="text-xs font-semibold text-slate-600">
+                                  {parsedVal.loop_type === "manual" ? "Dinamis oleh Petugas" : "Berdasarkan Rincian Lain"}
+                                </div>
+                              )}
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Nama Kelompok Looping (Optional):</label>
+                              {canEdit ? (
+                                <input
+                                  type="text"
+                                  value={parsedVal.loop_group || ""}
+                                  placeholder="Contoh: anggota_keluarga"
+                                  onChange={e => updateValObj({ loop_group: e.target.value.trim().toLowerCase() })}
+                                  className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none focus:border-blue-500"
+                                />
+                              ) : (
+                                <div className="text-xs font-semibold text-slate-600">
+                                  {parsedVal.loop_group || "Tidak ada"}
+                                </div>
+                              )}
+                              <p className="text-[8px] text-slate-400 mt-1 leading-snug">Gunakan nama yang sama untuk semua pertanyaan yang ingin diulang bersama dalam satu kontainer visual.</p>
+                            </div>
+                            {parsedVal.loop_type !== "manual" && (
+                              <div className="space-y-2">
+                                <label className="block text-[9px] font-semibold text-slate-400 uppercase">Ulangi berdasarkan jumlah pada:</label>
+                                {canEdit ? (
+                                  <select
+                                    value={parsedVal.loop_by_question_id || ""}
+                                    onChange={e => updateValObj({ loop_by_question_id: e.target.value ? parseInt(e.target.value, 10) : null })}
+                                    className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none cursor-pointer focus:border-blue-500"
+                                  >
+                                    <option value="">-- Pilih Rincian Jumlah --</option>
+                                    {(() => {
+                                      const allOrderedQs = [];
+                                      blocks.forEach(b => {
+                                        allOrderedQs.push(...getOrderedQuestionsInBlock(b.id, questions));
+                                      });
+                                      const currentIdx = allOrderedQs.findIndex(x => x.id === selected.id);
+                                      const possibleLoopQs = allOrderedQs.filter((x, idx) => idx < currentIdx && x.type === 'number');
+                                      return possibleLoopQs.map(x => (
+                                        <option key={x.id} value={x.id}>
+                                          R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...
+                                        </option>
+                                      ));
+                                    })()}
+                                  </select>
+                                ) : (
+                                  <div className="px-3 py-2 text-xs bg-white border border-slate-100 rounded-lg text-slate-600 font-semibold">
+                                    {parsedVal.loop_by_question_id
+                                      ? `R.${getQuestionCode(questions.find(t => t.id === parsedVal.loop_by_question_id), questions, blocks)}: ${questions.find(t => t.id === parsedVal.loop_by_question_id)?.label || ''}`
+                                      : "Belum ditentukan"
+                                    }
+                                  </div>
+                                )}
+                                <p className="text-[9px] text-slate-450 leading-snug">Pertanyaan ini akan diulang sebanyak jawaban angka pada rincian terpilih di atas.</p>
+                              </div>
+                            )}
+                            {parsedVal.loop_type === "manual" && (
+                              <p className="text-[9px] text-slate-455 leading-snug">Petugas dapat secara dinamis menambah dan menghapus baris isian menggunakan tombol tambah/kurang di aplikasi.</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Pertanyaan Sementara (Temporary / Client Calculation Only) */}
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3 mt-3">
+                        <div className="flex items-center justify-between">
+                          <div className="min-w-0 pr-2">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Pertanyaan Sementara (Temporary)</label>
+                            <p className="text-[8px] text-slate-400 mt-0.5 leading-snug">Hanya digunakan untuk perhitungan / navigasi client (tidak disimpan ke Database/Server).</p>
+                          </div>
+                          {canEdit && (
+                            <input
+                              type="checkbox"
+                              checked={!!parsedVal.is_temporary}
+                              onChange={e => {
+                                updateValObj({
+                                  is_temporary: e.target.checked
+                                });
+                              }}
+                              className="rounded accent-blue-600 cursor-pointer"
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Skip Logic (Lompat ke Rincian) */}
+                      <div className="space-y-3 pt-3 border-t border-slate-100">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Lompat ke Rincian (Skip Logic Target)</label>
+                          {canEdit ? (
+                            <select
+                              value={selected.skipTarget || ""}
+                              onChange={e => handleUpdateQuestion("skipTarget", e.target.value ? parseInt(e.target.value, 10) : null)}
+                              className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-blue-600 outline-none cursor-pointer focus:border-blue-500"
+                            >
+                              <option value="">-- Tidak ada lompatan --</option>
+                              {(() => {
+                                const allOrderedQs = [];
+                                blocks.forEach(b => {
+                                  allOrderedQs.push(...getOrderedQuestionsInBlock(b.id, questions));
+                                });
+                                const currentIdx = allOrderedQs.findIndex(y => y.id === selected.id);
+
+                                return blocks.map(b => {
+                                  const blockQs = getOrderedQuestionsInBlock(b.id, questions).filter(x => {
+                                    if (x.id === selected.id || x.type === 'note') return false;
+                                    const targetIdx = allOrderedQs.findIndex(y => y.id === x.id);
+                                    return targetIdx > currentIdx;
+                                  });
+                                  if (blockQs.length === 0) return null;
+                                  return (
+                                    <optgroup key={b.id} label={`${b.id}: ${b.title}`}>
+                                      {blockQs.map(x => (
+                                        <option key={x.id} value={x.id}>R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...</option>
+                                      ))}
+                                    </optgroup>
+                                  );
+                                });
+                              })()}
+                            </select>
+                          ) : (
+                            <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-medium">
+                              {selected.skipTarget ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}` : "Tidak ada"}
+                            </div>
+                          )}
+                        </div>
+
+                        {selected.skipTarget && (
+                          <div className="space-y-2">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Syarat Jawaban Pemicu Lompatan</label>
+                            <RuleBuilder
+                              ruleVal={selected.skip || ""}
+                              onChange={newVal => handleUpdateQuestion("skip", newVal)}
+                              label="Aturan Lompatan"
+                              questions={questions}
+                              blocks={blocks}
+                              currentQuestionId={selected.id}
+                              allowCurrent={true}
+                            />
+                            <p className="text-[9px] text-slate-400 leading-snug">Semua rincian setelah rincian ini hingga sebelum target akan dilewati jika kondisi di atas terpenuhi.</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Show If Logic */}
+                      <div className="space-y-3 pt-3 border-t border-slate-100">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tampilkan Kondisional (Show If)</label>
+                          <RuleBuilder
+                            ruleVal={selected.showIfValue || ""}
+                            onChange={newVal => {
+                              if (!newVal) {
+                                handleUpdateQuestion({
+                                  showIfParentId: null,
+                                  showIfValue: null
+                                });
+                              } else {
+                                try {
+                                  const parsed = JSON.parse(newVal);
+                                  const parentId = (parsed.conditions && parsed.conditions[0]) ? parsed.conditions[0].question_id : null;
+                                  handleUpdateQuestion({
+                                    showIfParentId: parentId,
+                                    showIfValue: newVal
+                                  });
+                                } catch (e) {
+                                  handleUpdateQuestion("showIfValue", newVal);
+                                }
+                              }
+                            }}
+                            label="Syarat Menampilkan Rincian"
+                            questions={questions}
+                            blocks={blocks}
+                            currentQuestionId={selected.id}
+                          />
+                          <p className="text-[9px] text-slate-400 leading-snug">Rincian pertanyaan ini hanya akan ditampilkan ke petugas jika kondisi di atas terpenuhi.</p>
+                        </div>
+                      </div>
+
                       {canEdit && (
                         <button
                           onClick={() => handleDeleteQuestion(selected.id)}
-                          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all mt-2 text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
+                          title="Hapus rincian ini beserta sub-pertanyaannya"
                         >
-                          <Trash2 size={13}/> Hapus Catatan
+                          <Trash2 size={13} /> Hapus Rincian
                         </button>
                       )}
                     </div>
                   </div>
                 );
-              }
-
-              // === REGULAR QUESTION PROPERTIES ===
-              let parsedVal = { type: "unlimited", min: "", max: "", hint: "", sub_label: "" };
-              if (selected.val) {
-                const trimmed = selected.val.trim();
-                if (trimmed.startsWith('{')) {
-                  try { parsedVal = { ...parsedVal, ...JSON.parse(trimmed) }; } catch (e) {}
-                  // Debug: Log parsed validation to see if loop settings are present
-                  console.log('[FormBuilder] parsedVal for question', selected.id, ':', parsedVal);
-                } else if (trimmed.startsWith('range:')) {
-                  const parts = trimmed.replace('range:', '').trim().split('-');
-                  parsedVal.type = "range"; parsedVal.min = parts[0] || ""; parsedVal.max = parts[1] || "";
-                } else if (trimmed.startsWith('min:')) {
-                  parsedVal.type = "min"; parsedVal.min = trimmed.replace('min:', '').trim();
-                } else if (trimmed.startsWith('gt:')) {
-                  parsedVal.type = "gt"; parsedVal.min = trimmed.replace('gt:', '').trim();
-                } else { parsedVal.hint = trimmed; }
-              }
-              const updateValObj = (updates) => {
-                console.log('[FormBuilder] updateValObj called with:', updates);
-                handleUpdateQuestion("val", JSON.stringify({ ...parsedVal, ...updates }));
-              };
-              const optionsList = Array.isArray(selected.options) ? selected.options : [];
-
-              return (
-                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
-                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Properti Rincian</h3>
-                    <Settings size={14} className="text-slate-300 animate-spin-slow"/>
-                  </div>
-                  {!canEdit && (
-                    <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0"/>
-                      Properti hanya dapat direview (Mode Read-Only)
+              })() : (() => {
+                const activeBlockObj = blocks.find(b => b.id === activeBlok);
+                if (!activeBlockObj) {
+                  return (
+                    <div className="bg-slate-50/50 rounded-xl border border-slate-100 p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
+                      <Settings size={28} className="text-slate-200 mb-3 animate-pulse" />
+                      <p className="text-sm text-slate-400 font-bold">Pilih rincian untuk melihat propertinya</p>
+                      <p className="text-xs text-slate-300 mt-1">Klik pada salah satu rincian kuesioner</p>
                     </div>
-                  )}
-                  <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">No. Rincian</label>
-                        <input
-                          value={`R.${getQuestionCode(selected, questions, blocks)}`}
-                          readOnly
-                          className="w-full px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-500 font-bold mono outline-none"
-                        />
+                  );
+                }
+                return (
+                  <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
+                    <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
+                      <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <Settings size={14} className="text-slate-500" />
+                        Properti Blok ({activeBlockObj.id})
+                      </h3>
+                    </div>
+                    {!canEdit && (
+                      <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0" />
+                        Properti hanya dapat direview (Mode Read-Only)
                       </div>
+                    )}
+                    <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Kode Rincian Kustom (opsional)</label>
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Kode Blok</label>
                         <input
                           type="text"
-                          value={parsedVal.custom_code || ""}
-                          readOnly={!canEdit}
-                          placeholder="Misal: R400 (Kosongkan utk default)"
-                          onChange={e => updateValObj({ custom_code: e.target.value })}
-                          className={`w-full px-3 py-2.5 text-xs border rounded-lg font-bold mono outline-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
+                          value={activeBlockObj.id}
+                          disabled
+                          className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-500 font-semibold cursor-not-allowed"
                         />
                       </div>
-                    </div>
-
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase">Pertanyaan Utama</label>
-                        {canEdit && (
-                          <VariableInserterDropdown
-                            questions={questions}
-                            blocks={blocks}
-                            currentQuestionId={selectedId}
-                            onInsert={(code) => {
-                              const textarea = document.getElementById('label-textarea-main');
-                              const start = textarea?.selectionStart ?? selected.label.length;
-                              const end = textarea?.selectionEnd ?? selected.label.length;
-                              const newLabel = selected.label.slice(0, start) + `$R${code}` + selected.label.slice(end);
-                              handleUpdateQuestion('label', newLabel);
-                              setTimeout(() => {
-                                if (textarea) {
-                                  textarea.focus();
-                                  const pos = start + `$R${code}`.length;
-                                  textarea.setSelectionRange(pos, pos);
-                                }
-                              }, 50);
-                            }}
-                          />
-                        )}
-                      </div>
-                      <textarea
-                        id="label-textarea-main"
-                        value={selected.label}
-                        readOnly={!canEdit}
-                        onChange={e => handleUpdateQuestion("label", e.target.value)}
-                        rows={2}
-                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-semibold outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
-                      />
-                      {selected.label.includes('$R') && (
-                        <div className="mt-1.5 px-3 py-2 bg-amber-50/60 border border-amber-100 rounded-lg text-xs text-slate-600 leading-relaxed">
-                          <span className="text-[9px] font-bold text-amber-600 uppercase block mb-0.5">Preview Variabel</span>
-                          {renderLabelWithVars(selected.label)}
-                        </div>
-                      )}
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Label Pertanyaan</label>
-                      <textarea
-                        value={parsedVal.sub_label || ""}
-                        readOnly={!canEdit}
-                        placeholder="Contoh: Pastikan kembali ke responden..."
-                        onChange={e => updateValObj({ sub_label: e.target.value })}
-                        rows={2}
-                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-none focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Petunjuk Pengisian (Keterangan)</label>
-                      <textarea
-                        value={parsedVal.hint || ""}
-                        readOnly={!canEdit}
-                        placeholder="Contoh: SHM = Surat Hak Milik..."
-                        onChange={e => updateValObj({ hint: e.target.value })}
-                        rows={8}
-                        className={`w-full px-3 py-2.5 text-xs border rounded-lg font-medium outline-none resize-y focus:border-blue-500 ${canEdit ? "bg-white border-slate-200 text-slate-700" : "bg-slate-50 border-slate-100 text-slate-500"}`}
-                      />
-                    </div>
-
-                    {questions.some(c => c.parentId === selected.id || c.parent_id === selected.id) && (
                       <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Mode Rincian Induk</label>
-                        {canEdit ? (
-                          <select
-                            value={parsedVal.parent_mode || "label"}
-                            onChange={e => updateValObj({ parent_mode: e.target.value })}
-                            className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
-                          >
-                            <option value="label">Pertanyaan Label (Tanpa Input Petugas)</option>
-                            <option value="original">Pertanyaan Asli (Butuh Input Petugas)</option>
-                            <option value="empty">Kosong (Langsung Skip/Tampilkan Sub-pertanyaan)</option>
-                          </select>
-                        ) : (
-                          <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold">
-                            {parsedVal.parent_mode === "original" ? "Pertanyaan Asli (Butuh Input Petugas)" : parsedVal.parent_mode === "empty" ? "Kosong (Langsung Skip/Tampilkan Sub-pertanyaan)" : "Pertanyaan Label (Tanpa Input Petugas)"}
-                          </div>
-                        )}
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Judul Blok</label>
+                        <input
+                          type="text"
+                          value={activeBlockObj.title === "(Blok Teks)" ? "Blok Teks Saja" : activeBlockObj.title}
+                          disabled={!canEdit || activeBlockObj.title === "(Blok Teks)"}
+                          onChange={e => handleUpdateBlockTitle(e.target.value)}
+                          className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold focus:border-blue-500 outline-none"
+                        />
                       </div>
-                    )}
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tipe Input</label>
-                        {canEdit ? (
-                          <select
-                            value={selected.type}
-                            onChange={e => handleUpdateQuestion("type", e.target.value)}
-                            className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
-                          >
-                            <option value="text">Text (Kapital)</option>
-                            <option value="number">Number</option>
-                            <option value="radio">Radio</option>
-                            <option value="select">Select (Multi-Select)</option>
-                            <option value="search">Searchable Dropdown</option>
-                            <option value="location">Geotagging</option>
-                            <option value="date">Tanggal/Waktu</option>
-                            <option value="pcl">PCL (Daftar Petugas)</option>
-                            <option value="pml">PML (Daftar Pengawas)</option>
-                            <option value="signature">Tanda Tangan</option>
-                          </select>
-                        ) : (
-                          <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type === "search" ? "Searchable Dropdown" : selected.type}</div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Wajib diisi</label>
-                        {canEdit ? (
-                          <select
-                            value={selected.req ? "Ya" : "Tidak"}
-                            onChange={e => handleUpdateQuestion("req", e.target.value === "Ya")}
-                            className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
-                          >
-                            <option value="Ya">Ya</option>
-                            <option value="Tidak">Tidak</option>
-                          </select>
-                        ) : (
-                          <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"}`}>{selected.req ? "Ya" : "Tidak"}</div>
-                        )}
-                      </div>
-                    </div>
-
-                    {selected.type === "number" && (
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Batasan Angka</label>
-                        <div>
-                          <select
-                            value={parsedVal.type}
-                            disabled={!canEdit}
-                            onChange={e => updateValObj({ type: e.target.value })}
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
-                          >
-                            <option value="unlimited">Tidak Dibatasi</option>
-                            <option value="range">Rentang Nilai (Min-Max)</option>
-                            <option value="min">Lebih Dari / Sama Dengan (&gt;=)</option>
-                            <option value="gt">Lebih Dari (&gt;)</option>
-                            <option value="max">Kurang Dari / Sama Dengan (&lt;=)</option>
-                            <option value="lt">Kurang Dari (&lt;)</option>
-                          </select>
-                        </div>
-                        {parsedVal.type === "range" && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Min</label>
-                              <input type="number" value={parsedVal.min} disabled={!canEdit} onChange={e => updateValObj({ min: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
-                            </div>
-                            <div>
-                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Nilai Max</label>
-                              <input type="number" value={parsedVal.max} disabled={!canEdit} onChange={e => updateValObj({ max: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
-                            </div>
-                          </div>
-                        )}
-                        {(parsedVal.type === "min" || parsedVal.type === "gt") && (
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Batas Nilai Minimal</label>
-                            <input type="number" value={parsedVal.min} disabled={!canEdit} onChange={e => updateValObj({ min: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
-                          </div>
-                        )}
-                        {(parsedVal.type === "max" || parsedVal.type === "lt") && (
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Batas Nilai Maksimal</label>
-                            <input type="number" value={parsedVal.max} disabled={!canEdit} onChange={e => updateValObj({ max: e.target.value })} className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"/>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {selected.type === "number" && (
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Tipe Bilangan</label>
-                        <div>
-                          <select
-                            value={parsedVal.number_type || "decimal"}
-                            disabled={!canEdit}
-                            onChange={e => updateValObj({ number_type: e.target.value })}
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
-                          >
-                            <option value="decimal">Bilangan Desimal (Bisa Koma)</option>
-                            <option value="integer">Bilangan Bulat (Tidak Bisa Koma)</option>
-                          </select>
-                        </div>
-                      </div>
-                    )}
-
-                    {selected.type === "number" && (
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Formula Kalkulasi Otomatis</label>
-                        <div>
-                          <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Rumus Operasi (misal: R101a + R101b)</label>
-                          <input 
-                            type="text" 
-                            value={parsedVal.formula || ""} 
-                            disabled={!canEdit} 
-                            onChange={e => updateValObj({ formula: e.target.value })} 
-                            placeholder="Kosongkan jika diinput manual"
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500"
-                          />
-                        </div>
-                      </div>
-                    )}
-                    {selected.type === "text" && (
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Isian Teks</label>
-                        <div>
-                          <select
-                            value={parsedVal.text_validation_type || "none"}
-                            disabled={!canEdit}
-                            onChange={e => updateValObj({ 
-                              text_validation_type: e.target.value,
-                              text_validation_min: "",
-                              text_validation_max: ""
-                            })}
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
-                          >
-                            <option value="none">Tanpa Validasi</option>
-                            <option value="digits_only">Hanya Angka</option>
-                            <option value="letters_only">Hanya Huruf</option>
-                            <option value="alphanumeric">Huruf & Angka</option>
-                            <option value="email">Format E-mail</option>
-                            <option value="length">Panjang Karakter (Min/Max)</option>
-                          </select>
-                        </div>
-                        {parsedVal.text_validation_type !== "none" && parsedVal.text_validation_type !== "email" && (
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Min Karakter</label>
-                              <input 
-                                type="number" 
-                                value={parsedVal.text_validation_min || ""} 
-                                disabled={!canEdit} 
-                                onChange={e => updateValObj({ text_validation_min: e.target.value })} 
-                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Max Karakter</label>
-                              <input 
-                                type="number" 
-                                value={parsedVal.text_validation_max || ""} 
-                                disabled={!canEdit} 
-                                onChange={e => updateValObj({ text_validation_max: e.target.value })} 
-                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {selected.type === "date" && (
-                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Pengaturan Tanggal/Waktu</label>
-                        <div>
-                          <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Format</label>
-                          <select
-                            value={parsedVal.date_type || "date"}
-                            disabled={!canEdit}
-                            onChange={e => updateValObj({ date_type: e.target.value })}
-                            className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none cursor-pointer text-slate-600 font-semibold"
-                          >
-                            <option value="date">Tanggal Saja (YYYY-MM-DD)</option>
-                            <option value="datetime-local">Tanggal & Waktu (Local)</option>
-                            <option value="time">Waktu Saja (HH:MM)</option>
-                          </select>
-                        </div>
-                        <div className="flex items-center justify-between pt-1">
-                          <label className="text-xs font-semibold text-slate-500 cursor-pointer">
-                            Sediakan tombol "Ambil Waktu Sekarang"
-                          </label>
-                          {canEdit ? (
-                            <input
-                              type="checkbox"
-                              checked={!!parsedVal.auto_now}
-                              onChange={e => updateValObj({ auto_now: e.target.checked })}
-                              className="rounded accent-blue-600 cursor-pointer"
-                            />
-                          ) : (
-                            <div className="text-xs font-semibold text-slate-500">{parsedVal.auto_now ? "Ya" : "Tidak"}</div>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {(selected.type === "radio" || selected.type === "select" || selected.type === "search") && (
-                      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                        <div>
-                          <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Sumber Opsi Dinamis (Ambil dari Looping):</label>
-                          {canEdit ? (
-                            <select
-                              value={parsedVal.options_source_question_id || ""}
-                              onChange={e => updateValObj({ options_source_question_id: e.target.value ? parseInt(e.target.value, 10) : null })}
-                              className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer"
-                            >
-                              <option value="">-- Gunakan Pilihan Manual --</option>
-                              {questions
-                                .filter(q => q.id !== selected.id && q.type !== 'note')
-                                .map(q => (
-                                  <option key={q.id} value={q.id}>R.{getQuestionCode(q, questions, blocks)}: {q.label.substring(0, 40)}...</option>
-                                ))
-                              }
-                            </select>
-                          ) : (
-                            <div className="text-xs font-semibold text-slate-500">
-                              {parsedVal.options_source_question_id 
-                                ? `Mengambil dari R.${getQuestionCode(questions.find(x => x.id === parsedVal.options_source_question_id), questions, blocks)}` 
-                                : "Pilihan Manual"}
-                            </div>
-                          )}
-                        </div>
-
-                        {!parsedVal.options_source_question_id && (
-                          <>
-                            <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-                              <label className="block text-[10px] font-bold text-slate-500 uppercase">Daftar Pilihan Opsi</label>
-                              {canEdit && (
-                                <button type="button" onClick={() => handleAddOption(selected, optionsList)} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded border-0 cursor-pointer">
-                                  + Opsi
-                                </button>
-                              )}
-                            </div>
-                            {canEdit && (
-                              <details className="mb-3 bg-white p-2 border border-slate-200 rounded-lg">
-                                <summary className="text-[10px] font-bold text-slate-500 cursor-pointer outline-none">Import Opsi dari JSON (Otomatis)</summary>
-                                <div className="mt-2">
-                                  <textarea id={`json-import-${selected.id}`} className="w-full text-xs p-2 border border-slate-200 rounded-lg outline-none font-mono" rows="4" placeholder='Contoh:\n[\n  {"kode": "000", "pekerjaan": "Tidak Bekerja"},\n  {"kode": "001", "pekerjaan": "PNS"}\n]'></textarea>
-                                  <button type="button" onClick={(e) => {
-                                    const textarea = document.getElementById(`json-import-${selected.id}`);
-                                    const jsonStr = textarea.value;
-                                    if (!jsonStr) return;
-                                    try {
-                                      const parsed = JSON.parse(jsonStr);
-                                      if (Array.isArray(parsed) && parsed.length > 0) {
-                                        const newOptions = parsed.map(item => {
-                                          const keys = Object.keys(item);
-                                          if (keys.length >= 2) {
-                                            return { value: String(item[keys[0]]), label: String(item[keys[1]]) };
-                                          } else if (keys.length === 1) {
-                                            return { value: String(item[keys[0]]), label: String(item[keys[0]]) };
-                                          }
-                                          return null;
-                                        }).filter(Boolean);
-                                        // Auto append to existing options
-                                        handleUpdateQuestion("options", [...optionsList, ...newOptions]);
-                                        textarea.value = "";
-                                        e.target.parentElement.parentElement.removeAttribute("open");
-                                        alert(`${newOptions.length} Opsi berhasil diimport!`);
-                                      } else {
-                                        alert("Gagal: JSON harus berupa array of objects.");
-                                      }
-                                    } catch(err) {
-                                      alert("Gagal: Format JSON tidak valid (" + err.message + ")");
-                                    }
-                                  }} className="mt-2 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded border-0 cursor-pointer w-full transition-colors">
-                                    Proses JSON
-                                  </button>
-                                </div>
-                              </details>
-                            )}
-                            <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
-                              {optionsList.map((opt, idx) => (
-                                <div key={idx} className="flex items-center gap-1.5 bg-white p-1.5 rounded-lg border border-slate-200">
-                                  {canEdit ? (
-                                    <input
-                                      type="text"
-                                      value={opt.value}
-                                      onChange={e => handleUpdateOptionValue(optionsList, idx, e.target.value)}
-                                      placeholder="Nilai"
-                                      className="w-10 px-1 py-1 text-center text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 focus:border-blue-300 rounded outline-none uppercase"
-                                      title="Nilai/Kode Opsi"
-                                    />
-                                  ) : (
-                                    <span className="w-10 h-6 flex items-center justify-center text-[10px] font-bold text-blue-600 bg-blue-50 rounded-md uppercase">{opt.value}</span>
-                                  )}
-                                  <input type="text" value={opt.label} readOnly={!canEdit} onChange={e => handleUpdateOptionLabel(optionsList, idx, e.target.value)} className="flex-1 px-2 py-1 text-xs border border-transparent hover:border-slate-100 focus:border-blue-300 rounded outline-none font-medium text-slate-700 bg-transparent"/>
-                                  <label className="flex items-center gap-1 text-[9px] font-semibold text-slate-500 cursor-pointer select-none">
-                                    <input
-                                      type="checkbox"
-                                      checked={!!opt.is_other}
-                                      disabled={!canEdit}
-                                      onChange={() => handleToggleOptionOther(optionsList, idx)}
-                                      className="rounded accent-blue-600 cursor-pointer w-3 h-3"
-                                    />
-                                    <span>Tambah Input Text</span>
-                                  </label>
-                                  {canEdit && (
-                                    <button type="button" onClick={() => handleDeleteOption(selected, optionsList, idx)} className="p-1 hover:bg-red-50 text-red-500 hover:text-red-700 border-0 bg-transparent cursor-pointer rounded">
-                                      <Trash size={12}/>
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                              {optionsList.length === 0 && <p className="text-[10px] text-slate-400 text-center italic py-2">Belum ada pilihan opsi</p>}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Auto-fill & Copy Configuration Section */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase">Pengaturan Auto-fill & Salin</label>
-                      
-                      <div>
-                        <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Nilai Default (Bawaan):</label>
-                        {canEdit ? (
-                          <input
-                            type="text"
-                            value={parsedVal.default_val || ""}
-                            onChange={e => updateValObj({ default_val: e.target.value })}
-                            placeholder="Contoh: Kalimantan Utara"
-                            className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none focus:border-blue-500"
-                          />
-                        ) : (
-                          <div className="text-xs font-semibold text-slate-600">{parsedVal.default_val || "-"}</div>
-                        )}
-                      </div>
-
-                      <div className="space-y-2 pt-1 border-t border-slate-100">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-semibold text-slate-500 cursor-pointer">
-                            Gunakan sebagai Kunci Pencarian (Lookup Key)
-                          </label>
-                          {canEdit ? (
-                            <input
-                              type="checkbox"
-                              checked={!!parsedVal.is_lookup_key}
-                              onChange={e => updateValObj({ is_lookup_key: e.target.checked })}
-                              className="rounded accent-blue-600 cursor-pointer"
-                            />
-                          ) : (
-                            <div className="text-xs font-semibold text-slate-500">{parsedVal.is_lookup_key ? "Ya" : "Tidak"}</div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-semibold text-slate-500 cursor-pointer">
-                            Salin Nilai Jika Kunci Pencarian Cocok
-                          </label>
-                          {canEdit ? (
-                            <input
-                              type="checkbox"
-                              checked={!!parsedVal.copy_on_key_match}
-                              onChange={e => updateValObj({ copy_on_key_match: e.target.checked })}
-                              className="rounded accent-blue-600 cursor-pointer"
-                            />
-                          ) : (
-                            <div className="text-xs font-semibold text-slate-500">{parsedVal.copy_on_key_match ? "Ya" : "Tidak"}</div>
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-between pt-1 border-t border-dashed border-slate-250">
-                          <label className="text-xs font-semibold text-slate-550 cursor-pointer">
-                            Hanya Baca (Read Only / Kunci Isian)
-                          </label>
-                          {canEdit ? (
-                            <input
-                              type="checkbox"
-                              checked={!!parsedVal.read_only}
-                              onChange={e => updateValObj({ read_only: e.target.checked })}
-                              className="rounded accent-blue-600 cursor-pointer"
-                            />
-                          ) : (
-                            <div className="text-xs font-semibold text-slate-500">{parsedVal.read_only ? "Ya" : "Tidak"}</div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Loop / Perulangan Section */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase">Ulangi Pertanyaan (Looping)</label>
-                        {canEdit && (
-                          <input
-                            type="checkbox"
-                            checked={!!parsedVal.is_loop}
-                            onChange={e => {
-                              updateValObj({
-                                is_loop: e.target.checked,
-                                loop_by_question_id: e.target.checked ? (parsedVal.loop_by_question_id || "") : null
-                              });
-                            }}
-                            className="rounded accent-blue-600 cursor-pointer"
-                          />
-                        )}
-                      </div>
-                      {parsedVal.is_loop && (
-                        <div className="space-y-3 pt-1 border-t border-slate-100">
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Tipe Pengulangan:</label>
-                            {canEdit ? (
-                              <select
-                                value={parsedVal.loop_type || "question"}
-                                onChange={e => updateValObj({ 
-                                  loop_type: e.target.value,
-                                  loop_by_question_id: e.target.value === "manual" ? null : (parsedVal.loop_by_question_id || "")
-                                })}
-                                className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none cursor-pointer focus:border-blue-500"
-                              >
-                                <option value="question">Berdasarkan Rincian Lain</option>
-                                <option value="manual">Dinamis oleh Petugas (Tombol Tambah/Kurang)</option>
-                              </select>
-                            ) : (
-                              <div className="text-xs font-semibold text-slate-600">
-                                {parsedVal.loop_type === "manual" ? "Dinamis oleh Petugas" : "Berdasarkan Rincian Lain"}
-                              </div>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Nama Kelompok Looping (Optional):</label>
-                            {canEdit ? (
-                              <input
-                                type="text"
-                                value={parsedVal.loop_group || ""}
-                                placeholder="Contoh: anggota_keluarga"
-                                onChange={e => updateValObj({ loop_group: e.target.value.trim().toLowerCase() })}
-                                className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none focus:border-blue-500"
-                              />
-                            ) : (
-                              <div className="text-xs font-semibold text-slate-600">
-                                {parsedVal.loop_group || "Tidak ada"}
-                              </div>
-                            )}
-                            <p className="text-[8px] text-slate-400 mt-1 leading-snug">Gunakan nama yang sama untuk semua pertanyaan yang ingin diulang bersama dalam satu kontainer visual.</p>
-                          </div>
-                          {parsedVal.loop_type !== "manual" && (
-                            <div className="space-y-2">
-                              <label className="block text-[9px] font-semibold text-slate-400 uppercase">Ulangi berdasarkan jumlah pada:</label>
-                              {canEdit ? (
-                                <select
-                                  value={parsedVal.loop_by_question_id || ""}
-                                  onChange={e => updateValObj({ loop_by_question_id: e.target.value ? parseInt(e.target.value, 10) : null })}
-                                  className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none cursor-pointer focus:border-blue-500"
-                                >
-                                  <option value="">-- Pilih Rincian Jumlah --</option>
-                                  {(() => {
-                                    const allOrderedQs = [];
-                                    blocks.forEach(b => {
-                                      allOrderedQs.push(...getOrderedQuestionsInBlock(b.id, questions));
-                                    });
-                                    const currentIdx = allOrderedQs.findIndex(x => x.id === selected.id);
-                                    const possibleLoopQs = allOrderedQs.filter((x, idx) => idx < currentIdx && x.type === 'number');
-                                    return possibleLoopQs.map(x => (
-                                      <option key={x.id} value={x.id}>
-                                        R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...
-                                      </option>
-                                    ));
-                                  })()}
-                                </select>
-                              ) : (
-                                <div className="px-3 py-2 text-xs bg-white border border-slate-100 rounded-lg text-slate-600 font-semibold">
-                                  {parsedVal.loop_by_question_id
-                                    ? `R.${getQuestionCode(questions.find(t => t.id === parsedVal.loop_by_question_id), questions, blocks)}: ${questions.find(t => t.id === parsedVal.loop_by_question_id)?.label || ''}`
-                                    : "Belum ditentukan"
-                                  }
-                                </div>
-                              )}
-                              <p className="text-[9px] text-slate-450 leading-snug">Pertanyaan ini akan diulang sebanyak jawaban angka pada rincian terpilih di atas.</p>
-                            </div>
-                          )}
-                          {parsedVal.loop_type === "manual" && (
-                            <p className="text-[9px] text-slate-455 leading-snug">Petugas dapat secara dinamis menambah dan menghapus baris isian menggunakan tombol tambah/kurang di aplikasi.</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Pertanyaan Sementara (Temporary / Client Calculation Only) */}
-                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3 mt-3">
-                      <div className="flex items-center justify-between">
-                        <div className="min-w-0 pr-2">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Pertanyaan Sementara (Temporary)</label>
-                          <p className="text-[8px] text-slate-400 mt-0.5 leading-snug">Hanya digunakan untuk perhitungan / navigasi client (tidak disimpan ke Database/Server).</p>
-                        </div>
-                        {canEdit && (
-                          <input
-                            type="checkbox"
-                            checked={!!parsedVal.is_temporary}
-                            onChange={e => {
-                              updateValObj({
-                                is_temporary: e.target.checked
-                              });
-                            }}
-                            className="rounded accent-blue-600 cursor-pointer"
-                          />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Skip Logic (Lompat ke Rincian) */}
-                    <div className="space-y-3 pt-3 border-t border-slate-100">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Lompat ke Rincian (Skip Logic Target)</label>
-                        {canEdit ? (
-                          <select
-                            value={selected.skipTarget || ""}
-                            onChange={e => handleUpdateQuestion("skipTarget", e.target.value ? parseInt(e.target.value, 10) : null)}
-                            className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-blue-600 outline-none cursor-pointer focus:border-blue-500"
-                          >
-                            <option value="">-- Tidak ada lompatan --</option>
-                            {(() => {
-                              const allOrderedQs = [];
-                              blocks.forEach(b => {
-                                allOrderedQs.push(...getOrderedQuestionsInBlock(b.id, questions));
-                              });
-                              const currentIdx = allOrderedQs.findIndex(y => y.id === selected.id);
-
-                              return blocks.map(b => {
-                                const blockQs = getOrderedQuestionsInBlock(b.id, questions).filter(x => {
-                                  if (x.id === selected.id || x.type === 'note') return false;
-                                  const targetIdx = allOrderedQs.findIndex(y => y.id === x.id);
-                                  return targetIdx > currentIdx;
-                                });
-                                if (blockQs.length === 0) return null;
-                                return (
-                                  <optgroup key={b.id} label={`${b.id}: ${b.title}`}>
-                                    {blockQs.map(x => (
-                                      <option key={x.id} value={x.id}>R.{getQuestionCode(x, questions, blocks)}: {x.label.substring(0, 30)}...</option>
-                                    ))}
-                                  </optgroup>
-                                );
-                              });
-                            })()}
-                          </select>
-                        ) : (
-                          <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-medium">
-                            {selected.skipTarget ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}` : "Tidak ada"}
-                          </div>
-                        )}
-                      </div>
-
-                      {selected.skipTarget && (
-                        <div className="space-y-2">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Syarat Jawaban Pemicu Lompatan</label>
-                          <RuleBuilder
-                            ruleVal={selected.skip || ""}
-                            onChange={newVal => handleUpdateQuestion("skip", newVal)}
-                            label="Aturan Lompatan"
-                            questions={questions}
-                            blocks={blocks}
-                            currentQuestionId={selected.id}
-                            allowCurrent={true}
-                          />
-                          <p className="text-[9px] text-slate-400 leading-snug">Semua rincian setelah rincian ini hingga sebelum target akan dilewati jika kondisi di atas terpenuhi.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Show If Logic */}
-                    <div className="space-y-3 pt-3 border-t border-slate-100">
-                      <div>
-                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tampilkan Kondisional (Show If)</label>
+                      <div className="space-y-2 pt-3 border-t border-slate-100">
+                        <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Sembunyikan Blok (Hide Block)</label>
                         <RuleBuilder
-                          ruleVal={selected.showIfValue || ""}
-                          onChange={newVal => {
-                            if (!newVal) {
-                              handleUpdateQuestion({
-                                showIfParentId: null,
-                                showIfValue: null
-                              });
-                            } else {
-                              try {
-                                const parsed = JSON.parse(newVal);
-                                const parentId = (parsed.conditions && parsed.conditions[0]) ? parsed.conditions[0].question_id : null;
-                                handleUpdateQuestion({
-                                  showIfParentId: parentId,
-                                  showIfValue: newVal
-                                });
-                              } catch (e) {
-                                handleUpdateQuestion("showIfValue", newVal);
-                              }
-                            }
-                          }}
-                          label="Syarat Menampilkan Rincian"
+                          ruleVal={activeBlockObj.hide_logic || ""}
+                          onChange={handleUpdateBlockHideLogic}
+                          label="Aturan Sembunyikan Blok"
                           questions={questions}
                           blocks={blocks}
-                          currentQuestionId={selected.id}
+                          currentQuestionId={null}
                         />
-                        <p className="text-[9px] text-slate-400 leading-snug">Rincian pertanyaan ini hanya akan ditampilkan ke petugas jika kondisi di atas terpenuhi.</p>
+                        <p className="text-[9px] text-slate-400 leading-snug">Blok ini beserta semua rincian di dalamnya akan disembunyikan dari aplikasi petugas apabila kondisi di atas terpenuhi.</p>
                       </div>
                     </div>
-
-                    {canEdit && (
-                      <button
-                        onClick={() => handleDeleteQuestion(selected.id)}
-                        className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-semibold rounded-lg border-0 transition-all mt-2 text-red-500 bg-red-50 hover:bg-red-100 cursor-pointer"
-                        title="Hapus rincian ini beserta sub-pertanyaannya"
-                      >
-                        <Trash2 size={13}/> Hapus Rincian
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })() : (() => {
-              const activeBlockObj = blocks.find(b => b.id === activeBlok);
-              if (!activeBlockObj) {
-                return (
-                  <div className="bg-slate-50/50 rounded-xl border border-slate-100 p-8 flex flex-col items-center justify-center text-center min-h-[300px]">
-                    <Settings size={28} className="text-slate-200 mb-3 animate-pulse"/>
-                    <p className="text-sm text-slate-400 font-bold">Pilih rincian untuk melihat propertinya</p>
-                    <p className="text-xs text-slate-300 mt-1">Klik pada salah satu rincian kuesioner</p>
                   </div>
                 );
-              }
-              return (
-                <div className="bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm lg:flex-1 lg:flex lg:flex-col lg:min-h-0">
-                  <div className="px-5 py-4 border-b border-slate-50 flex items-center justify-between flex-shrink-0">
-                    <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                      <Settings size={14} className="text-slate-500"/>
-                      Properti Blok ({activeBlockObj.id})
-                    </h3>
-                  </div>
-                  {!canEdit && (
-                    <div className="mx-5 mt-4 px-3.5 py-2.5 bg-amber-50 text-amber-700 text-[10px] font-semibold rounded-xl border border-amber-100/50 flex items-center gap-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse flex-shrink-0"/>
-                      Properti hanya dapat direview (Mode Read-Only)
-                    </div>
-                  )}
-                  <div className="p-5 space-y-4 lg:flex-1 lg:overflow-y-auto">
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Kode Blok</label>
-                      <input
-                        type="text"
-                        value={activeBlockObj.id}
-                        disabled
-                        className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-500 font-semibold cursor-not-allowed"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Judul Blok</label>
-                      <input
-                        type="text"
-                        value={activeBlockObj.title === "(Blok Teks)" ? "Blok Teks Saja" : activeBlockObj.title}
-                        disabled={!canEdit || activeBlockObj.title === "(Blok Teks)"}
-                        onChange={e => handleUpdateBlockTitle(e.target.value)}
-                        className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold focus:border-blue-500 outline-none"
-                      />
-                    </div>
-                    <div className="space-y-2 pt-3 border-t border-slate-100">
-                      <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Sembunyikan Blok (Hide Block)</label>
-                      <RuleBuilder
-                        ruleVal={activeBlockObj.hide_logic || ""}
-                        onChange={handleUpdateBlockHideLogic}
-                        label="Aturan Sembunyikan Blok"
-                        questions={questions}
-                        blocks={blocks}
-                        currentQuestionId={null}
-                      />
-                      <p className="text-[9px] text-slate-400 leading-snug">Blok ini beserta semua rincian di dalamnya akan disembunyikan dari aplikasi petugas apabila kondisi di atas terpenuhi.</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
+              })()}
             </div>
           )}
         </div>
@@ -4973,13 +5086,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               Apakah Anda yakin ingin menambahkan blok baru bernama <strong className="text-slate-700">"{newBlockTitle}"</strong> setelah {activeBlok}? Penomoran romawi blok lainnya akan bergeser otomatis secara berurutan.
             </p>
             <div className="flex gap-2.5 mt-6 justify-end">
-              <button 
+              <button
                 onClick={() => setIsConfirmAddBlockOpen(false)}
                 className="px-3.5 py-2 text-xs font-semibold text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-xl border-0 cursor-pointer"
               >
                 Batal
               </button>
-              <button 
+              <button
                 onClick={handleConfirmAddBlock}
                 className="px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-xl border-0 cursor-pointer"
               >
@@ -5002,13 +5115,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               Tindakan ini akan menghapus <strong className="text-slate-700">"{blockToDelete.id} — {blockToDelete.title}"</strong> beserta seluruh rincian pertanyaan di dalamnya. Penomoran romawi blok di bawahnya akan disesuaikan. Tindakan ini tidak dapat dibatalkan.
             </p>
             <div className="flex gap-2.5 mt-6 justify-end">
-              <button 
+              <button
                 onClick={() => setBlockToDelete(null)}
                 className="px-3.5 py-2 text-xs font-semibold text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-xl border-0 cursor-pointer"
               >
                 Batal
               </button>
-              <button 
+              <button
                 onClick={() => handleDeleteBlock(blockToDelete.id)}
                 className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl border-0 cursor-pointer"
               >
@@ -5034,13 +5147,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 Tindakan ini akan menghapus pertanyaan <strong className="text-slate-700">"{qToDel.label?.substring(0, 50) || 'Tanpa label'}{qToDel.label?.length > 50 ? '...' : ''}"</strong> secara permanen. Tindakan ini tidak dapat dibatalkan.
               </p>
               <div className="flex gap-2.5 mt-6 justify-end">
-                <button 
+                <button
                   onClick={() => setQuestionToDelete(null)}
                   className="px-3.5 py-2 text-xs font-semibold text-slate-400 bg-slate-50 hover:bg-slate-100 rounded-xl border-0 cursor-pointer"
                 >
                   Batal
                 </button>
-                <button 
+                <button
                   onClick={confirmDeleteQuestion}
                   className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl border-0 cursor-pointer"
                 >
@@ -5060,29 +5173,29 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           <div className="bg-white rounded-2xl p-8 w-full shadow-lg"
             style={{ maxWidth: 520, animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
-            
+
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Copy size={20}/>
+                  <Copy size={20} />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Salin Struktur Kuesioner</h3>
                   <p className="text-xs text-slate-400">Duplikasi seluruh blok dan rincian kuesioner dari kegiatan lain</p>
                 </div>
               </div>
-              <button 
+              <button
                 disabled={isCopying}
                 onClick={() => setIsCopyModalOpen(false)}
                 className="w-8 h-8 rounded-lg hover:bg-slate-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-slate-600 transition-all bg-transparent disabled:opacity-50">
-                <X size={18}/>
+                <X size={18} />
               </button>
             </div>
 
             <div className="space-y-5">
               <div className="p-4 bg-amber-50 rounded-xl border border-amber-100 text-amber-805 text-xs leading-relaxed space-y-1">
                 <div className="flex items-center gap-1.5 font-bold text-amber-700">
-                  <AlertTriangle size={14}/>
+                  <AlertTriangle size={14} />
                   <span>Peringatan Penting!</span>
                 </div>
                 <p>Tindakan ini akan <strong className="text-slate-800">menghapus seluruh blok dan pertanyaan</strong> kuesioner yang saat ini terdaftar pada kegiatan ini (kegiatan tujuan) untuk digantikan dengan salinan dari kegiatan asal.</p>
@@ -5134,7 +5247,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 >
                   {isCopying ? (
                     <>
-                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       <span>Menyalin...</span>
                     </>
                   ) : (
@@ -5156,29 +5269,29 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           <div className="bg-white rounded-2xl p-8 w-full shadow-lg"
             style={{ maxWidth: 580, animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
             onClick={e => e.stopPropagation()}>
-            
+
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600">
-                  <Database size={20}/>
+                  <Database size={20} />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">Unggah Rincian Pertanyaan</h3>
                   <p className="text-xs text-slate-400">Impor daftar pertanyaan kuesioner sekaligus via Excel/CSV</p>
                 </div>
               </div>
-              <button 
+              <button
                 disabled={isUploading || isSuccess}
                 onClick={() => setIsUploadModalOpen(false)}
                 className="w-8 h-8 rounded-lg hover:bg-slate-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-slate-600 transition-all bg-transparent disabled:opacity-50">
-                <X size={18}/>
+                <X size={18} />
               </button>
             </div>
 
             {isSuccess ? (
               <div className="py-8 text-center" style={{ animation: 'scaleIn 0.2s ease' }}>
                 <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
-                  <Check size={36}/>
+                  <Check size={36} />
                 </div>
                 <h4 className="text-md font-bold text-slate-800 mb-1">Rincian Pertanyaan Berhasil Diimpor!</h4>
                 <p className="text-xs text-slate-400">Pertanyaan baru telah ditambahkan ke {activeBlok}.</p>
@@ -5191,11 +5304,11 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       <p className="text-xs font-bold text-slate-800">Butuh template kolom pertanyaan?</p>
                       <p className="text-[10px] text-slate-400">Gunakan format template standar agar kolom data terpetakan otomatis</p>
                     </div>
-                    <button 
+                    <button
                       onClick={handleDownloadTemplate}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-200 text-blue-600 rounded-lg text-xs font-semibold transition-all cursor-pointer shadow-sm"
                     >
-                      <Upload size={12} className="rotate-180"/>
+                      <Upload size={12} className="rotate-180" />
                       Unduh Template
                     </button>
                   </div>
@@ -5203,13 +5316,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 mb-2">File Kuesioner (Excel / CSV)</label>
                     {!uploadedFile ? (
-                      <div 
+                      <div
                         onClick={handleSimulateSelectFile}
                         className={`border-2 border-dashed border-slate-200 hover:border-blue-400 rounded-2xl p-6 text-center cursor-pointer transition-all bg-slate-50/50 hover:bg-blue-50/10 flex flex-col items-center justify-center ${isUploading ? 'opacity-70 pointer-events-none' : ''}`}
                       >
                         {isUploading ? (
                           <>
-                            <div className="w-8 h-8 rounded-full border-2 border-blue-500/20 border-t-blue-500 animate-spin mb-3"/>
+                            <div className="w-8 h-8 rounded-full border-2 border-blue-500/20 border-t-blue-500 animate-spin mb-3" />
                             <p className="text-xs font-medium text-slate-500">Membaca dan memvalidasi file...</p>
                           </>
                         ) : (
@@ -5229,14 +5342,14 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/50 flex items-center justify-between">
                           <div className="flex items-center gap-3">
                             <div className="w-9 h-9 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
-                              <FileText size={18}/>
+                              <FileText size={18} />
                             </div>
                             <div>
                               <p className="text-xs font-bold text-slate-800 line-clamp-1">{uploadedFile.name}</p>
                               <p className="text-[10px] text-slate-400 font-medium">{uploadedFile.size} • Terdeteksi {uploadedFile.rowCount} rincian pertanyaan</p>
                             </div>
                           </div>
-                          <button 
+                          <button
                             onClick={() => {
                               setUploadedFile(null);
                               setDetectedColumns([]);
@@ -5244,7 +5357,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             }}
                             className="w-7 h-7 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg flex items-center justify-center border-0 bg-transparent cursor-pointer transition-all"
                           >
-                            <X size={14}/>
+                            <X size={14} />
                           </button>
                         </div>
 
@@ -5274,7 +5387,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <tbody className="divide-y divide-slate-100 text-slate-600 font-medium">
                                 {previewRows.map((row, idx) => (
                                   <tr key={idx} className="hover:bg-slate-50/50">
-                                    <td className="px-3 py-2 mono font-semibold text-blue-600">R.{`${blocks.findIndex(b=>b.id===activeBlok)+1}${(questions.filter(x=>x.blokId===activeBlok && !x.parentId).length + idx + 1).toString().padStart(2,'0')}`}</td>
+                                    <td className="px-3 py-2 mono font-semibold text-blue-600">R.{`${blocks.findIndex(b => b.id === activeBlok) + 1}${(questions.filter(x => x.blokId === activeBlok && !x.parentId).length + idx + 1).toString().padStart(2, '0')}`}</td>
                                     <td className="px-3 py-2 text-slate-700">{row.label}</td>
                                     <td className="px-3 py-2">
                                       <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[9px] font-bold uppercase">
@@ -5290,7 +5403,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             </table>
                           </div>
                           <p className="text-[10px] text-emerald-600 font-semibold mt-2 flex items-center gap-1">
-                            <span className="w-1 h-1 rounded-full bg-emerald-500"/> Validasi format sukses. Struktur rincian kuesioner siap diimpor.
+                            <span className="w-1 h-1 rounded-full bg-emerald-500" /> Validasi format sukses. Struktur rincian kuesioner siap diimpor.
                           </p>
                         </div>
                       </div>
@@ -5299,7 +5412,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 </div>
 
                 <div className="flex gap-3 mt-8">
-                  <button 
+                  <button
                     disabled={isUploading}
                     onClick={() => {
                       setIsUploadModalOpen(false);
@@ -5311,7 +5424,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   >
                     Batal
                   </button>
-                  <button 
+                  <button
                     disabled={!uploadedFile || isUploading}
                     onClick={handleImportQuestions}
                     className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white border-0 cursor-pointer transition-all hover:shadow active:scale-[0.98]"
@@ -5329,7 +5442,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       {showPreview && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 md:p-6" style={{ animation: 'fadeIn 0.25s ease' }}>
           <div className="bg-slate-50 rounded-2xl w-full max-w-4xl overflow-hidden shadow-2xl relative border border-slate-200 flex flex-col h-[680px] max-h-[85vh]" style={{ animation: 'scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
-            
+
             {/* App Navigation Header */}
             <div className="bg-blue-600 text-white px-6 py-4 flex items-center justify-between shadow-md flex-shrink-0">
               <div className="flex items-center gap-3">
@@ -5341,7 +5454,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   <p className="text-[10px] text-blue-100 font-medium">Simulasi pengisian data kuesioner</p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setShowPreview(false)}
                 className="w-8 h-8 rounded-full bg-white/10 border-0 flex items-center justify-center text-white hover:bg-white/20 cursor-pointer transition-all active:scale-[0.9]"
               >
@@ -5355,11 +5468,10 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                 <button
                   key={b.id}
                   onClick={() => setPreviewActiveBlok(b.id)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${
-                    previewActiveBlok === b.id 
-                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-100' 
+                  className={`px-4 py-2 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${previewActiveBlok === b.id
+                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-100'
                       : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
-                  }`}
+                    }`}
                 >
                   {b.id}: {b.title}
                 </button>
@@ -5386,7 +5498,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       if (parsed && parsed.loop_group) {
                         loopGroupName = parsed.loop_group;
                       }
-                    } catch (e) {}
+                    } catch (e) { }
                   }
 
                   if (loopGroupName) {
@@ -5438,11 +5550,11 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           const triggerValue = previewAnswers[parsed.loop_by_question_id];
                           const parsedTrigger = parseInt(triggerValue, 10);
                           loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-                        } catch (e) {}
+                        } catch (e) { }
                       }
                     }
                     const instances = Array.from({ length: loopCount }, (_, idx) => idx);
-                    
+
                     const isManualLoop = groupQs.some(x => {
                       const v = x.val || x.validation;
                       if (!v) return false;
@@ -5464,7 +5576,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           </span>
                         </div>
                       );
-                      
+
                       groupQs.forEach(gq => {
                         const els = renderPreviewQuestionWithChildren(gq, idx);
                         if (els && els.length > 0) {
@@ -5522,19 +5634,19 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       {/* ─── Paste Confirmation Modal ─────────────────────────────────── */}
       {pasteTarget && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center" style={{ animation: 'fadeIn 0.15s ease' }}>
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setPasteTarget(null)}/>
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setPasteTarget(null)} />
           <div className="relative bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" style={{ animation: 'slideUp 0.2s cubic-bezier(0.16,1,0.3,1)' }}>
             {/* Header */}
             <div className="px-6 py-4 border-b border-slate-50 flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
-                <Copy size={16} className="text-violet-600"/>
+                <Copy size={16} className="text-violet-600" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-900">Paste Pertanyaan</h3>
                 <p className="text-[11px] text-slate-400 font-medium mt-0.5">Konfirmasi sebelum menyalin pertanyaan</p>
               </div>
               <button onClick={() => setPasteTarget(null)} className="ml-auto p-1.5 hover:bg-slate-100 text-slate-400 rounded-lg border-0 bg-transparent cursor-pointer">
-                <X size={14}/>
+                <X size={14} />
               </button>
             </div>
 
@@ -5549,7 +5661,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                     {getOrderedQuestionsInBlock(copiedBlockId, questions).length} pertanyaan
                   </p>
                 </div>
-                <ArrowRight size={18} className="text-slate-400 flex-shrink-0"/>
+                <ArrowRight size={18} className="text-slate-400 flex-shrink-0" />
                 <div className="flex-1 bg-blue-50 border border-blue-100 rounded-xl p-3 text-center">
                   <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider mb-1">Tujuan</p>
                   <p className="text-sm font-bold text-blue-800">{pasteTarget.id}</p>
@@ -5562,7 +5674,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               {/* Info box */}
               <div className="bg-amber-50 border border-amber-100 rounded-xl p-3.5 space-y-1.5">
                 <p className="text-[11px] font-bold text-amber-700 flex items-center gap-1.5">
-                  <AlertTriangle size={12}/> Yang akan terjadi:
+                  <AlertTriangle size={12} /> Yang akan terjadi:
                 </p>
                 <ul className="text-[11px] text-amber-700 space-y-1 pl-4 list-disc">
                   <li><strong>{getOrderedQuestionsInBlock(copiedBlockId, questions).length} pertanyaan</strong> dari <strong>{copiedBlockId}</strong> akan ditambahkan di akhir <strong>{pasteTarget.id}</strong></li>
@@ -5588,12 +5700,12 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               >
                 {isPasting ? (
                   <>
-                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                    <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     Memproses...
                   </>
                 ) : (
                   <>
-                    <Copy size={13}/>
+                    <Copy size={13} />
                     Paste Sekarang
                   </>
                 )}
@@ -5606,22 +5718,21 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       {/* ─── Paste Toast Notification ──────────────────────────────────── */}
       {pasteToast && (
         <div
-          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg text-xs font-semibold border ${
-            pasteToast.type === 'success'
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg text-xs font-semibold border ${pasteToast.type === 'success'
               ? 'bg-emerald-600 text-white border-emerald-500'
               : 'bg-violet-600 text-white border-violet-500'
-          }`}
+            }`}
           style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)', minWidth: '280px', maxWidth: '400px' }}
         >
           <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-            {pasteToast.type === 'success' ? <Check size={13}/> : <Copy size={13}/>}
+            {pasteToast.type === 'success' ? <Check size={13} /> : <Copy size={13} />}
           </div>
           <span className="flex-1">{pasteToast.msg}</span>
           <button
             onClick={() => setPasteToast(null)}
             className="p-0.5 hover:bg-white/20 rounded border-0 bg-transparent cursor-pointer text-white/80 hover:text-white transition-all"
           >
-            <X size={12}/>
+            <X size={12} />
           </button>
         </div>
       )}
@@ -5682,11 +5793,11 @@ function VariableInserterDropdown({ questions, blocks, currentQuestionId, onInse
         className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg border-solid cursor-pointer transition-all"
         title="Sisipkan variabel dari jawaban pertanyaan sebelumnya"
       >
-        <Variable size={11}/> Variabel
+        <Variable size={11} /> Variabel
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}/>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full mt-1 bg-white rounded-xl shadow-lg z-50 border border-slate-100 w-64 max-h-56 overflow-y-auto" style={{ animation: 'scaleIn 0.15s ease' }}>
             <p className="px-3 py-2 text-[9px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-50">Pilih Pertanyaan Rujukan</p>
             {grouped.map(g => (

@@ -59,7 +59,10 @@ export function NotificationProvider({ children }) {
       {children}
 
       {/* Floating Toasts Container */}
-      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-3 w-full max-w-sm pointer-events-none">
+      <div 
+        className="fixed right-4 z-[9999] flex flex-col gap-3 w-full max-w-sm pointer-events-none"
+        style={{ top: "max(env(safe-area-inset-top, 0px) + 0.5rem, 1rem)" }}
+      >
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} onClose={() => removeToast(toast.id)} />
         ))}

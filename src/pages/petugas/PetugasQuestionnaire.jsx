@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, startTransition } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp } from "lucide-react";
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp, Search, Filter, ArrowUpDown } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
@@ -22,9 +22,16 @@ const useDebounce = (callback, delay) => {
 const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, allowedPattern, isNumberFormat = false, ...props }) => {
   const [localValue, setLocalValue] = useState(value || "");
   const [isFocused, setIsFocused] = useState(false);
-  const timerRef = useRef(null);
+  const localValueRef = useRef(localValue);
+  const valueRef = useRef(value);
+
+  // Keep refs up-to-date
+  useEffect(() => {
+    localValueRef.current = localValue;
+  }, [localValue]);
 
   useEffect(() => {
+    valueRef.current = value;
     setLocalValue(value || "");
   }, [value]);
 
@@ -34,12 +41,11 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
       // Convert typed comma to dot for internal processing and validation
       newVal = newVal.replace(/,/g, ".");
     }
-    
+
     if (forceUppercase) newVal = newVal.toUpperCase();
     if (allowedPattern && newVal !== "" && newVal !== "-" && !allowedPattern.test(newVal)) return;
 
     setLocalValue(newVal);
-    // REMOVED: Auto-save on typing. Now it ONLY saves on blur.
   };
 
   const handleFocus = (e) => {
@@ -56,6 +62,15 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
     if (props.onBlur) props.onBlur(e);
   };
 
+  // Flush value on unmount if it was changed
+  useEffect(() => {
+    return () => {
+      if (localValueRef.current !== (valueRef.current || "")) {
+        onChange(localValueRef.current);
+      }
+    };
+  }, [onChange]);
+
   const displayValue = useMemo(() => {
     if (!isNumberFormat) return localValue;
     if (isFocused) {
@@ -66,7 +81,7 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
     if (!localValue || localValue === "-" || localValue === "-." || localValue.endsWith(".")) {
       return localValue.replace(/\./g, ",");
     }
-    
+
     const parts = localValue.toString().split(".");
     // Format integer part with thousands separator (dot)
     const integerPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
@@ -79,16 +94,21 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
 
 const DebouncedTextarea = ({ value, onChange, delay = 500, ...props }) => {
   const [localValue, setLocalValue] = useState(value || "");
-  const timerRef = useRef(null);
+  const localValueRef = useRef(localValue);
+  const valueRef = useRef(value);
 
   useEffect(() => {
+    localValueRef.current = localValue;
+  }, [localValue]);
+
+  useEffect(() => {
+    valueRef.current = value;
     setLocalValue(value || "");
   }, [value]);
 
   const handleChange = (e) => {
     const newVal = e.target.value;
     setLocalValue(newVal);
-    // REMOVED: Auto-save on typing. Now it ONLY saves on blur.
   };
 
   const handleBlur = (e) => {
@@ -98,6 +118,14 @@ const DebouncedTextarea = ({ value, onChange, delay = 500, ...props }) => {
     }
     if (props.onBlur) props.onBlur(e);
   };
+
+  useEffect(() => {
+    return () => {
+      if (localValueRef.current !== (valueRef.current || "")) {
+        onChange(localValueRef.current);
+      }
+    };
+  }, [onChange]);
 
   return <textarea {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
 };
@@ -122,9 +150,9 @@ const FastRadioGroup = ({ value, onChange, options, name, className }) => {
     <div className={className}>
       {options?.map(opt => (
         <label key={opt.value} className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-          <input 
-            type="radio" 
-            name={name} 
+          <input
+            type="radio"
+            name={name}
             value={opt.value}
             checked={String(localValue) === String(opt.value)}
             onChange={() => handleChange(opt.value)}
@@ -179,21 +207,19 @@ const FastChoiceButton = ({ isSelected, onClick, children, disabled, type }) => 
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => onClick(), 50);
       }}
-      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${
-        localSelected 
-          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold" 
-          : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
-      } ${disabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
+      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${localSelected
+        ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+        : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
+        } ${disabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
     >
-      <div className={`w-4 h-4 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${
-        type === 'select'
-          ? `rounded border-2 ${localSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
-          : `rounded-full border-2 ${localSelected ? 'border-blue-600' : 'border-slate-200'}`
-      }`}>
+      <div className={`w-4 h-4 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${type === 'select'
+        ? `rounded border-2 ${localSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
+        : `rounded-full border-2 ${localSelected ? 'border-blue-600' : 'border-slate-200'}`
+        }`}>
         {localSelected && (
           type === 'select'
             ? <Check size={10} className="text-white stroke-[3px]" />
-            : <div className="w-2 h-2 rounded-full bg-blue-600"/>
+            : <div className="w-2 h-2 rounded-full bg-blue-600" />
         )}
       </div>
       {children}
@@ -231,7 +257,7 @@ const checkOptionTrigger = (val, triggerOptions) => {
           return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
         });
       }
-    } catch (e) {}
+    } catch (e) { }
   }
   return triggerOptions.includes(String(val));
 };
@@ -241,13 +267,15 @@ const evaluateCondition = (c, values) => {
   if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
     if (val === undefined || val === null || val === '') return false;
     let actualVal = val;
-    if (typeof val === 'string' && val.trim().startsWith('{')) {
+    if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
       try {
         const parsed = JSON.parse(val);
-        if (parsed && 'value' in parsed) {
+        if (Array.isArray(parsed)) {
+          actualVal = parsed[0];
+        } else if (parsed && 'value' in parsed) {
           actualVal = parsed.value;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
     const numericVal = parseFloat(actualVal);
     const targetVal = parseFloat(c.value);
@@ -298,13 +326,26 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   const [localActivities, setLocalActivities] = useState(activities || []);
   const [selectedRtItem, setSelectedRtItem] = useState(null);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
-  
+  const [visitedBlocks, setVisitedBlocks] = useState(new Set());
+
   // Dynamic form schema states
   const [blocks, setBlocks] = useState([]);
   const [questions, setQuestions] = useState([]);
   const [loadingForm, setLoadingForm] = useState(false);
 
   const [activeTab, setActiveTab] = useState(""); // Block kode (e.g. "Blok I", "Blok II")
+
+  useEffect(() => {
+    if (activeTab) {
+      setVisitedBlocks(prev => {
+        if (prev.has(activeTab)) return prev;
+        const next = new Set(prev);
+        next.add(activeTab);
+        return next;
+      });
+    }
+  }, [activeTab]);
+
   const [selectedLogItem, setSelectedLogItem] = useState(null);
   const [warningMessage, setWarningMessage] = useState(null);
   const [rejectionNoteItem, setRejectionNoteItem] = useState(null);
@@ -315,6 +356,95 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     message: "",
     onConfirm: null
   });
+
+  const [filterSls, setFilterSls] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortOption, setSortOption] = useState("waktu-desc");
+
+  useEffect(() => {
+    setFilterSls("");
+    setFilterStatus("");
+    setSearchQuery("");
+  }, [selectedActivity, view]);
+
+  const displayPrelist = useMemo(() => {
+    const isPmlUser = selectedActivity?.role === "PML";
+    if (isPmlUser) {
+      return localPrelist.filter(item => item.status === "tersimpan" || item.status === "terkirim" || item.review_status === "approved" || item.review_status === "rejected");
+    }
+    return localPrelist;
+  }, [localPrelist, selectedActivity]);
+
+  const uniqueSlsList = useMemo(() => {
+    const set = new Set();
+    displayPrelist.forEach(doc => {
+      if (doc.sls) {
+        set.add(doc.sls);
+      }
+    });
+    return Array.from(set).sort();
+  }, [displayPrelist]);
+
+  const filteredPrelist = useMemo(() => {
+    return displayPrelist.filter(item => {
+      // 1. Filter by SLS
+      if (filterSls && item.sls !== filterSls) {
+        return false;
+      }
+      // 2. Filter by Status
+      if (filterStatus) {
+        if (filterStatus === "approved") {
+          if (item.review_status !== "approved") return false;
+        } else if (filterStatus === "rejected") {
+          if (item.review_status !== "rejected") return false;
+        } else if (filterStatus === "terkirim") {
+          if (item.status !== "terkirim") return false;
+        } else if (filterStatus === "tersimpan") {
+          if (item.status !== "tersimpan") return false;
+        } else if (filterStatus === "tersimpan_sementara") {
+          if (item.status !== "tersimpan_sementara") return false;
+        } else if (filterStatus === "draft") {
+          if (item.review_status === "approved" || item.review_status === "rejected" || item.status === "terkirim" || item.status === "tersimpan" || item.status === "tersimpan_sementara") {
+            return false;
+          }
+        }
+      }
+      // 3. Search query (KRT name, code, or sls)
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const krtMatch = (item.krt || "").toLowerCase().includes(query);
+        const kodeMatch = (item.kode || "").toLowerCase().includes(query);
+        const slsMatch = (item.sls || "").toLowerCase().includes(query);
+        const desaMatch = (item.desa || "").toLowerCase().includes(query);
+        if (!krtMatch && !kodeMatch && !slsMatch && !desaMatch) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [displayPrelist, filterSls, filterStatus, searchQuery]);
+
+  const sortedPrelist = useMemo(() => {
+    const [sortBy, sortOrder] = sortOption.split("-");
+    return [...filteredPrelist].sort((a, b) => {
+      let comparison = 0;
+      if (sortBy === "nama") {
+        const nameA = (a.krt || "Tanpa Nama").toLowerCase();
+        const nameB = (b.krt || "Tanpa Nama").toLowerCase();
+        comparison = nameA.localeCompare(nameB);
+      } else if (sortBy === "kode") {
+        const kodeA = (a.kode || "").toLowerCase();
+        const kodeB = (b.kode || "").toLowerCase();
+        comparison = kodeA.localeCompare(kodeB);
+      } else if (sortBy === "waktu") {
+        const timeA = new Date(a.updated_at || a.created_at || 0).getTime();
+        const timeB = new Date(b.updated_at || b.created_at || 0).getTime();
+        comparison = timeA - timeB;
+      }
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+  }, [filteredPrelist, sortOption]);
 
   const isLoading = loading || loadingForm;
 
@@ -335,7 +465,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             cache.set(cacheKey, code);
             return code;
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
@@ -375,7 +505,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         cache.set(cacheKey, "");
         return "";
       }
-      
+
       const parentId = q.parent_id || q.parentId;
       if (parentId) {
         const parent = questions.find(p => p.id === parentId);
@@ -384,10 +514,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           return "";
         }
         const parentCode = getCode(parent);
-        
+
         const siblings = questions.filter(s => s.blok_id === q.blok_id && (s.parent_id === parentId || s.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
         const sibIdx = siblings.findIndex(s => s.id === q.id);
-        
+
         if (parent.parent_id || parent.parentId) {
           const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
           const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
@@ -402,7 +532,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
       } else {
         const mainQs = questions.filter(s => s.blok_id === q.blok_id && !s.parent_id && !s.parentId && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-        
+
         let startIndex = 1;
         const firstQ = mainQs[0];
         if (firstQ) {
@@ -414,7 +544,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
                 startIndex = 0;
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
 
@@ -438,6 +568,50 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return questionCodesMap.get(String(q.id)) || "";
   }, [questionCodesMap]);
 
+  const parentKeyCounts = useMemo(() => {
+    const counts = {};
+    questions.forEach(q => {
+      const qCode = getQuestionCode(q);
+      if (qCode) {
+        const match = qCode.match(/^\d+/);
+        const parentKey = match ? match[0] : qCode;
+        counts[parentKey] = (counts[parentKey] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [questions, getQuestionCode]);
+
+  const softCardColors = useMemo(() => [
+    "bg-sky-50/40 border-sky-100/70",
+    "bg-emerald-50/40 border-emerald-100/70",
+    "bg-violet-50/40 border-violet-100/70",
+    "bg-amber-50/40 border-amber-100/70",
+    "bg-rose-50/40 border-rose-100/70",
+    "bg-indigo-50/40 border-indigo-100/70",
+    "bg-orange-50/30 border-orange-100/70",
+    "bg-teal-50/40 border-teal-100/70",
+    "bg-cyan-50/40 border-cyan-100/70",
+    "bg-blue-50/40 border-blue-100/70"
+  ], []);
+
+  const getQuestionCardBgClass = useCallback((q) => {
+    const qCode = getQuestionCode(q);
+    if (!qCode) return "bg-white border-slate-100";
+    const match = qCode.match(/^\d+/);
+    const parentKey = match ? match[0] : qCode;
+
+    if (!parentKey || (parentKeyCounts[parentKey] || 0) <= 1) {
+      return "bg-white border-slate-100";
+    }
+
+    let hash = 0;
+    for (let i = 0; i < parentKey.length; i++) {
+      hash = parentKey.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const colorIndex = Math.abs(hash) % softCardColors.length;
+    return softCardColors[colorIndex];
+  }, [getQuestionCode, parentKeyCounts, softCardColors]);
+
   const questionMapById = useMemo(() => {
     const map = new Map();
     questions.forEach(q => {
@@ -446,12 +620,34 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return map;
   }, [questions]);
 
+  const isQuestionInLoop = useCallback((q) => {
+    if (!q) return false;
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questionMapById.get(String(parentId));
+      if (parent && isQuestionInLoop(parent)) {
+        return true;
+      }
+    }
+    if (q.validation) {
+      try {
+        const parsed = JSON.parse(q.validation);
+        if (parsed) {
+          if (parsed.is_loop || parsed.isLoop || parsed.loop_group || parsed.loop_by_question_id || parsed.loopByQuestionId) {
+            return true;
+          }
+        }
+      } catch (e) { }
+    }
+    return false;
+  }, [questionMapById]);
+
   const questionMapByCode = useMemo(() => {
     const map = new Map();
     questions.forEach(q => {
       const qCode = getQuestionCode(q);
       if (qCode) {
-        const normalized = qCode.toLowerCase().replace(/\s/g, "");
+        const normalized = qCode.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
         map.set(normalized, q);
       }
     });
@@ -485,18 +681,33 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const loopGroupsMap = useMemo(() => {
     const nameToQs = new Map();
-    questions.forEach(q => {
+
+    const getLoopGroup = (q) => {
+      if (!q) return "";
       if (q.validation) {
         try {
           const parsed = JSON.parse(q.validation);
           if (parsed && parsed.loop_group) {
-            const groupName = parsed.loop_group;
-            if (!nameToQs.has(groupName)) {
-              nameToQs.set(groupName, []);
-            }
-            nameToQs.get(groupName).push(q);
+            return parsed.loop_group;
           }
-        } catch (e) {}
+        } catch (e) { }
+      }
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questionMapById.get(String(parentId));
+        if (parent) return getLoopGroup(parent);
+      }
+      return "";
+    };
+
+    questions.forEach(q => {
+      const groupName = getLoopGroup(q);
+      if (groupName) {
+        const scopedName = `${q.blok_id}_${groupName}`;
+        if (!nameToQs.has(scopedName)) {
+          nameToQs.set(scopedName, []);
+        }
+        nameToQs.get(scopedName).push(q);
       }
     });
 
@@ -545,7 +756,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       hasManual: hasManualMap,
       manualMasterQs: manualMasterMap
     };
-  }, [questions]);
+  }, [questions, questionMapById]);
 
   const allOrderedQuestions = useMemo(() => {
     const allOrdered = [];
@@ -695,7 +906,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           readOnly: !!parsed.read_only,
           parentMode: parsed.parent_mode || "label",
           subLabel: parsed.sub_label || "",
-          formula: parsed.formula || ""
+          formula: parsed.formula || "",
+          satuan: parsed.satuan || ""
         };
       } catch (e) {
         result = { rangeText: "", hintText: "", description: str, isLoop: false, loopByQuestionId: null, subLabel: "" };
@@ -886,6 +1098,82 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return Array.from(codeMap.values());
   };
 
+  const mergeDocument = (apiDoc, localDoc) => {
+    if (!localDoc) return apiDoc;
+    if (!apiDoc) return localDoc;
+
+    const mergedValues = { ...(apiDoc.values || {}), ...(localDoc.values || {}) };
+    const hasLocalUnsynced = localDoc.sync === false;
+    const serverHasPriority = apiDoc.status === 'terkirim' ||
+      apiDoc.review_status === 'approved' ||
+      apiDoc.review_status === 'rejected';
+
+    let mergedDoc = { ...localDoc, ...apiDoc };
+
+    if (hasLocalUnsynced && !serverHasPriority) {
+      mergedDoc = {
+        ...apiDoc,
+        ...localDoc,
+        krt: localDoc.krt || apiDoc.krt,
+        alamat: localDoc.alamat || apiDoc.alamat,
+        kecamatan: localDoc.kecamatan || apiDoc.kecamatan,
+        desa: localDoc.desa || apiDoc.desa,
+        sls: localDoc.sls || apiDoc.sls,
+        sub_sls: localDoc.sub_sls || apiDoc.sub_sls,
+        status: localDoc.status || apiDoc.status,
+        review_status: localDoc.review_status || apiDoc.review_status,
+      };
+    } else if (serverHasPriority) {
+      mergedDoc = {
+        ...localDoc,
+        ...apiDoc,
+        status: apiDoc.status,
+        review_status: apiDoc.review_status,
+      };
+    } else {
+      const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
+      const apiTime = new Date(apiDoc.updated_at || apiDoc.created_at || 0).getTime();
+      if (localTime > apiTime) {
+        mergedDoc = { ...apiDoc, ...localDoc };
+      } else {
+        mergedDoc = { ...localDoc, ...apiDoc };
+      }
+    }
+
+    mergedDoc.values = mergedValues;
+    mergedDoc.sync = (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved')
+      ? true
+      : (localDoc.sync === false ? false : apiDoc.sync);
+
+    return mergedDoc;
+  };
+
+  const mergeDocumentLists = (apiDocs, localDocs) => {
+    const merged = [...apiDocs];
+    localDocs.forEach(localDoc => {
+      const apiIdx = merged.findIndex(d =>
+        (d.id && localDoc.id && d.id === localDoc.id) ||
+        (d.kode && d.kode === localDoc.kode)
+      );
+
+      if (apiIdx >= 0) {
+        const apiDoc = merged[apiIdx];
+        if (localDoc.kode && apiDoc.kode && localDoc.kode !== apiDoc.kode) {
+          if (offlineDB.isAvailable()) {
+            offlineDB.removeDokumen(localDoc.kode).catch(e =>
+              console.warn("Gagal hapus dokumen lama di IndexedDB saat merge list:", e)
+            );
+          }
+        }
+        merged[apiIdx] = mergeDocument(apiDoc, localDoc);
+      } else {
+        merged.push(localDoc);
+      }
+    });
+    return deduplicateLocalDocs(merged);
+  };
+
+
   /**
    * Recover dokumen dari IndexedDB jika localStorage kosong
    */
@@ -941,7 +1229,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       q.label.toLowerCase().includes('no. urut') ||
       q.label.toLowerCase().includes('nomor urut') ||
       q.label.toLowerCase().includes('no urut')
-    );
+    ) && isQuestionInLoop(q);
 
     if (!raw) {
       return isSerialNumber ? String(idx + 1) : "";
@@ -964,7 +1252,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
         return val !== undefined && val !== null ? val : "";
       }
-    } catch (e) {}
+    } catch (e) { }
     // If data is not a valid JSON array but we have multiple instances expected,
     // treat this as a single-value case (idx 0) or empty for idx > 0
     if (isSerialNumber && idx > 0) {
@@ -994,35 +1282,40 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }));
   };
 
-  const getManualLoopCount = useCallback((q) => {
+  const getManualLoopCount = useCallback((q, customValues = null) => {
     if (!q) return null;
 
+    const activeValues = customValues || ans.values;
+
     let loopGroupName = "";
+    let isLoopQ = false;
     if (q.validation) {
       try {
         const parsed = JSON.parse(q.validation);
-        if (parsed && parsed.loop_group) {
-          loopGroupName = parsed.loop_group;
+        if (parsed) {
+          if (parsed.loop_group) loopGroupName = parsed.loop_group;
+          isLoopQ = parsed.is_loop || !!loopGroupName;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (loopGroupName) {
-      const groupQs = loopGroupsMap.groupQs.get(loopGroupName) || [];
-      const hasManual = loopGroupsMap.hasManual.get(loopGroupName);
+      const scopedName = `${q.blok_id}_${loopGroupName}`;
+      const groupQs = loopGroupsMap.groupQs.get(scopedName) || [];
+      const hasManual = loopGroupsMap.hasManual.get(scopedName);
 
       if (!hasManual) {
         return null;
       }
 
-      const masterQ = loopGroupsMap.manualMasterQs.get(loopGroupName);
+      const masterQ = loopGroupsMap.manualMasterQs.get(scopedName);
 
       if (masterQ && masterQ.id !== q.id) {
-        return getManualLoopCount(masterQ);
+        return getManualLoopCount(masterQ, activeValues);
       }
 
       for (const gq of groupQs) {
-        const savedCount = ans.values[`${gq.id}_loop_count`];
+        const savedCount = activeValues[`${gq.id}_loop_count`];
         if (savedCount) {
           const parsed = parseInt(savedCount, 10);
           if (!isNaN(parsed) && parsed >= 1) {
@@ -1034,7 +1327,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       let maxArrayLength = 1;
       let maxFilledCount = 1;
       for (const gq of groupQs) {
-        const raw = ans.values[gq.id];
+        const raw = activeValues[gq.id];
         if (raw) {
           try {
             const parsed = JSON.parse(raw);
@@ -1047,7 +1340,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 maxFilledCount = filledCount;
               }
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
       return Math.max(maxArrayLength, maxFilledCount, 1);
@@ -1055,7 +1348,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     const { isLoop, loopType } = parseValidation(q.validation);
     if (isLoop && loopType === "manual") {
-      const savedCount = ans.values[`${q.id}_loop_count`];
+      const savedCount = activeValues[`${q.id}_loop_count`];
       if (savedCount) {
         const parsed = parseInt(savedCount, 10);
         if (!isNaN(parsed) && parsed >= 1) {
@@ -1063,7 +1356,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
       }
 
-      const raw = ans.values[q.id];
+      const raw = activeValues[q.id];
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
@@ -1076,71 +1369,94 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               return parsed.length;
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       return 1;
     }
 
-    const parentId = q.parent_id || q.parentId;
-    if (parentId) {
-      const parent = questionMapById.get(String(parentId));
-      if (parent) {
-        return getManualLoopCount(parent);
+    if (!isLoopQ) {
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questionMapById.get(String(parentId));
+        if (parent) {
+          return getManualLoopCount(parent, activeValues);
+        }
       }
     }
 
     return null;
   }, [loopGroupsMap, ans.values, questionMapById, parseValidation]);
 
-  const getQuestionLoopCount = useCallback((q) => {
+  const getQuestionLoopCount = useCallback((q, customValues = null) => {
     if (!q) return 1;
 
-    const parentId = q.parent_id || q.parentId;
-    if (parentId) {
-      const parent = questionMapById.get(String(parentId));
-      if (parent) {
-        return getQuestionLoopCount(parent);
-      }
-    }
+    const activeValues = customValues || ans.values;
 
     let loopGroupName = "";
+    let isLoopQ = false;
+    let loopType = "";
+    let loopByQuestionId = null;
+
     if (q.validation) {
       try {
         const parsed = JSON.parse(q.validation);
-        if (parsed && parsed.loop_group) {
-          loopGroupName = parsed.loop_group;
+        if (parsed) {
+          if (parsed.loop_group) loopGroupName = parsed.loop_group;
+          isLoopQ = parsed.is_loop || !!loopGroupName;
+          loopType = parsed.loop_type;
+          loopByQuestionId = parsed.loop_by_question_id;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
-    if (loopGroupName) {
-      const masterQ = loopGroupsMap.masterQs.get(loopGroupName);
-      if (masterQ && masterQ.id !== q.id) {
-        return getQuestionLoopCount(masterQ);
+    if (!isLoopQ) {
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questionMapById.get(String(parentId));
+        if (parent) {
+          return getQuestionLoopCount(parent, activeValues);
+        }
       }
     }
 
-    const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
-    if (isLoop) {
+    if (loopGroupName) {
+      const masterQ = loopGroupsMap.masterQs.get(`${q.blok_id}_${loopGroupName}`);
+      console.log(`[DEBUG] getQuestionLoopCount(q.id=${q.id}): loopGroupName=${loopGroupName}, masterQ=${masterQ?.id}`);
+      if (masterQ && masterQ.id !== q.id) {
+        return getQuestionLoopCount(masterQ, activeValues);
+      }
+    }
+
+    if (isLoopQ) {
       if (loopByQuestionId) {
-        const triggerValue = ans.values[loopByQuestionId];
+        let triggerValue = activeValues[loopByQuestionId];
+        console.log(`[DEBUG] getQuestionLoopCount(q.id=${q.id}): loopByQuestionId=${loopByQuestionId}, triggerValue=${triggerValue}`);
+
+        if (typeof triggerValue === 'string' && triggerValue.trim().startsWith('[')) {
+          try {
+            const arr = JSON.parse(triggerValue);
+            if (Array.isArray(arr)) triggerValue = arr[0];
+          } catch (e) { }
+        }
         const parsedTrigger = parseInt(triggerValue, 10);
+        console.log(`[DEBUG] getQuestionLoopCount(q.id=${q.id}): parsedTrigger=${parsedTrigger}`);
+
         if (!isNaN(parsedTrigger) && parsedTrigger > 0) {
           return Math.max(0, parsedTrigger);
         }
         // Fallback for prelist array mapping
         try {
-          const val = ans.values[q.id];
+          const val = activeValues[q.id];
           if (typeof val === 'string' && val.startsWith('[')) {
             const arr = JSON.parse(val);
             if (Array.isArray(arr) && arr.length > 0) return arr.length;
           }
-        } catch(e) {}
+        } catch (e) { }
         return 0;
       }
       if (loopType === "manual") {
-        const manualCount = getManualLoopCount(q);
+        const manualCount = getManualLoopCount(q, activeValues);
         return manualCount !== null ? manualCount : 1;
       }
     }
@@ -1153,56 +1469,46 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     const newCount = currentCount + 1;
     const newValues = { ...ans.values, [`${qId}_loop_count`]: newCount };
 
-    // Also update _loop_count for all questions in the same loop group
     const q = questions.find(x => x.id === qId);
     if (q) {
-      let loopGroupName = "";
-      if (q.validation) {
+      const targetBlockId = q.blok_id;
+      const relatedQs = questions.filter(x => {
+        if (String(x.blok_id) !== String(targetBlockId)) return false;
+        if (!x.validation) return false;
         try {
-          const parsed = JSON.parse(q.validation);
-          if (parsed && parsed.loop_group) {
-            loopGroupName = parsed.loop_group;
-          }
-        } catch (e) {}
-      }
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
+        }
+      });
 
-      if (loopGroupName) {
-        const groupQs = questions.filter(x => {
-          if (!x.validation) return false;
-          try {
-            const parsed = JSON.parse(x.validation);
-            return parsed && parsed.loop_group === loopGroupName;
-          } catch (e) {
-            return false;
-          }
-        });
-        for (const gq of groupQs) {
-          newValues[`${gq.id}_loop_count`] = newCount;
-          // Initialize the new array slot with default value for serial numbers
-          const raw = ans.values[gq.id];
-          const isSerialNumber = gq.type === 'number' && (
-            gq.label.toLowerCase().includes('no. urut') ||
-            gq.label.toLowerCase().includes('nomor urut') ||
-            gq.label.toLowerCase().includes('no urut')
-          );
-          if (isSerialNumber) {
-            let parsed = [];
-            if (raw) {
-              try {
-                parsed = JSON.parse(raw);
-                if (!Array.isArray(parsed)) {
-                  parsed = [raw];
-                }
-              } catch (e) {
+      for (const rq of relatedQs) {
+        newValues[`${rq.id}_loop_count`] = newCount;
+        // Initialize the new array slot with default value for serial numbers
+        const raw = ans.values[rq.id];
+        const isSerialNumber = rq.type === 'number' && (
+          rq.label.toLowerCase().includes('no. urut') ||
+          rq.label.toLowerCase().includes('nomor urut') ||
+          rq.label.toLowerCase().includes('no urut')
+        );
+        if (isSerialNumber) {
+          let parsed = [];
+          if (raw) {
+            try {
+              parsed = JSON.parse(raw);
+              if (!Array.isArray(parsed)) {
                 parsed = [raw];
               }
+            } catch (e) {
+              parsed = [raw];
             }
-            // Ensure array is long enough and initialize with serial number
-            while (parsed.length < newCount) {
-              parsed.push(String(parsed.length + 1));
-            }
-            newValues[gq.id] = JSON.stringify(parsed);
           }
+          // Ensure array is long enough and initialize with serial number
+          while (parsed.length < newCount) {
+            parsed.push(String(parsed.length + 1));
+          }
+          newValues[rq.id] = JSON.stringify(parsed);
         }
       }
     }
@@ -1218,51 +1524,38 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     const updatedValues = { ...ans.values };
     updatedValues[`${qId}_loop_count`] = newCount;
 
-    // Also update _loop_count for all questions in the same loop group
     const q = questions.find(x => x.id === qId);
     if (q) {
-      let loopGroupName = "";
-      if (q.validation) {
+      const targetBlockId = q.blok_id;
+      const relatedQs = questions.filter(x => {
+        if (String(x.blok_id) !== String(targetBlockId)) return false;
+        if (!x.validation) return false;
         try {
-          const parsed = JSON.parse(q.validation);
-          if (parsed && parsed.loop_group) {
-            loopGroupName = parsed.loop_group;
-          }
-        } catch (e) {}
-      }
-
-      if (loopGroupName) {
-        const groupQs = questions.filter(x => {
-          if (!x.validation) return false;
-          try {
-            const parsed = JSON.parse(x.validation);
-            return parsed && parsed.loop_group === loopGroupName;
-          } catch (e) {
-            return false;
-          }
-        });
-        for (const gq of groupQs) {
-          updatedValues[`${gq.id}_loop_count`] = newCount;
+          const parsed = JSON.parse(x.validation);
+          return parsed && parsed.is_loop && parsed.loop_type === "manual";
+        } catch (e) {
+          return false;
         }
+      });
+      for (const rq of relatedQs) {
+        updatedValues[`${rq.id}_loop_count`] = newCount;
       }
-    }
 
-    // Find all questions that might be children of this question
-    const childQs = questions.filter(c => c.parent_id === qId || c.parentId === qId);
-    const targetQIds = [qId, ...childQs.map(c => c.id)];
-
-    for (const id of targetQIds) {
-      const raw = ans.values[id];
-      if (raw) {
-        try {
-          let parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            if (parsed.length > newCount) {
-              parsed = parsed.slice(0, newCount);
+      // Truncate arrays for all questions in the block that are loops
+      const blockQs = questions.filter(x => String(x.blok_id) === String(q.blok_id));
+      for (const bq of blockQs) {
+        const raw = ans.values[bq.id];
+        if (raw) {
+          try {
+            let parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              if (parsed.length > newCount) {
+                parsed = parsed.slice(0, newCount);
+              }
+              updatedValues[bq.id] = JSON.stringify(parsed);
             }
-            updatedValues[id] = JSON.stringify(parsed);
-          }
-        } catch (e) {}
+          } catch (e) { }
+        }
       }
     }
 
@@ -1278,140 +1571,174 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         const newValues = { ...prevAns.values };
         let headerUpdates = {};
 
-      const qValStr = q.val || q.validation;
-      let isTargetLoop = false;
-      if (qValStr && qValStr.trim().startsWith('{')) {
-        try {
-          const parsed = JSON.parse(qValStr);
-          isTargetLoop = !!parsed.is_loop || !!parsed.loop_group;
-        } catch (e) {}
-      }
-      const parentId = q.parent_id || q.parentId;
-      if (parentId) {
-        const checkParentLoop = (pId) => {
-          const parent = questions.find(p => p.id === pId);
-          if (!parent) return false;
-          const pValStr = parent.val || parent.validation;
-          if (pValStr && pValStr.trim().startsWith('{')) {
-            try {
-              const parsed = JSON.parse(pValStr);
-              if (parsed.is_loop || parsed.loop_group) return true;
-            } catch (e) {}
-          }
-          const nextParentId = parent.parent_id || parent.parentId;
-          return nextParentId ? checkParentLoop(nextParentId) : false;
-        };
-        if (checkParentLoop(parentId)) {
-          isTargetLoop = true;
+        const qValStr = q.val || q.validation;
+        let isTargetLoop = idx > 0;
+        if (!isTargetLoop && qValStr) {
+          const { isLoop: qIsLoop } = parseValidation(qValStr);
+          isTargetLoop = !!qIsLoop;
         }
-      }
-
-      if (instancesLength > 1 || isTargetLoop) {
-        const raw = prevAns.values[q.id];
-        let parsed = [];
-        if (raw) {
+        if (!isTargetLoop && qValStr) {
           try {
-            parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed)) {
+            const parsed = JSON.parse(qValStr);
+            if (parsed && (parsed.loop_group || parsed.is_loop || parsed.loop_type)) {
+              isTargetLoop = true;
+            }
+          } catch (e) { }
+        }
+        if (!isTargetLoop && (q.parent_id || q.parentId)) {
+          const checkParentLoop = (pId) => {
+            const parent = questions.find(p => p.id === pId);
+            if (!parent) return false;
+            const { isLoop: pIsLoop } = parseValidation(parent.val || parent.validation);
+            if (pIsLoop) return true;
+            const pValStr = parent.val || parent.validation;
+            if (pValStr) {
+              try {
+                const parsed = JSON.parse(pValStr);
+                if (parsed.loop_group || parsed.is_loop || parsed.loop_type) return true;
+              } catch (e) { }
+            }
+            const nextParentId = parent.parent_id || parent.parentId;
+            return nextParentId ? checkParentLoop(nextParentId) : false;
+          };
+          isTargetLoop = checkParentLoop(q.parent_id || q.parentId);
+        }
+
+        if (instancesLength > 1 || isTargetLoop) {
+          const raw = prevAns.values[q.id];
+          let parsed = [];
+          if (raw) {
+            try {
+              parsed = JSON.parse(raw);
+              if (!Array.isArray(parsed)) {
+                parsed = [raw];
+              }
+            } catch (e) {
               parsed = [raw];
             }
-          } catch (e) {
-            parsed = [raw];
           }
-        }
-        parsed[idx] = val;
-        newValues[q.id] = JSON.stringify(parsed);
-      } else {
-        newValues[q.id] = val;
+          parsed[idx] = val;
+          newValues[q.id] = JSON.stringify(parsed);
+        } else {
+          newValues[q.id] = val;
 
-        const lowerLabel = q.label.toLowerCase();
-        let extractedText = val;
-        const opts = resolveDynamicOptions(q);
-        if (opts && opts.length > 0) {
-          const matchedOpt = opts.find(o => String(o.value) === String(val));
-          if (matchedOpt) {
-            extractedText = matchedOpt.label || matchedOpt.text || val;
-          }
-        }
-
-        if (lowerLabel.includes("kecamatan")) {
-          headerUpdates.kecamatan = extractedText;
-        } else if (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) {
-          headerUpdates.desa = extractedText;
-        } else if (lowerLabel.includes("sls") || lowerLabel.match(/\brt\b/)) {
-          headerUpdates.sls = extractedText;
-        } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
-          headerUpdates.alamat = extractedText;
-        } else if (lowerLabel === "nama kepala rumah tangga" || lowerLabel === "nama krt" || lowerLabel.includes("nama kepala")) {
-          headerUpdates.krt = extractedText;
-        } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) {
-          headerUpdates.sub_sls = extractedText;
-        } else if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
-          headerUpdates.umur = extractedText;
-        } else if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
-          headerUpdates.gender = extractedText;
-        } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
-          headerUpdates.perkawinan = extractedText;
-        } else if (lowerLabel.includes("bekerja")) {
-          headerUpdates.bekerja = extractedText;
-        }
-      }
-
-      const qVal = parseValidation(q.validation);
-      if (qVal.isLookupKey && val && idx === 0) {
-        const matchingDoc = localPrelist.find(doc => {
-          if (selectedRtItem && doc.id === selectedRtItem.id) return false;
-          if (doc.kode === prevAns.kode) return false;
-          if (doc.desa !== (headerUpdates.desa || prevAns.desa) || doc.sls !== (headerUpdates.sls || prevAns.sls)) return false;
-
-          let docValues = doc.values;
-          if (typeof docValues === 'string') {
-            try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
-          }
-
-          if (docValues && String(docValues[q.id]) === String(val)) {
-            return true;
-          }
-          return false;
-        });
-
-        if (matchingDoc) {
-          let docValues = matchingDoc.values;
-          if (typeof docValues === 'string') {
-            try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
-          }
-
-          let copyCount = 0;
-          questions.forEach(otherQ => {
-            const otherQVal = parseValidation(otherQ.validation);
-            if (otherQVal.copyOnKeyMatch) {
-              const prevVal = docValues[otherQ.id];
-              if (prevVal !== undefined && prevVal !== null && prevVal !== "" && !newValues[otherQ.id]) {
-                newValues[otherQ.id] = prevVal;
-                copyCount++;
-
-                const savedCountKey = `${otherQ.id}_loop_count`;
-                if (docValues[savedCountKey] && !newValues[savedCountKey]) {
-                  newValues[savedCountKey] = docValues[savedCountKey];
-                }
-              }
+          const lowerLabel = q.label.toLowerCase();
+          let extractedText = val;
+          const opts = resolveDynamicOptions(q);
+          if (opts && opts.length > 0) {
+            const matchedOpt = opts.find(o => String(o.value) === String(val));
+            if (matchedOpt) {
+              extractedText = matchedOpt.label || matchedOpt.text || val;
             }
+          }
+
+          const qBlock = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+          const isBlockI = qBlock && (
+            String(qBlock.kode).toLowerCase().includes("blok i") ||
+            String(qBlock.title).toLowerCase().includes("keterangan tempat")
+          );
+
+          if (isBlockI) {
+            if (lowerLabel === "kecamatan" || lowerLabel === "nama kecamatan") {
+              headerUpdates.kecamatan = extractedText;
+            } else if (
+              (lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) &&
+              !lowerLabel.includes("klasifikasi") &&
+              !lowerLabel.includes("status") &&
+              !lowerLabel.includes("apakah") &&
+              !lowerLabel.includes("lahan")
+            ) {
+              headerUpdates.desa = extractedText;
+            } else if (
+              lowerLabel === "sls" ||
+              lowerLabel === "rt" ||
+              lowerLabel === "rw" ||
+              lowerLabel === "nama sls" ||
+              lowerLabel === "rt/rw" ||
+              lowerLabel.match(/\brt\b/)
+            ) {
+              headerUpdates.sls = extractedText;
+            } else if (lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) {
+              headerUpdates.alamat = extractedText;
+            } else if (
+              lowerLabel.includes("nama kepala") ||
+              lowerLabel.includes("kepala keluarga") ||
+              lowerLabel.includes("kepala rumah tangga") ||
+              lowerLabel.includes("nama krt") ||
+              lowerLabel === "krt"
+            ) {
+              headerUpdates.krt = extractedText;
+            } else if (lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) {
+              headerUpdates.sub_sls = extractedText;
+            }
+          } else {
+            if (lowerLabel.includes("umur") || lowerLabel.includes("usia")) {
+              headerUpdates.umur = extractedText;
+            } else if (lowerLabel.includes("jenis kelamin") || lowerLabel.includes("gender")) {
+              headerUpdates.gender = extractedText;
+            } else if (lowerLabel.includes("perkawinan") || lowerLabel.includes("status nikah")) {
+              headerUpdates.perkawinan = extractedText;
+            } else if (lowerLabel.includes("bekerja")) {
+              headerUpdates.bekerja = extractedText;
+            }
+          }
+        }
+
+        const qVal = parseValidation(q.validation);
+        if (qVal.isLookupKey && val && idx === 0) {
+          const matchingDoc = localPrelist.find(doc => {
+            if (selectedRtItem && doc.id === selectedRtItem.id) return false;
+            if (doc.kode === prevAns.kode) return false;
+            if (doc.desa !== (headerUpdates.desa || prevAns.desa) || doc.sls !== (headerUpdates.sls || prevAns.sls)) return false;
+
+            let docValues = doc.values;
+            if (typeof docValues === 'string') {
+              try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
+            }
+
+            if (docValues && String(docValues[q.id]) === String(val)) {
+              return true;
+            }
+            return false;
           });
 
-          if (copyCount > 0) {
-            setWarningMessage(`Data pencarian "${val}" cocok. ${copyCount} rincian disalin otomatis.`);
-            setTimeout(() => setWarningMessage(null), 5000);
+          if (matchingDoc) {
+            let docValues = matchingDoc.values;
+            if (typeof docValues === 'string') {
+              try { docValues = JSON.parse(docValues); } catch { docValues = {}; }
+            }
+
+            let copyCount = 0;
+            questions.forEach(otherQ => {
+              const otherQVal = parseValidation(otherQ.validation);
+              if (otherQVal.copyOnKeyMatch) {
+                const prevVal = docValues[otherQ.id];
+                if (prevVal !== undefined && prevVal !== null && prevVal !== "" && !newValues[otherQ.id]) {
+                  newValues[otherQ.id] = prevVal;
+                  copyCount++;
+
+                  const savedCountKey = `${otherQ.id}_loop_count`;
+                  if (docValues[savedCountKey] && !newValues[savedCountKey]) {
+                    newValues[savedCountKey] = docValues[savedCountKey];
+                  }
+                }
+              }
+            });
+
+            if (copyCount > 0) {
+              setWarningMessage(`Data pencarian "${val}" cocok. ${copyCount} rincian disalin otomatis.`);
+              setTimeout(() => setWarningMessage(null), 5000);
+            }
           }
         }
-      }
 
-      const updatedAns = {
-        ...prevAns,
-        ...headerUpdates,
-        values: newValues
-      };
+        const updatedAns = {
+          ...prevAns,
+          ...headerUpdates,
+          values: newValues
+        };
 
-      return updatedAns;
+        return updatedAns;
       });
     });
   };
@@ -1423,8 +1750,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     let qVal = null;
     try {
       qVal = JSON.parse(q.validation || "{}");
-    } catch(e) {}
-    
+    } catch (e) { }
+
     if (qVal && qVal.options_source_question_id) {
       const sourceQId = qVal.options_source_question_id;
       const val = ans.values[sourceQId];
@@ -1437,7 +1764,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               label: name && name.trim() !== "" ? name : `(Belum ada nama ${idx + 1})`
             }));
           }
-        } catch(e) {}
+        } catch (e) { }
         return [{ value: "1", label: val }];
       }
       return [];
@@ -1469,7 +1796,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           return numVal < Number(parsed.max);
         }
         return true;
-      } catch (e) {}
+      } catch (e) { }
     }
 
     if (trimmed.startsWith('range:')) {
@@ -1501,11 +1828,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const getInputErrorMsg = (q, val) => {
     if (val === undefined || val === null || val === '') return "";
-    
+
     if (q.type === 'number' && q.validation) {
       const numVal = Number(val);
       if (isNaN(numVal)) return "Harus berupa angka.";
-      
+
       const trimmed = q.validation.trim();
       if (trimmed.startsWith('{')) {
         try {
@@ -1526,7 +1853,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           } else if (parsed.type === 'lt') {
             if (numVal >= Number(parsed.max)) return `Nilai harus kurang dari ${parsed.max}.`;
           }
-        } catch (e) {}
+        } catch (e) { }
       } else if (trimmed.startsWith('range:')) {
         const parts = trimmed.replace('range:', '').trim().split('-');
         const min = Number(parts[0]);
@@ -1542,7 +1869,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         if (numVal <= min) return `Nilai harus lebih besar dari ${min}.`;
       }
     }
-        if (q.type === 'text' && q.validation) {
+    if (q.type === 'text' && q.validation) {
       const trimmed = q.validation.trim();
       if (trimmed.startsWith('{')) {
         try {
@@ -1561,19 +1888,26 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           }
 
           if (type && type !== 'none' && type !== 'email') {
-            const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
-            const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
-            if (val.length < min || val.length > max) {
-              if (min === max) {
-                return `Panjang karakter harus tepat ${min} karakter.`;
+            if (parsed.text_validation_or_lengths) {
+              const allowedLengths = parsed.text_validation_or_lengths.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+              if (allowedLengths.length > 0 && !allowedLengths.includes(val.length)) {
+                return `Panjang karakter harus salah satu dari: ${parsed.text_validation_or_lengths} karakter (saat ini ${val.length} karakter).`;
               }
-              return `Panjang karakter harus antara ${min} sampai ${max} karakter.`;
+            } else {
+              const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
+              const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
+              if (val.length < min || val.length > max) {
+                if (min === max) {
+                  return `Panjang karakter harus tepat ${min} karakter.`;
+                }
+                return `Panjang karakter harus antara ${min} sampai ${max} karakter.`;
+              }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
-    
+
     return "";
   };
 
@@ -1664,10 +1998,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return parseInt(computeAggregation("MAX", "PCL", "R108"), 10) || 0;
   };
 
-  const evaluateFormula = (formulaStr, currentValues) => {
+  const evaluateFormula = (formulaStr, currentValues, idx = null) => {
     if (!formulaStr) return "";
     let evalStr = formulaStr;
-    
+
     // Helper: extract numeric values from a stored loop-array value or plain value
     const extractNumbers = (raw) => {
       if (raw === undefined || raw === null || raw === "") return [];
@@ -1677,7 +2011,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           return parsed.map(x => {
             if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
             if (typeof x === 'string' && x.startsWith('{')) {
-              try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch(e){}
+              try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
             }
             return parseFloat(x);
           }).filter(x => !isNaN(x));
@@ -1701,7 +2035,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         targetQ.label.toLowerCase().includes('no. urut') ||
         targetQ.label.toLowerCase().includes('nomor urut') ||
         targetQ.label.toLowerCase().includes('no urut')
-      );
+      ) && isQuestionInLoop(targetQ);
 
       if (!raw) {
         return isSerialNumber ? String(idx + 1) : "";
@@ -1724,14 +2058,52 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           }
           return val !== undefined && val !== null ? val : "";
         }
-      } catch (e) {}
+      } catch (e) { }
       if (isSerialNumber && idx > 0) {
         return String(idx + 1);
       }
       return idx === 0 ? raw : "";
     };
 
-    // 1. Handle aggregation functions on loop/array values: e.g. MAX(R401)
+    // 1. Handle AGE function (e.g. AGE(R410))
+    const ageRegex = /AGE\((R[0-9a-zA-Z.]+)\)/gi;
+    evalStr = evalStr.replace(ageRegex, (match, code) => {
+      const targetQ = findQuestionByCode(code);
+      if (!targetQ) return "0";
+
+      let birthDateStr = "";
+      if (idx !== null) {
+        birthDateStr = getLoopValueFromValues(targetQ.id, idx);
+      } else {
+        birthDateStr = currentValues[targetQ.id] || "";
+      }
+
+      if (!birthDateStr) return "0";
+
+      // Clean value if it is wrapped in an object or array (defensive)
+      if (birthDateStr.trim().startsWith('{') || birthDateStr.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(birthDateStr);
+          if (Array.isArray(parsed)) {
+            birthDateStr = parsed[0] || "";
+          } else if (parsed && parsed.value) {
+            birthDateStr = parsed.value;
+          }
+        } catch (e) { }
+      }
+
+      const birthDate = new Date(birthDateStr);
+      if (isNaN(birthDate.getTime())) return "0";
+      const today = new Date();
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      return String(age >= 0 ? age : 0);
+    });
+
+    // 2. Handle aggregation functions on loop/array values: e.g. MAX(R401)
     const funcRegex = /(MAX|MIN|SUM|AVG|COUNT)\((R[0-9a-zA-Z.]+)\)/gi;
     evalStr = evalStr.replace(funcRegex, (match, op, code) => {
       const targetQ = findQuestionByCode(code);
@@ -1742,10 +2114,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
       let numbers = [];
       if (isTargetLoop) {
-        const loopCount = getQuestionLoopCount(targetQ);
+        const loopCount = getQuestionLoopCount(targetQ, currentValues);
         if (loopCount > 0) {
-          for (let idx = 0; idx < loopCount; idx++) {
-            const val = getLoopValueFromValues(targetQ.id, idx);
+          for (let i = 0; i < loopCount; i++) {
+            const val = getLoopValueFromValues(targetQ.id, i);
             const num = parseFloat(val);
             if (!isNaN(num)) {
               numbers.push(num);
@@ -1756,7 +2128,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         numbers = extractNumbers(currentValues[targetQ.id]);
       }
 
-      // Second try: if question belongs to a loop group, collect all questions in that group
       if (numbers.length === 0 && targetQ.validation) {
         try {
           const vParsed = JSON.parse(targetQ.validation);
@@ -1764,16 +2135,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             const groupQs = questions.filter(x => {
               if (!x.validation) return false;
               try { const p = JSON.parse(x.validation); return p && p.loop_group === vParsed.loop_group; }
-              catch(e) { return false; }
+              catch (e) { return false; }
             });
             groupQs.forEach(gq => {
               numbers = numbers.concat(extractNumbers(currentValues[gq.id]));
             });
           }
-        } catch(e) {}
+        } catch (e) { }
       }
 
-      // Third try: look for loop_count key and iterate
       if (numbers.length === 0) {
         const loopCountRaw = currentValues[`${targetQ.id}_loop_count`];
         const loopCount = loopCountRaw ? parseInt(loopCountRaw, 10) : 0;
@@ -1785,7 +2155,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               if (Array.isArray(arr)) {
                 numbers = arr.slice(0, loopCount).map(x => parseFloat(x)).filter(x => !isNaN(x));
               }
-            } catch(e) {}
+            } catch (e) { }
           }
         }
       }
@@ -1803,27 +2173,25 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     const codeRegex = /R[0-9a-zA-Z.]+/g;
     const codes = evalStr.match(codeRegex) || [];
-    
+
     for (const code of codes) {
       const targetQ = findQuestionByCode(code);
       if (targetQ) {
-        const val = currentValues[targetQ.id] || "0";
+        let val = "";
+        if (idx !== null) {
+          val = getLoopValueFromValues(targetQ.id, idx);
+        } else {
+          val = currentValues[targetQ.id] || "0";
+        }
         let valNum = parseFloat(val);
         if (isNaN(valNum)) {
           try {
             const parsed = JSON.parse(val);
             if (Array.isArray(parsed)) {
               const numbers = parsed.map(x => {
-                if (x && typeof x === 'object' && 'value' in x) {
-                  return parseFloat(x.value);
-                }
+                if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
                 if (typeof x === 'string' && x.startsWith('{')) {
-                  try {
-                    const parsedInner = JSON.parse(x);
-                    if (parsedInner && 'value' in parsedInner) {
-                      return parseFloat(parsedInner.value);
-                    }
-                  } catch(e){}
+                  try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
                 }
                 return parseFloat(x);
               }).filter(x => !isNaN(x));
@@ -1831,7 +2199,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
               valNum = parseFloat(parsed.value);
             }
-          } catch(e) {
+          } catch (e) {
             valNum = 0;
           }
         }
@@ -1840,7 +2208,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         evalStr = evalStr.replace(new RegExp(code, 'g'), "0");
       }
     }
-    
+
     try {
       const result = new Function(`return (${evalStr})`)();
       return isNaN(result) ? "0" : String(result);
@@ -1862,30 +2230,48 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     isEvaluatingRef.current = true;
 
-    let updated = false;
-    const newValues = { ...ans.values };
+    setAns(p => {
+      let actuallyUpdated = false;
+      const nextValues = { ...p.values };
 
-    formulaQs.forEach(q => {
-      const qVal = parseValidation(q.validation);
-      if (qVal && qVal.formula) {
-        const computedVal = evaluateFormula(qVal.formula, newValues);
-        if (newValues[q.id] !== computedVal) {
-          newValues[q.id] = computedVal;
-          updated = true;
+      formulaQs.forEach(q => {
+        const qVal = parseValidation(q.validation);
+        const isTargetLoop = qVal.isLoop || !!q.parent_id || !!q.parentId || !!qVal.loop_group;
+
+        if (qVal.formula) {
+          if (isTargetLoop) {
+            const loopCount = getQuestionLoopCount(q, nextValues);
+            const computedArray = [];
+            for (let idx = 0; idx < loopCount; idx++) {
+              computedArray.push(evaluateFormula(qVal.formula, nextValues, idx));
+            }
+            const computedStr = JSON.stringify(computedArray);
+            if (nextValues[q.id] !== computedStr) {
+              nextValues[q.id] = computedStr;
+              actuallyUpdated = true;
+            }
+          } else {
+            const computedVal = evaluateFormula(qVal.formula, nextValues);
+            if (nextValues[q.id] !== computedVal) {
+              nextValues[q.id] = computedVal;
+              actuallyUpdated = true;
+            }
+          }
         }
-      }
-    });
+      });
 
-    if (updated) {
-      setAns(p => ({
+      if (!actuallyUpdated) {
+        return p;
+      }
+      return {
         ...p,
-        values: newValues
-      }));
-    }
+        values: nextValues
+      };
+    });
 
     // Reset guard after a tick
     setTimeout(() => { isEvaluatingRef.current = false; }, 0);
-  }, [ans.values, questions]);
+  }, [ans.values, questions, getQuestionLoopCount]);
 
 
 
@@ -1927,20 +2313,20 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const getQuestionLoopGroup = (q) => {
     if (!q) return "";
-    const parentId = q.parent_id || q.parentId;
-    if (parentId) {
-      const parent = questions.find(p => p.id === parentId);
-      if (parent) {
-        return getQuestionLoopGroup(parent);
-      }
-    }
     if (q.validation) {
       try {
         const parsed = JSON.parse(q.validation);
         if (parsed && parsed.loop_group) {
           return parsed.loop_group;
         }
-      } catch (e) {}
+      } catch (e) { }
+    }
+    const parentId = q.parent_id || q.parentId;
+    if (parentId) {
+      const parent = questions.find(p => p.id === parentId);
+      if (parent) {
+        return getQuestionLoopGroup(parent);
+      }
     }
     return "";
   };
@@ -2014,7 +2400,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             if (parsed.is_search) {
               return { ...q, type: 'search' };
             }
-          } catch (e) {}
+          } catch (e) { }
         }
         return q;
       });
@@ -2109,36 +2495,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             localDocs = deduplicateLocalDocs(localDocs);
 
             // Merge: API docs sebagai dasar, tapi timpa dengan local docs yang lebih baru
-            const mergedDocs = [...docs];
-            localDocs.forEach(localDoc => {
-              // Cek duplikat berdasarkan ID ATAU kode
-              // Penting: localDoc.id bisa null (belum sync), jadi cek juga berdasarkan kode
-              const apiIdx = mergedDocs.findIndex(d =>
-                // Match by ID (jika kedua-duanya ada)
-                (d.id && localDoc.id && d.id === localDoc.id) ||
-                // ATAU match by kode (untuk dokumen yang belum sync)
-                (d.kode && d.kode === localDoc.kode)
-              );
-
-              const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
-              const apiTime = apiIdx >= 0 ? new Date(mergedDocs[apiIdx].updated_at || mergedDocs[apiIdx].created_at || 0).getTime() : 0;
-
-              if (apiIdx >= 0) {
-                // Doc ada di API - gunakan yang lebih baru
-                if (localTime > apiTime) {
-                  mergedDocs[apiIdx] = localDoc;
-                } else {
-                  // Jika API lebih baru, pastikan data API menimpa local doc
-                  mergedDocs[apiIdx] = { ...localDoc, ...mergedDocs[apiIdx] };
-                }
-              } else {
-                // Doc tidak ada di API (belum sync) - tambahkan dari local
-                mergedDocs.push(localDoc);
-              }
-            });
-
-            // Deduplicate hasil merge juga
-            const finalDocs = deduplicateLocalDocs(mergedDocs);
+            const finalDocs = mergeDocumentLists(docs, localDocs);
 
             // Filter untuk kegiatan saat ini
             const filteredDocs = finalDocs.filter(d => d.kegiatan_id === selectedActivity.id);
@@ -2202,9 +2559,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
   }, [isOffline]);
 
-  const isReadOnly = 
+  const isReadOnly =
     isPml ||
-    selectedRtItem?.review_status === "approved" || 
+    selectedRtItem?.review_status === "approved" ||
     ((selectedRtItem?.status === "tersimpan" || selectedRtItem?.status === "terkirim") && selectedRtItem?.review_status !== "rejected");
 
   const validateTextRule = (val, rule) => {
@@ -2233,15 +2590,22 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
         // Perform length validation for non-email and non-none validation types
         if (type !== 'email') {
-          const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
-          const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
-          const len = val.length;
-          if (len < min || len > max) {
-            return false;
+          if (parsed.text_validation_or_lengths) {
+            const allowedLengths = parsed.text_validation_or_lengths.split(',').map(x => parseInt(x.trim(), 10)).filter(x => !isNaN(x));
+            if (allowedLengths.length > 0 && !allowedLengths.includes(val.length)) {
+              return false;
+            }
+          } else {
+            const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
+            const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : Infinity;
+            const len = val.length;
+            if (len < min || len > max) {
+              return false;
+            }
           }
         }
         return true;
-      } catch (e) {}
+      } catch (e) { }
     }
     return true;
   };
@@ -2295,7 +2659,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
           matchesShowIf = operator === "OR" ? results.some(r => r) : results.every(r => r);
         }
-      } catch (e) {}
+      } catch (e) { }
 
       if (isJson) {
         if (!matchesShowIf) {
@@ -2377,7 +2741,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           const met = operator === "OR" ? results.some(r => r) : results.every(r => r);
           if (met) return false;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     const blockQuestions = [
@@ -2403,17 +2767,42 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   }, [blockMap, isBlockVisible, isQuestionVisibleIgnoreBlock]);
 
   // Status mapping for visual tabs
+  const isQuestionRequiredForRole = (q, isPmlUser) => {
+    if (!q.required) return false;
+    if (q.type === 'note') return false;
+
+    // If user is PCL, PML-specific questions are not required
+    if (!isPmlUser) {
+      const lowerLabel = (q.label || "").toLowerCase();
+      if (
+        q.type === 'pml' ||
+        lowerLabel.includes("pml") ||
+        lowerLabel.includes("pengawas") ||
+        lowerLabel.includes("pemeriksa")
+      ) {
+        return false;
+      }
+    }
+
+    return true;
+  };
+
+  // Status mapping for visual tabs
   const validateBlock = (blockKode) => {
+    if (!visitedBlocks.has(blockKode)) return 'empty';
+
     const block = blocks.find(b => b.kode === blockKode);
     if (!block) return 'empty';
-    
+
+    const resolvedValues = getResolvedAutoFillValues(ans.values);
+
     const blockQuestions = questions.filter(q => q.blok_id === block.id || q.blok_id === block.kode);
     let hasEmptyRequired = false;
     let hasValidationError = false;
     let hasFilledAny = false;
-    
+
     for (const q of blockQuestions) {
-      if (!isQuestionVisible(q)) continue;
+      if (q.type === 'note') continue;
 
       // Skip validation if this is a parent question with children and not in original mode
       const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
@@ -2421,30 +2810,31 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const parentMode = qVal.parentMode || "label";
       if (childQs.length > 0 && parentMode !== "original") continue;
 
-      const { isLoop, loopByQuestionId } = parseValidation(q.validation);
-      let loopCount = 1;
-      if (isLoop && loopByQuestionId) {
-        const triggerValue = ans.values[loopByQuestionId];
-        const parsedTrigger = parseInt(triggerValue, 10);
-        loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-        if (loopCount === 0) {
-          try {
-            const val = ans.values[q.id];
-            if (typeof val === 'string' && val.startsWith('[')) {
-              const arr = JSON.parse(val);
-              if (Array.isArray(arr) && arr.length > 0) loopCount = arr.length;
-            }
-          } catch(e) {}
-        }
-      } else {
-        const manualCount = getManualLoopCount(q);
-        if (manualCount !== null) {
-          loopCount = manualCount;
-        }
-      }
+      const { isLoop } = parseValidation(q.validation);
+      const loopCount = getQuestionLoopCount(q, resolvedValues);
 
       for (let idx = 0; idx < loopCount; idx++) {
-        const val = getLoopValue(q.id, idx);
+        // Per-index visibility check: for loop questions, each instance may have
+        // different visibility (e.g., work questions hidden for members aged < 5)
+        if (!isQuestionVisible(q, idx)) continue;
+        const getLoopValueFromResolved = (qId, index) => {
+          const raw = resolvedValues[qId];
+          if (!raw) return "";
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              return parsed[index] !== undefined && parsed[index] !== null ? String(parsed[index]) : "";
+            } else if (typeof parsed === 'object' && parsed !== null) {
+              return parsed[index] !== undefined && parsed[index] !== null ? String(parsed[index]) : "";
+            }
+          } catch (e) { }
+          return index === 0 ? String(raw) : "";
+        };
+
+        const rawVal = resolvedValues[q.id];
+        const val = (isLoop || loopCount > 1 || (typeof rawVal === 'string' && rawVal.startsWith('[')))
+          ? getLoopValueFromResolved(q.id, idx)
+          : rawVal;
         let isOtherTextEmpty = false;
         if (val !== undefined && val !== null && val !== '') {
           if (typeof val === 'string' && val.trim().startsWith('{')) {
@@ -2467,9 +2857,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   });
                 }
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
+
+        const isRequired = isQuestionRequiredForRole(q, isPml);
 
         if (val !== undefined && val !== null && val !== '' && !isOtherTextEmpty) {
           hasFilledAny = true;
@@ -2483,36 +2875,208 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               hasValidationError = true;
             }
           }
-        } else if (q.required || isOtherTextEmpty) {
+        } else if (isRequired || isOtherTextEmpty) {
           hasEmptyRequired = true;
         }
       }
     }
-    
+
     // Check main location headers in the first block if label matches Lokasi
     if (blockKode === blocks[0]?.kode) {
       if (!ans.kode || ans.kode.trim() === "") {
         hasEmptyRequired = true;
       }
     }
-    
+
     if (!hasFilledAny && blockKode !== "Blok I" && blockKode !== blocks[0]?.kode) return 'empty';
     if (hasValidationError) return 'error';
     if (hasEmptyRequired) return 'warning';
     return 'safe';
   };
 
+  const getResolvedAutoFillValues = (currentValues) => {
+    const updatedValues = { ...currentValues };
+    const docPclId = selectedRtItem ? (selectedRtItem.petugas_id || currentUser.id) : currentUser.id;
+    const docPetugas = docPclId ? (petugas || []).find(p => p.id === docPclId) : null;
+    const activePetugas = docPetugas || currentPetugas;
+
+    questions.forEach(q => {
+      const lowerLabel = (q.label || "").toLowerCase();
+      let matchedText = "";
+
+      let defaultVal = null;
+      if (q.validation) {
+        try {
+          const parsed = JSON.parse(q.validation);
+          defaultVal = parsed.default_val || parsed.defaultVal || null;
+        } catch (e) { }
+      }
+
+      const loopCount = getQuestionLoopCount(q, updatedValues);
+
+      const getLoopValueFromObject = (qId, idx) => {
+        const raw = updatedValues[qId];
+        if (!raw) return "";
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed[idx] !== undefined && parsed[idx] !== null ? String(parsed[idx]) : "";
+          } else if (typeof parsed === 'object' && parsed !== null) {
+            return parsed[idx] !== undefined && parsed[idx] !== null ? String(parsed[idx]) : "";
+          }
+        } catch (e) { }
+        return idx === 0 ? String(raw) : "";
+      };
+
+      const isLoop = !!q.parent_id || !!q.parentId || q.validation?.includes("loop_group") || q.validation?.includes("is_loop");
+      const isSerialNumber = isLoop && (
+        lowerLabel.includes('no. urut') ||
+        lowerLabel.includes('nomor urut') ||
+        lowerLabel.includes('no urut')
+      );
+
+      for (let idx = 0; idx < loopCount; idx++) {
+        let currentVal = getLoopValueFromObject(q.id, idx);
+
+        if (isSerialNumber) {
+          const expectedVal = String(idx + 1);
+          if (currentVal !== expectedVal) {
+            let arr = [];
+            try { arr = JSON.parse(updatedValues[q.id]); } catch (e) { arr = []; }
+            if (!Array.isArray(arr)) arr = [];
+            arr[idx] = expectedVal;
+            updatedValues[q.id] = JSON.stringify(arr);
+          }
+        } else if (currentVal === undefined || currentVal === null || currentVal === '') {
+          // If type is PCL
+          if (q.type === 'pcl' || lowerLabel.includes("nama pcl") || lowerLabel.includes("nama pencacah")) {
+            matchedText = activePetugas.name || currentUser.name || "";
+          }
+          // If type is PML
+          else if (q.type === 'pml' || lowerLabel.includes("nama pml") || lowerLabel.includes("nama pengawas")) {
+            matchedText = activePetugas.assignments?.[selectedActivity?.name]?.pengawas || "";
+          }
+          // If location fields (Kecamatan, Desa, SLS, etc.)
+          else if (lowerLabel.includes("provinsi")) {
+            matchedText = defaultVal || "Kalimantan Utara";
+          } else if (lowerLabel.includes("kabupaten") || lowerLabel.includes("kota")) {
+            matchedText = defaultVal || "Tana Tidung";
+          } else if (lowerLabel.includes("kecamatan") && ans.kecamatan) {
+            matchedText = ans.kecamatan;
+          } else if ((lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) && ans.desa) {
+            matchedText = ans.desa;
+          } else if ((lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) && ans.sub_sls) {
+            matchedText = ans.sub_sls;
+          } else if ((lowerLabel.includes("sls") || lowerLabel.match(/\brt\b/)) && ans.sls) {
+            matchedText = ans.sls;
+          } else if ((lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) && ans.alamat) {
+            matchedText = ans.alamat;
+          } else if ((lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) && ans.krt && ans.krt !== "Tanpa Nama") {
+            matchedText = ans.krt;
+          } else if (defaultVal !== null) {
+            let resolvedDefaultVal = defaultVal;
+            if (typeof resolvedDefaultVal === 'string') {
+              // Handle building number legacy tag
+              if (resolvedDefaultVal.includes("{{no_bangunan_terakhir}}")) {
+                const maxVal = computeAggregation("MAX", "R108");
+                resolvedDefaultVal = resolvedDefaultVal.replace(/\{\{no_bangunan_terakhir\}\}/g, maxVal);
+              }
+
+              // Handle generic dynamic tags like {{MAXPCLR101}}, {{MAXALLR101}}, {{MAX_PCL_R101}}
+              const tagRegex = /\{\{(MAX|MIN|AVG|SUM|LAST)_?(PCL|ALL)?_?([a-zA-Z0-9.]+)\}\}/gi;
+              resolvedDefaultVal = resolvedDefaultVal.replace(tagRegex, (match, op, scope, code) => {
+                const finalScope = scope || "PCL";
+                return computeAggregation(op, finalScope, code);
+              });
+
+              // Evaluate mathematical expressions if they result from tag resolution (e.g., "12 + 1")
+              if (/^[0-9.+\-*/()\s]+$/.test(resolvedDefaultVal.trim()) && resolvedDefaultVal.trim() !== "") {
+                try {
+                  const evaluated = new Function(`return (${resolvedDefaultVal})`)();
+                  if (evaluated !== undefined && !isNaN(evaluated)) {
+                    resolvedDefaultVal = String(evaluated);
+                  }
+                } catch (e) { }
+              }
+            }
+            matchedText = resolvedDefaultVal;
+          }
+
+          if (matchedText && q.type !== 'note') {
+            let finalVal = matchedText;
+            if (q.type === 'select' || q.type === 'search') {
+              const opts = resolveDynamicOptions(q);
+              const match = opts.find(o =>
+                String(o.value).toLowerCase() === String(matchedText).toLowerCase() ||
+                String(o.label).toLowerCase() === String(matchedText).toLowerCase()
+              );
+              finalVal = match ? match.value : matchedText;
+            }
+
+            if (isLoop || loopCount > 1) {
+              let arr = [];
+              try { arr = JSON.parse(updatedValues[q.id]); } catch (e) { arr = []; }
+              if (!Array.isArray(arr)) arr = [];
+              arr[idx] = finalVal;
+              updatedValues[q.id] = JSON.stringify(arr);
+            } else {
+              updatedValues[q.id] = finalVal;
+            }
+          }
+        }
+      }
+    });
+
+    // 2. Evaluate Formulas
+    const formulaQs = questions.filter(q => {
+      const qVal = parseValidation(q.validation);
+      return qVal && qVal.formula;
+    });
+
+    formulaQs.forEach(q => {
+      const qVal = parseValidation(q.validation);
+      if (qVal && qVal.formula) {
+        const isLoop = qVal.isLoop || !!q.parent_id || !!q.parentId || !!qVal.loop_group;
+        const loopCount = getQuestionLoopCount(q, updatedValues);
+
+        if (isLoop) {
+          const computedArray = [];
+          for (let idx = 0; idx < loopCount; idx++) {
+            computedArray.push(evaluateFormula(qVal.formula, updatedValues, idx));
+          }
+          const computedStr = JSON.stringify(computedArray);
+          if (updatedValues[q.id] !== computedStr) {
+            updatedValues[q.id] = computedStr;
+          }
+        } else {
+          const computedVal = evaluateFormula(qVal.formula, updatedValues);
+          if (updatedValues[q.id] !== computedVal) {
+            updatedValues[q.id] = computedVal;
+          }
+        }
+      }
+    });
+
+    return updatedValues;
+  };
+
   const getValidationSummary = () => {
     const errors = [];
     const warnings = [];
 
+    const resolvedValues = getResolvedAutoFillValues(ans.values);
+
     // Check first block code
     if (!ans.kode || ans.kode.trim() === "") {
-      warnings.push(`[${blocks[0]?.kode || 'Pengantar'}] Kode Dokumen / Nomor Urut belum diisi.`);
+      warnings.push({
+        blockKode: blocks[0]?.kode || 'Pengantar',
+        questionId: 'kode',
+        message: 'Kode Dokumen / Nomor Urut belum diisi.'
+      });
     }
 
     questions.forEach(q => {
-      if (!isQuestionVisible(q)) return;
+      if (q.type === 'note') return;
 
       // If this question has sub-questions, it doesn't render inputs of its own (unless in original input mode), so it cannot be validated/required
       const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
@@ -2520,31 +3084,31 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const parentMode = qVal.parentMode || "label";
       if (childQs.length > 0 && parentMode !== "original") return;
 
-      const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
-      let loopCount = 1;
-      // Priority: loop_by_question_id > manual
-      if (isLoop && loopByQuestionId) {
-        const triggerValue = ans.values[loopByQuestionId];
-        const parsedTrigger = parseInt(triggerValue, 10);
-        loopCount = isNaN(parsedTrigger) ? 0 : parsedTrigger;
-        if (loopCount === 0) {
-          try {
-            const val = ans.values[q.id];
-            if (typeof val === 'string' && val.startsWith('[')) {
-              const arr = JSON.parse(val);
-              if (Array.isArray(arr) && arr.length > 0) loopCount = arr.length;
-            }
-          } catch(e) {}
-        }
-      } else {
-        const manualCount = getManualLoopCount(q);
-        if (manualCount !== null) {
-          loopCount = manualCount;
-        }
-      }
+      const { isLoop, loopType } = parseValidation(q.validation);
+      const loopCount = getQuestionLoopCount(q, resolvedValues);
 
       for (let idx = 0; idx < loopCount; idx++) {
-        const val = getLoopValue(q.id, idx);
+        // Per-index visibility check: each loop instance is checked independently
+        // so that conditionally hidden questions (e.g., work for age < 5) are skipped
+        if (!isQuestionVisible(q, idx)) continue;
+        const getLoopValueFromResolved = (qId, index) => {
+          const raw = resolvedValues[qId];
+          if (!raw) return "";
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              return parsed[index] !== undefined && parsed[index] !== null ? String(parsed[index]) : "";
+            } else if (typeof parsed === 'object' && parsed !== null) {
+              return parsed[index] !== undefined && parsed[index] !== null ? String(parsed[index]) : "";
+            }
+          } catch (e) { }
+          return index === 0 ? String(raw) : "";
+        };
+
+        const rawVal = resolvedValues[q.id];
+        const val = (isLoop || loopCount > 1 || (typeof rawVal === 'string' && rawVal.startsWith('[')))
+          ? getLoopValueFromResolved(q.id, idx)
+          : rawVal;
         const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
         const blockName = block ? block.kode : "Form";
         const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
@@ -2571,15 +3135,21 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   });
                 }
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
+
+        const isRequired = isQuestionRequiredForRole(q, isPml);
 
         if (val !== undefined && val !== null && val !== '' && !isOtherTextEmpty) {
           if (q.type === 'number' && q.validation) {
             const numVal = Number(val);
             if (isNaN(numVal) || val === '') {
-              errors.push(`[${blockName}] Isian ${q.label}${suffix} harus berupa angka.`);
+              errors.push({
+                blockKode: blockName,
+                questionId: q.id,
+                message: `Isian ${q.label}${suffix} harus berupa angka.`
+              });
             } else {
               let ruleValid = true;
               let isIntegerError = false;
@@ -2601,7 +3171,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   } else if (parsed.type === 'lt') {
                     ruleValid = numVal < Number(parsed.max);
                   }
-                } catch (e) {}
+                } catch (e) { }
               } else if (rule.startsWith('range:')) {
                 const parts = rule.replace('range:', '').trim().split('-');
                 ruleValid = numVal >= Number(parts[0]) && numVal <= Number(parts[1]);
@@ -2612,20 +3182,28 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               }
               if (!ruleValid) {
                 if (isIntegerError) {
-                  errors.push(`[${blockName}] Nilai ${q.label}${suffix} harus berupa bilangan bulat (tidak boleh desimal).`);
+                  errors.push({
+                    blockKode: blockName,
+                    questionId: q.id,
+                    message: `Nilai ${q.label}${suffix} harus berupa bilangan bulat (tidak boleh desimal).`
+                  });
                 } else {
-                  errors.push(`[${blockName}] Nilai ${q.label}${suffix} diluar rentang yang diizinkan.`);
+                  errors.push({
+                    blockKode: blockName,
+                    questionId: q.id,
+                    message: `Nilai ${q.label}${suffix} diluar rentang yang diizinkan.`
+                  });
                 }
               }
             }
           }
           if (q.type === 'text' && q.validation) {
             if (!validateTextRule(val, q.validation)) {
-              let errorMsg = `[${blockName}] Nilai ${q.label}${suffix} tidak valid.`;
+              let errorMsg = `Nilai ${q.label}${suffix} tidak valid.`;
               try {
                 const parsed = JSON.parse(q.validation);
                 const type = parsed.text_validation_type;
-                
+
                 let patternMsg = "";
                 if (type === 'nik') {
                   patternMsg = "harus tepat 16 digit angka (Format NIK)";
@@ -2641,43 +3219,99 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
                 let lengthMsg = "";
                 if (type && type !== 'none' && type !== 'email') {
-                  const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
-                  const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : null;
-                  if (min > 0 && max) {
-                    if (min === max) {
-                      lengthMsg = `harus tepat ${min} karakter`;
-                    } else {
-                      lengthMsg = `harus berukuran ${min} sampai ${max} karakter`;
+                  if (parsed.text_validation_or_lengths) {
+                    lengthMsg = `harus memiliki panjang ${parsed.text_validation_or_lengths.split(',').map(x => x.trim()).join(' atau ')} karakter`;
+                  } else {
+                    const min = parsed.text_validation_min ? parseInt(parsed.text_validation_min, 10) : 0;
+                    const max = parsed.text_validation_max ? parseInt(parsed.text_validation_max, 10) : null;
+                    if (min > 0 && max) {
+                      if (min === max) {
+                        lengthMsg = `harus tepat ${min} karakter`;
+                      } else {
+                        lengthMsg = `harus berukuran ${min} sampai ${max} karakter`;
+                      }
+                    } else if (min > 0) {
+                      lengthMsg = `minimal ${min} karakter`;
+                    } else if (max) {
+                      lengthMsg = `maksimal ${max} karakter`;
                     }
-                  } else if (min > 0) {
-                    lengthMsg = `minimal ${min} karakter`;
-                  } else if (max) {
-                    lengthMsg = `maksimal ${max} karakter`;
                   }
                 }
 
                 if (patternMsg && lengthMsg) {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} ${patternMsg} dan ${lengthMsg}.`;
+                  errorMsg = `Isian ${q.label}${suffix} ${patternMsg} dan ${lengthMsg}.`;
                 } else if (patternMsg) {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} ${patternMsg}.`;
+                  errorMsg = `Isian ${q.label}${suffix} ${patternMsg}.`;
                 } else if (lengthMsg) {
-                  errorMsg = `[${blockName}] Isian ${q.label}${suffix} ${lengthMsg}.`;
+                  errorMsg = `Isian ${q.label}${suffix} ${lengthMsg}.`;
                 }
-              } catch (e) {}
-              errors.push(errorMsg);
+              } catch (e) { }
+              errors.push({
+                blockKode: blockName,
+                questionId: q.id,
+                message: errorMsg
+              });
             }
           }
-        } else if (q.required || isOtherTextEmpty) {
+        } else if (isRequired || isOtherTextEmpty) {
           if (isOtherTextEmpty) {
-            warnings.push(`[${blockName}] Keterangan opsi Lainnya untuk ${q.label}${suffix} belum diisi.`);
+            warnings.push({
+              blockKode: blockName,
+              questionId: q.id,
+              message: `Keterangan opsi Lainnya untuk ${q.label}${suffix} belum diisi.`
+            });
           } else {
-            warnings.push(`[${blockName}] Isian wajib ${q.label}${suffix} masih kosong.`);
+            warnings.push({
+              blockKode: blockName,
+              questionId: q.id,
+              message: `Isian wajib ${q.label}${suffix} masih kosong.`
+            });
           }
         }
       }
     });
 
-    return { errors, warnings };
+    const getBlockIndex = (bKode) => {
+      return blocks.findIndex(b => b.kode === bKode);
+    };
+
+    const getQuestionIndex = (qId) => {
+      if (qId === 'kode') return -1;
+      return questions.findIndex(q => q.id === qId);
+    };
+
+    const sortItems = (items) => {
+      return [...items].sort((a, b) => {
+        const aIdx = getBlockIndex(a.blockKode);
+        const bIdx = getBlockIndex(b.blockKode);
+        if (aIdx !== bIdx) return aIdx - bIdx;
+        return getQuestionIndex(a.questionId) - getQuestionIndex(b.questionId);
+      });
+    };
+
+    return {
+      errors: sortItems(errors),
+      warnings: sortItems(warnings)
+    };
+  };
+
+  const handleJumpToQuestion = (blockKode, questionId) => {
+    setShowSummaryModal(false);
+    setActiveTab(blockKode);
+    setTimeout(() => {
+      let targetId = `q-card-${questionId}`;
+      if (questionId === 'kode') {
+        targetId = 'q-card-kode';
+      }
+      const element = document.getElementById(targetId);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add('ring-4', 'ring-blue-500/30', 'border-blue-500', 'transition-all', 'duration-300');
+        setTimeout(() => {
+          element.classList.remove('ring-4', 'ring-blue-500/30', 'border-blue-500');
+        }, 2000);
+      }
+    }, 150);
   };
 
   const handleSelectActivity = (act) => {
@@ -2686,13 +3320,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   const handleEditItem = async (item) => {
-    const hasBeenSent = item.status === "terkirim" || item.review_status === "approved" || item.review_status === "rejected";
+    const hasBeenSent = item.status === "tersimpan" || item.status === "terkirim" || item.review_status === "approved" || item.review_status === "rejected";
     if (isPml && !hasBeenSent) {
       setWarningMessage("Dokumen ini belum dikirim ke server oleh PCL, sehingga tidak dapat diperiksa oleh PML.");
       return;
     }
     setSelectedRtItem(item);
-    
+
     let docDetail = null;
     let localDraft = null;
 
@@ -2702,7 +3336,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         const list = JSON.parse(cached);
         // Cek jika ada draft lokal yang belum di-sync
         localDraft = list.find(d => d.kode === item.kode && d.sync === false);
-        
+
         if (isOffline) {
           docDetail = list.find(d => d.kode === item.kode);
         }
@@ -2715,10 +3349,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       try {
         const res = await api.dokumen.getDetail(item.id);
         if (res.success) {
-          docDetail = {
+          const apiDoc = {
             ...res.dokumen,
             values: res.values
           };
+          docDetail = mergeDocument(apiDoc, item);
         }
       } catch (e) {
         console.error("Gagal load detail kuesioner dari server:", e);
@@ -2741,31 +3376,67 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       // Auto-fill prelist fields
       if (finalDoc.is_prelist && !updatedValues[q.id]) {
         const lowerLabel = (q.label || "").toLowerCase();
-        if (lowerLabel.includes("kecamatan") && finalDoc.kecamatan) {
-          updatedValues[q.id] = finalDoc.kecamatan;
+        let matchedText = "";
+
+        if (lowerLabel.includes("provinsi")) {
+          const qVal = parseValidation(q.validation);
+          matchedText = qVal.defaultVal || "Kalimantan Utara";
+        } else if (lowerLabel.includes("kabupaten") || lowerLabel.includes("kota")) {
+          const qVal = parseValidation(q.validation);
+          matchedText = qVal.defaultVal || "Tana Tidung";
+        } else if (lowerLabel.includes("kecamatan") && finalDoc.kecamatan) {
+          matchedText = finalDoc.kecamatan;
         } else if ((lowerLabel.includes("desa") || lowerLabel.includes("kelurahan")) && finalDoc.desa) {
-          updatedValues[q.id] = finalDoc.desa;
+          matchedText = finalDoc.desa;
         } else if ((lowerLabel.includes("sub sls") || lowerLabel.includes("sub-sls") || lowerLabel.match(/\brw\b/)) && finalDoc.sub_sls) {
-          updatedValues[q.id] = finalDoc.sub_sls;
+          matchedText = finalDoc.sub_sls;
         } else if ((lowerLabel.includes("sls") || lowerLabel.match(/\brt\b/)) && finalDoc.sls) {
-          updatedValues[q.id] = finalDoc.sls;
+          matchedText = finalDoc.sls;
         } else if ((lowerLabel.includes("alamat") || lowerLabel.includes("jalan")) && finalDoc.alamat) {
-          updatedValues[q.id] = finalDoc.alamat;
+          matchedText = finalDoc.alamat;
         } else if ((lowerLabel.includes("kepala") || lowerLabel.includes("krt") || lowerLabel.includes("nama kepala")) && finalDoc.krt && finalDoc.krt !== "Tanpa Nama") {
-          updatedValues[q.id] = finalDoc.krt;
+          matchedText = finalDoc.krt;
         } else if ((lowerLabel.includes("nama anggota") || lowerLabel.includes("nama art")) && finalDoc.krt && finalDoc.krt !== "Tanpa Nama") {
           let isLoop = false;
           if (q.validation) {
             try {
               const parsed = JSON.parse(q.validation);
               isLoop = !!parsed.is_loop;
-            } catch (e) {}
+            } catch (e) { }
           }
           if (isLoop) {
             updatedValues[q.id] = JSON.stringify([finalDoc.krt]);
           } else {
             updatedValues[q.id] = finalDoc.krt;
           }
+        }
+
+        if (matchedText && q.type !== 'note') {
+          if (q.type === 'select' || q.type === 'search') {
+            const opts = resolveDynamicOptions(q);
+            const match = opts.find(o =>
+              String(o.value).toLowerCase() === String(matchedText).toLowerCase() ||
+              String(o.label).toLowerCase() === String(matchedText).toLowerCase()
+            );
+            updatedValues[q.id] = match ? match.value : matchedText;
+          } else {
+            updatedValues[q.id] = matchedText;
+          }
+        }
+      }
+    });
+
+    // Map any already loaded/saved text labels to option values for select/search fields
+    questions.forEach(q => {
+      if ((q.type === 'select' || q.type === 'search') && updatedValues[q.id]) {
+        const val = updatedValues[q.id];
+        const opts = resolveDynamicOptions(q);
+        const match = opts.find(o =>
+          String(o.value).toLowerCase() === String(val).toLowerCase() ||
+          String(o.label).toLowerCase() === String(val).toLowerCase()
+        );
+        if (match) {
+          updatedValues[q.id] = match.value;
         }
       }
     });
@@ -2779,9 +3450,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       sls: finalDoc.sls || "",
       sub_sls: finalDoc.sub_sls || "",
       is_prelist: !!finalDoc.is_prelist,
-      values: updatedValues
+      values: getResolvedAutoFillValues(updatedValues)
     });
 
+    setVisitedBlocks(new Set(blocks.map(b => b.kode)));
     if (blocks.length > 0) {
       setActiveTab(blocks[0].kode);
     } else {
@@ -2796,7 +3468,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Initial pre-fill location from activity info and petugas defaults
     let defaultKec = "";
     let defaultDesa = currentPetugas.desa || "";
-    
+
     if (selectedActivity.lokus) {
       let lokus = selectedActivity.lokus;
       if (typeof lokus === 'string') {
@@ -2829,7 +3501,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               if (parsed && parsed.loop_group) {
                 loopGroupName = parsed.loop_group;
               }
-            } catch (e) {}
+            } catch (e) { }
           }
 
           if (loopGroupName && !processedLoopGroups.has(loopGroupName)) {
@@ -2877,24 +3549,48 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               if (evaluated !== undefined && !isNaN(evaluated)) {
                 resolvedDefaultVal = String(evaluated);
               }
-            } catch (e) {}
+            } catch (e) { }
           }
         }
-        initialValues[q.id] = resolvedDefaultVal;
+
+        if (q.type === 'select' || q.type === 'search') {
+          const opts = resolveDynamicOptions(q);
+          const match = opts.find(o =>
+            String(o.value).toLowerCase() === String(resolvedDefaultVal).toLowerCase() ||
+            String(o.label).toLowerCase() === String(resolvedDefaultVal).toLowerCase()
+          );
+          initialValues[q.id] = match ? match.value : resolvedDefaultVal;
+        } else {
+          initialValues[q.id] = resolvedDefaultVal;
+        }
       } else {
         const lower = q.label.toLowerCase();
+        let valToSet = "";
         if (q.type === 'pcl') {
-          initialValues[q.id] = currentUser.name;
+          valToSet = currentUser.name;
         } else if (q.type === 'pml') {
-          initialValues[q.id] = currentPetugas.assignments?.[selectedActivity?.name]?.pengawas || "";
+          valToSet = currentPetugas.assignments?.[selectedActivity?.name]?.pengawas || "";
         } else if (lower.includes("provinsi")) {
-          initialValues[q.id] = "Kalimantan Utara";
+          valToSet = "Kalimantan Utara";
         } else if (lower.includes("kabupaten") || lower.includes("kota")) {
-          initialValues[q.id] = "Tana Tidung";
+          valToSet = "Tana Tidung";
         } else if (lower.includes("kecamatan")) {
-          initialValues[q.id] = defaultKec;
+          valToSet = defaultKec;
         } else if (lower.includes("desa") || lower.includes("kelurahan")) {
-          initialValues[q.id] = defaultDesa;
+          valToSet = defaultDesa;
+        }
+
+        if (valToSet) {
+          if (q.type === 'select' || q.type === 'search') {
+            const opts = resolveDynamicOptions(q);
+            const match = opts.find(o =>
+              String(o.value).toLowerCase() === String(valToSet).toLowerCase() ||
+              String(o.label).toLowerCase() === String(valToSet).toLowerCase()
+            );
+            initialValues[q.id] = match ? match.value : valToSet;
+          } else {
+            initialValues[q.id] = valToSet;
+          }
         }
       }
     });
@@ -2911,11 +3607,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       values: initialValues
     });
 
-    if (blocks.length > 0) {
-      setActiveTab(blocks[0].kode);
-    } else {
-      setActiveTab("Blok I");
-    }
+    const initialBlock = blocks.length > 0 ? blocks[0].kode : "Blok I";
+    setVisitedBlocks(new Set([initialBlock]));
+    setActiveTab(initialBlock);
     setView("form");
   };
 
@@ -2924,6 +3618,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       setView("prelist");
       return;
     }
+
+    setVisitedBlocks(new Set(blocks.map(b => b.kode)));
 
     askConfirmation(
       "Simpan Kuesioner",
@@ -2938,17 +3634,52 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     if (typeof currentLogs === 'string') {
       try { currentLogs = JSON.parse(currentLogs); } catch { currentLogs = []; }
     }
-    
+
     const newLogs = selectedRtItem
       ? [...currentLogs, `${timestamp}: Kuesioner disimpan oleh PCL (Tersimpan)`]
       : [`${timestamp}: Kuesioner dibuat (Draft)`, `${timestamp}: Kuesioner disimpan oleh PCL (Tersimpan)`];
+
+    const resolvedValues = getResolvedAutoFillValues(ans.values);
+
+    let finalKrt = ans.krt;
+    if (!finalKrt || finalKrt === "Tanpa Nama") {
+      const krtQ = questions.find(q => {
+        const lowerLabel = (q.label || "").toLowerCase();
+        return (
+          lowerLabel.includes("nama kepala") ||
+          lowerLabel.includes("kepala keluarga") ||
+          lowerLabel.includes("kepala rumah tangga") ||
+          lowerLabel.includes("nama krt") ||
+          lowerLabel === "krt"
+        );
+      });
+      if (krtQ && resolvedValues[krtQ.id]) {
+        let extractedText = resolvedValues[krtQ.id];
+        const opts = resolveDynamicOptions(krtQ);
+        if (opts && opts.length > 0) {
+          const matchedOpt = opts.find(o => String(o.value) === String(extractedText));
+          if (matchedOpt) {
+            extractedText = matchedOpt.label || matchedOpt.text || extractedText;
+          }
+        }
+        if (extractedText && String(extractedText).trim() !== "") {
+          finalKrt = String(extractedText).trim();
+        }
+      }
+    }
+
+    setAns(p => ({
+      ...p,
+      krt: finalKrt || "Tanpa Nama",
+      values: resolvedValues
+    }));
 
     const payload = {
       id: selectedRtItem?.id,
       kode: ans.kode,
       kegiatan_id: selectedActivity.id,
       petugas_id: currentUser.id,
-      krt: ans.krt || "Tanpa Nama",
+      krt: finalKrt || "Tanpa Nama",
       alamat: ans.alamat,
       kecamatan: ans.kecamatan,
       desa: ans.desa,
@@ -2956,7 +3687,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       sub_sls: ans.sub_sls,
       status: "tersimpan",
       is_prelist: ans.is_prelist,
-      values: ans.values,
+      values: resolvedValues,
       log_message: selectedRtItem ? "Kuesioner diperbarui PCL (Tersimpan)" : "Kuesioner baru disimpan PCL (Tersimpan)"
     };
 
@@ -2971,7 +3702,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       id: selectedRtItem?.id || null,
       review_status: selectedRtItem?.review_status || "draft",
       sync: false,
-      logs: newLogs
+      logs: newLogs,
+      created_at: selectedRtItem?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
     // Hapus duplikat berdasarkan kode sebelum mencari index
@@ -3035,7 +3768,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const updatedLocalDoc = {
         ...selectedRtItem,
         status: "draft",
-        logs: newLogs
+        logs: newLogs,
+        updated_at: new Date().toISOString()
       };
 
       const idx = cachedList.findIndex(d => d.kode === selectedRtItem.kode);
@@ -3052,24 +3786,49 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     } else {
       try {
         const payload = {
+          ...selectedRtItem,
           id: selectedRtItem.id,
           kode: selectedRtItem.kode,
           kegiatan_id: selectedRtItem.kegiatan_id,
           petugas_id: selectedRtItem.petugas_id,
           status: "draft",
+          review_status: "draft",
           log_message: "Batal simpan dokumen (Kembali ke Draft)"
         };
         const res = await api.dokumen.save(payload);
         if (res.success) {
           const docs = await api.dokumen.getByPetugas(currentUser.id);
+          const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+          let localDocs = [];
+          if (cached) {
+            try { localDocs = JSON.parse(cached); } catch { localDocs = []; }
+          }
+
+          // Update the local doc's status and logs in the localDocs array first
+          // to prevent mergeDocumentLists from reverting it back to "tersimpan"
+          const updatedLocalDoc = {
+            ...selectedRtItem,
+            status: "draft",
+            logs: newLogs,
+            sync: true, // Synced with server
+            updated_at: new Date().toISOString()
+          };
+          const localIdx = localDocs.findIndex(d => d.kode === selectedRtItem.kode);
+          if (localIdx > -1) {
+            localDocs[localIdx] = updatedLocalDoc;
+          } else {
+            localDocs.push(updatedLocalDoc);
+          }
+
+          const merged = mergeDocumentLists(docs, localDocs);
 
           // Simpan dengan hybrid storage (localStorage + IndexedDB backup)
-          safeSaveDocuments(docs);
-          docs.forEach(doc => saveDokumenToIDB(doc));
+          safeSaveDocuments(merged);
+          merged.forEach(doc => saveDokumenToIDB(doc));
 
-          const updatedItem = docs.find(d => d.id === selectedRtItem.id);
-          setSelectedRtItem(updatedItem);
-          setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+          const updatedItem = merged.find(d => d.id === selectedRtItem.id || d.kode === selectedRtItem.kode);
+          setSelectedRtItem(updatedItem || updatedLocalDoc);
+          setLocalPrelist(merged.filter(d => d.kegiatan_id === selectedActivity.id));
         }
       } catch (e) {
         console.error(e);
@@ -3132,28 +3891,61 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     if (typeof currentLogs === 'string') {
       try { currentLogs = JSON.parse(currentLogs); } catch { currentLogs = []; }
     }
-    
-    const newLogs = selectedRtItem
-      ? [...currentLogs, `${timestamp}: Kuesioner disimpan sementara (Draft)`]
-      : [`${timestamp}: Kuesioner dibuat (Draft)`, `${timestamp}: Kuesioner disimpan sementara (Draft)`];
 
-    const currentStatus = selectedRtItem?.status || "draft";
+    const newLogs = selectedRtItem
+      ? [...currentLogs, `${timestamp}: Kuesioner disimpan sementara (Simpan Sementara)`]
+      : [`${timestamp}: Kuesioner dibuat (Draft)`, `${timestamp}: Kuesioner disimpan sementara (Simpan Sementara)`];
+
+    const resolvedValues = getResolvedAutoFillValues(ans.values);
+
+    let finalKrt = ans.krt;
+    if (!finalKrt || finalKrt === "Tanpa Nama") {
+      const krtQ = questions.find(q => {
+        const lowerLabel = (q.label || "").toLowerCase();
+        return (
+          lowerLabel.includes("nama kepala") ||
+          lowerLabel.includes("kepala keluarga") ||
+          lowerLabel.includes("kepala rumah tangga") ||
+          lowerLabel.includes("nama krt") ||
+          lowerLabel === "krt"
+        );
+      });
+      if (krtQ && resolvedValues[krtQ.id]) {
+        let extractedText = resolvedValues[krtQ.id];
+        const opts = resolveDynamicOptions(krtQ);
+        if (opts && opts.length > 0) {
+          const matchedOpt = opts.find(o => String(o.value) === String(extractedText));
+          if (matchedOpt) {
+            extractedText = matchedOpt.label || matchedOpt.text || extractedText;
+          }
+        }
+        if (extractedText && String(extractedText).trim() !== "") {
+          finalKrt = String(extractedText).trim();
+        }
+      }
+    }
+
+    setAns(p => ({
+      ...p,
+      krt: finalKrt || "Tanpa Nama",
+      values: resolvedValues
+    }));
 
     const payload = {
       id: selectedRtItem?.id,
       kode: ans.kode,
       kegiatan_id: selectedActivity.id,
       petugas_id: currentUser.id,
-      krt: ans.krt || "Tanpa Nama",
+      krt: finalKrt || "Tanpa Nama",
       alamat: ans.alamat,
       kecamatan: ans.kecamatan,
       desa: ans.desa,
       sls: ans.sls,
       sub_sls: ans.sub_sls,
-      status: currentStatus,
+      status: "tersimpan_sementara",
       is_prelist: ans.is_prelist,
-      values: ans.values,
-      log_message: "Kuesioner disimpan sementara (Draft)"
+      values: resolvedValues,
+      log_message: "Kuesioner disimpan sementara (Simpan Sementara)"
     };
 
     const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
@@ -3167,7 +3959,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       id: selectedRtItem?.id || null,
       review_status: selectedRtItem?.review_status || "draft",
       sync: false,
-      logs: newLogs
+      logs: newLogs,
+      created_at: selectedRtItem?.created_at || new Date().toISOString(),
+      updated_at: new Date().toISOString()
     };
 
     // Hapus duplikat berdasarkan kode sebelum mencari index
@@ -3202,9 +3996,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Simpan juga ke IndexedDB secara individual untuk backup
     saveDokumenToIDB(localDoc);
 
+    if (!isOffline) {
+      api.dokumen.backup(currentUser.id, [payload]).catch(e => {
+        console.error("Gagal melakukan background backup ke server:", e);
+      });
+    }
+
     setLocalPrelist(dedupedList.filter(d => d.kegiatan_id === selectedActivity.id));
     setSelectedRtItem(localDoc);
-    showToast("Progres berhasil disimpan sementara.", "success", "Tersimpan");
+    showToast("Progres berhasil disimpan sementara.", "success", "Simpan Sementara");
   };
 
   const handlePmlApprove = () => {
@@ -3221,12 +4021,18 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const res = await api.dokumen.review(selectedRtItem.id, 'approved');
       if (res.success) {
         const docs = await fetchDocuments();
+        const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+        let localDocs = [];
+        if (cached) {
+          try { localDocs = JSON.parse(cached); } catch { localDocs = []; }
+        }
+        const merged = mergeDocumentLists(docs, localDocs);
 
         // Simpan dengan hybrid storage (localStorage + IndexedDB backup)
-        safeSaveDocuments(docs);
-        docs.forEach(doc => saveDokumenToIDB(doc));
+        safeSaveDocuments(merged);
+        merged.forEach(doc => saveDokumenToIDB(doc));
 
-        setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+        setLocalPrelist(merged.filter(d => d.kegiatan_id === selectedActivity.id));
         setView("prelist");
       }
     } catch (e) {
@@ -3255,12 +4061,18 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       const res = await api.dokumen.review(selectedRtItem.id, 'rejected', rejectionNote);
       if (res.success) {
         const docs = await fetchDocuments();
+        const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
+        let localDocs = [];
+        if (cached) {
+          try { localDocs = JSON.parse(cached); } catch { localDocs = []; }
+        }
+        const merged = mergeDocumentLists(docs, localDocs);
 
         // Simpan dengan hybrid storage (localStorage + IndexedDB backup)
-        safeSaveDocuments(docs);
-        docs.forEach(doc => saveDokumenToIDB(doc));
+        safeSaveDocuments(merged);
+        merged.forEach(doc => saveDokumenToIDB(doc));
 
-        setLocalPrelist(docs.filter(d => d.kegiatan_id === selectedActivity.id));
+        setLocalPrelist(merged.filter(d => d.kegiatan_id === selectedActivity.id));
         setView("prelist");
       }
     } catch (e) {
@@ -3334,13 +4146,22 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
   }, [ans.values, blocks]);
 
+  useEffect(() => {
+    if (activeTab) {
+      window.scrollTo(0, 0);
+    }
+  }, [activeTab]);
+
   if (isLoading) {
     return (
       <PetugasLayout activeTab="questionnaire" onNavigate={onNavigate}>
         <div className="min-h-screen bg-white animate-pulse pb-24">
           <div className="max-w-3xl mx-auto">
             {/* Header Skeleton */}
-            <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex justify-between items-center">
+            <div
+              className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex justify-between items-center"
+              style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+            >
               <div className="space-y-2 flex-1">
                 <div className="h-3.5 w-32 bg-slate-200 rounded"></div>
                 <div className="h-6 w-48 bg-slate-300 rounded"></div>
@@ -3394,11 +4215,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
       <div className={`min-h-screen bg-white slide-up ${view === "form" ? "pb-2" : "pb-24"}`}>
         <div className="max-w-3xl mx-auto">
-          
+
           {/* VIEW 1: SELECT ACTIVITY */}
           {view === "select_activity" && (
             <div className="flex-1 bg-white view-transition">
-              <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white">
+              <div
+                className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white"
+                style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+              >
                 <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
                 <div className="relative z-10">
                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold">Pengisian Kuesioner</p>
@@ -3444,7 +4268,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           {/* VIEW 2: PRELIST */}
           {view === "prelist" && selectedActivity && (
             <div className="flex-1 bg-white view-transition">
-              <div className="relative px-6 pt-12 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex items-center gap-4">
+              <div
+                className="relative px-6 pb-8 border-b border-solid border-slate-100 overflow-hidden bg-gradient-to-b from-blue-50/40 to-white flex items-center gap-4"
+                style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
+              >
                 <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
                 <button onClick={() => setView("select_activity")}
                   className="w-10 h-10 bg-white hover:bg-slate-50 border border-solid border-slate-200/60 hover:border-slate-350 cursor-pointer rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-655 transition-all flex-shrink-0 active:scale-95 shadow-sm relative z-10">
@@ -3458,16 +4285,97 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
               <div className="p-6 space-y-4">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-slate-400 font-bold">{localPrelist.length} {selectedActivity.fokus || 'Rumah Tangga'}</span>
+                  <span className="text-xs text-slate-400 font-bold">
+                    {sortedPrelist.length !== displayPrelist.length ? `${sortedPrelist.length} dari ` : ""}
+                    {displayPrelist.length} {selectedActivity.fokus || 'Rumah Tangga'}
+                  </span>
                   {!isPml && (
                     <button onClick={handleAddNew}
                       disabled={loadingForm || blocks.length === 0}
-                      className="px-4 py-2.5 bg-gradient-to-br from-blue-600 to-indigo-650 text-white rounded-xl text-xs font-bold border-0 cursor-pointer hover:from-blue-700 hover:to-indigo-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm hover:shadow-lg hover:shadow-blue-500/20 disabled:opacity-50"
+                      className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm hover:shadow-lg hover:shadow-blue-500/20 disabled:opacity-50"
                     >
                       <Plus size={14} /> Tambah Baru
                     </button>
                   )}
                 </div>
+
+                {/* Filter and Search Bar */}
+                {displayPrelist.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-2xl border border-solid border-slate-100">
+                    {/* Input Search */}
+                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                      <Search size={14} className="text-slate-400 flex-shrink-0" />
+                      <input
+                        type="text"
+                        value={searchQuery}
+                        onChange={e => setSearchQuery(e.target.value)}
+                        className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0"
+                        placeholder="Cari KRT, kode, atau SLS..."
+                      />
+                      {searchQuery && (
+                        <button onClick={() => setSearchQuery("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-655 cursor-pointer flex items-center p-0">
+                          <X size={14} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Dropdown Filter SLS */}
+                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                      <Filter size={14} className="text-slate-400 flex-shrink-0" />
+                      <select
+                        value={filterSls}
+                        onChange={e => setFilterSls(e.target.value)}
+                        className="text-xs outline-none text-slate-700 w-full bg-transparent font-medium border-0 p-0 cursor-pointer"
+                      >
+                        <option value="">Semua SLS / RT</option>
+                        {uniqueSlsList.map(sls => (
+                          <option key={sls} value={sls}>
+                            {sls.startsWith('RT') || !isNaN(parseInt(sls)) ? `SLS: ${sls}` : sls}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Dropdown Filter Status */}
+                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                      <Filter size={14} className="text-slate-400 flex-shrink-0" />
+                      <select
+                        value={filterStatus}
+                        onChange={e => setFilterStatus(e.target.value)}
+                        className="text-xs outline-none text-slate-700 w-full bg-transparent font-medium border-0 p-0 cursor-pointer"
+                      >
+                        <option value="">Semua Status</option>
+                        <option value="approved">Approved (Disetujui)</option>
+                        <option value="rejected">Rejected (Ditolak)</option>
+                        <option value="terkirim">Terkirim</option>
+                        <option value="tersimpan">Tersimpan</option>
+                        {!isPml && (
+                          <>
+                            <option value="tersimpan_sementara">Simpan Sementara</option>
+                            <option value="draft">Draft / Baru</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+
+                    {/* Dropdown Sort */}
+                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                      <ArrowUpDown size={14} className="text-slate-400 flex-shrink-0" />
+                      <select
+                        value={sortOption}
+                        onChange={e => setSortOption(e.target.value)}
+                        className="text-xs outline-none text-slate-700 w-full bg-transparent font-medium border-0 p-0 cursor-pointer"
+                      >
+                        <option value="waktu-desc">Waktu Kirim (Terbaru)</option>
+                        <option value="waktu-asc">Waktu Kirim (Terlama)</option>
+                        <option value="nama-asc">Nama KRT (A-Z)</option>
+                        <option value="nama-desc">Nama KRT (Z-A)</option>
+                        <option value="kode-asc">Kode (A-Z)</option>
+                        <option value="kode-desc">Kode (Z-A)</option>
+                      </select>
+                    </div>
+                  </div>
+                )}
 
                 {loadingForm ? (
                   <div className="flex flex-col items-center justify-center py-12 text-slate-400">
@@ -3476,81 +4384,127 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {localPrelist.map((item, i) => (
-                      <div key={item.kode} onClick={() => handleEditItem(item)}
-                        className="w-full bg-white rounded-2xl p-4.5 border border-solid border-slate-100 flex items-center gap-4 text-left cursor-pointer transition-all hover:border-blue-200 hover:shadow-md hover:shadow-blue-500/5 group active:scale-[0.99]">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0 border border-solid ${
-                          item.status === "terkirim" ? "bg-blue-50 text-blue-600 border-blue-100/50" :
-                          item.status === "tersimpan" ? "bg-emerald-50 text-emerald-600 border-emerald-100/50" :
-                          "bg-slate-50 text-slate-400 border-slate-200/50"
-                        }`}>{i + 1}</div>
-                        
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
-                            {item.krt || "Tanpa Nama"}
-                          </p>
-                          <p className="text-[10px] text-slate-400 mt-1 font-mono font-semibold">
-                            Kode: {item.kode}
-                          </p>
-                          
-                          {/* Badges and actions placed below info to avoid layout overflow on mobile */}
-                          <div className="flex flex-wrap items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
-                            {/* PCL completion status badge */}
-                            {!isPml && (
-                              <Badge status={item.review_status === "rejected" ? "rejected" : item.status}/>
-                            )}
-                            
-                            {/* PML review status badge */}
-                            {isPml && (
-                              item.review_status === "approved" ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-solid border-emerald-100/50 flex items-center gap-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                  Approved
-                                </span>
-                              ) : item.review_status === "rejected" ? (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-solid border-rose-100/50 flex items-center gap-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                  Rejected
-                                </span>
-                              ) : (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-50 text-slate-500 border border-solid border-slate-200/50 flex items-center gap-1">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                                  Draft
-                                </span>
-                              )
-                            )}
+                    {sortedPrelist.map((item, i) => {
+                      const getCardStyle = () => {
+                        if (item.review_status === "approved") {
+                          return "bg-teal-50/70 border-teal-200 hover:border-teal-400 hover:bg-teal-100/40";
+                        }
+                        if (item.review_status === "rejected") {
+                          return "bg-rose-50 border-rose-200 hover:border-rose-400 hover:bg-rose-100/40";
+                        }
+                        if (item.status === "terkirim") {
+                          return "bg-blue-50 border-blue-200 hover:border-blue-400 hover:bg-blue-100/40";
+                        }
+                        if (item.status === "tersimpan") {
+                          return "bg-emerald-50/70 border-emerald-200/90 hover:border-emerald-400 hover:bg-emerald-100/40";
+                        }
+                        if (item.status === "tersimpan_sementara") {
+                          return "bg-amber-50/70 border-amber-200/90 hover:border-amber-400 hover:bg-amber-100/40";
+                        }
+                        return "bg-white border-slate-200/70 hover:border-blue-300";
+                      };
 
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedLogItem(item);
-                              }}
-                              className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 hover:border-slate-350 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer active:scale-90"
-                              title="Log Aktivitas"
-                            >
-                              <MessageSquare size={12} />
-                            </button>
+                      const getCircleStyle = () => {
+                        if (item.review_status === "approved") {
+                          return "bg-teal-100/80 text-teal-700 border-teal-200";
+                        }
+                        if (item.review_status === "rejected") {
+                          return "bg-rose-100/80 text-rose-700 border-rose-200";
+                        }
+                        if (item.status === "terkirim") {
+                          return "bg-blue-100/80 text-blue-700 border-blue-200";
+                        }
+                        if (item.status === "tersimpan") {
+                          return "bg-emerald-100/80 text-emerald-700 border-emerald-200";
+                        }
+                        if (item.status === "tersimpan_sementara") {
+                          return "bg-amber-100/80 text-amber-700 border-amber-200";
+                        }
+                        return "bg-slate-50 text-slate-400 border-slate-200";
+                      };
 
-                            {!isPml && item.status !== "terkirim" && item.review_status !== "rejected" && item.review_status !== "approved" && (
+                      return (
+                        <div key={item.kode} onClick={() => handleEditItem(item)}
+                          className={`w-full rounded-2xl p-4.5 border border-solid flex items-center gap-4 text-left cursor-pointer transition-all hover:shadow-md hover:shadow-blue-500/5 group active:scale-[0.99] ${getCardStyle()}`}>
+                          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-xs font-bold flex-shrink-0 border border-solid ${getCircleStyle()}`}>{i + 1}</div>
+
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">
+                              {item.krt || "Tanpa Nama"}
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-0.5 font-mono font-semibold">
+                              Kode: {item.kode} {item.sls ? `| SLS: ${item.sls}` : ""}
+                            </p>
+
+                            {/* Badges and actions placed below info to avoid layout overflow on mobile */}
+                            <div className="flex flex-wrap items-center gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
+                              {/* PCL completion status badge */}
+                              {!isPml && (
+                                <Badge status={item.review_status === "rejected" ? "rejected" : item.status} />
+                              )}
+
+                              {/* PML review status badge */}
+                              {isPml && (
+                                item.review_status === "approved" ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-solid border-teal-100/50 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+                                    Approved
+                                  </span>
+                                ) : item.review_status === "rejected" ? (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-solid border-rose-100/50 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                    Rejected
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-50 text-slate-500 border border-solid border-slate-200/50 flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                                    Draft
+                                  </span>
+                                )
+                              )}
+
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  handleDeleteDoc(item);
+                                  setSelectedLogItem(item);
                                 }}
-                                className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 border border-solid border-rose-200/60 hover:border-rose-350 flex items-center justify-center text-rose-500 hover:text-rose-700 transition-all cursor-pointer active:scale-90"
-                                title="Hapus Kuesioner"
+                                className="w-7 h-7 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 hover:border-slate-350 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer active:scale-90"
+                                title="Log Aktivitas"
                               >
-                                <Trash2 size={12} />
+                                <MessageSquare size={12} />
                               </button>
-                            )}
+
+                              {!isPml && !item.is_prelist && item.status !== "terkirim" && item.review_status !== "rejected" && item.review_status !== "approved" && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteDoc(item);
+                                  }}
+                                  className="w-7 h-7 rounded-lg bg-rose-50 hover:bg-rose-100 border border-solid border-rose-200/60 hover:border-rose-350 flex items-center justify-center text-rose-500 hover:text-rose-700 transition-all cursor-pointer active:scale-90"
+                                  title="Hapus Kuesioner"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
-                    {localPrelist.length === 0 && (
+                      );
+                    })}
+                    {sortedPrelist.length === 0 && (
                       <div className="bg-slate-50 rounded-2xl py-12 text-center border border-dashed border-slate-200">
-                        <p className="text-xs text-slate-550 font-bold">Prelist {selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')} Kosong</p>
-                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">Klik Tambah Baru untuk mengisi kuesioner baru</p>
+                        <p className="text-xs text-slate-550 font-bold">
+                          {displayPrelist.length === 0
+                            ? `Prelist ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')} Kosong`
+                            : 'Pencarian tidak ditemukan'
+                          }
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">
+                          {displayPrelist.length === 0
+                            ? 'Klik Tambah Baru untuk mengisi kuesioner baru'
+                            : 'Coba ubah kata kunci pencarian atau filter SLS Anda'
+                          }
+                        </p>
                       </div>
                     )}
                   </div>
@@ -3562,12 +4516,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           {/* VIEW 3: FORM */}
           {view === "form" && selectedActivity && (
             <div className="bg-slate-50 min-h-screen flex flex-col rounded-2xl overflow-hidden mt-4 shadow-sm view-transition">
-              
+
               {/* Status Header Banners */}
               {(() => {
                 if (selectedRtItem?.review_status === "approved") {
                   return (
-                    <div className="bg-emerald-50 border-b border-solid border-emerald-100 px-6 py-3 flex items-center gap-2.5 text-emerald-800">
+                    <div className="bg-emerald-50 border-b border-solid border-emerald-100 px-6 py-3 flex items-center gap-2.5 text-emerald-800"
+                      style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                       <ShieldCheck size={16} className="text-emerald-600" />
                       <p className="text-xs font-semibold">Dokumen telah disetujui (Approved) dan tidak dapat diubah kembali.</p>
                     </div>
@@ -3575,7 +4530,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 }
                 if (selectedRtItem?.review_status === "rejected") {
                   return (
-                    <div className="bg-rose-50 border-b border-solid border-rose-100 px-6 py-3 flex items-center gap-2.5 text-rose-800">
+                    <div className="bg-rose-50 border-b border-solid border-rose-100 px-6 py-3 flex items-center gap-2.5 text-rose-800"
+                      style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                       <XCircle size={16} className="text-rose-600" />
                       <p className="text-xs font-semibold">Dokumen ditolak (Rejected) oleh PML. Silakan perbaiki sesuai catatan pengawas.</p>
                     </div>
@@ -3583,7 +4539,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 }
                 if (selectedRtItem?.status === "terkirim") {
                   return (
-                    <div className="bg-blue-50 border-b border-solid border-blue-100 px-6 py-3 flex items-center gap-2.5 text-blue-800">
+                    <div className="bg-blue-50 border-b border-solid border-blue-100 px-6 py-3 flex items-center gap-2.5 text-blue-800"
+                      style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                       <CheckCircle size={16} className="text-blue-600" />
                       <p className="text-xs font-semibold">Dokumen telah terkirim (Terkirim) ke server dan bersifat read-only.</p>
                     </div>
@@ -3592,14 +4549,16 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 if (selectedRtItem?.status === "tersimpan") {
                   if (isPml) {
                     return (
-                      <div className="bg-amber-50 border-b border-solid border-amber-100 px-6 py-3 flex items-center gap-2.5 text-amber-800">
+                      <div className="bg-amber-50 border-b border-solid border-amber-100 px-6 py-3 flex items-center gap-2.5 text-amber-800"
+                        style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                         <AlertCircle size={16} className="text-amber-600" />
                         <p className="text-xs font-semibold">Dokumen disimpan oleh PCL tetapi belum dikirim ke server.</p>
                       </div>
                     );
                   }
                   return (
-                    <div className="bg-teal-50 border-b border-solid border-teal-100 px-6 py-3 flex items-center gap-2.5 text-teal-800">
+                    <div className="bg-teal-50 border-b border-solid border-teal-100 px-6 py-3 flex items-center gap-2.5 text-teal-800"
+                      style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                       <Info size={16} className="text-teal-600" />
                       <p className="text-xs font-semibold">Dokumen disimpan (Tersimpan) dan bersifat read-only. Klik "Batal Simpan" di langkah terakhir untuk mengedit.</p>
                     </div>
@@ -3607,7 +4566,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 }
                 if (isPml) {
                   return (
-                    <div className="bg-slate-50 border-b border-solid border-slate-105 px-6 py-3 flex items-center gap-2.5 text-slate-700">
+                    <div className="bg-slate-50 border-b border-solid border-slate-105 px-6 py-3 flex items-center gap-2.5 text-slate-700"
+                      style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                       <Info size={16} className="text-slate-500" />
                       <p className="text-xs font-semibold">Mode Pemeriksaan Pengawas (PML). Jawaban tidak dapat diubah.</p>
                     </div>
@@ -3617,7 +4577,20 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               })()}
 
               {/* Form header */}
-              <div className="bg-white border-b border-solid border-slate-100 px-6 pt-8 pb-5">
+              <div
+                className="bg-white border-b border-solid border-slate-100 px-6 pb-5"
+                style={{
+                  paddingTop: (
+                    selectedRtItem?.review_status === "approved" ||
+                    selectedRtItem?.review_status === "rejected" ||
+                    selectedRtItem?.status === "terkirim" ||
+                    selectedRtItem?.status === "tersimpan" ||
+                    (selectedActivity?.role === "PML")
+                  )
+                    ? "1.25rem"
+                    : "max(env(safe-area-inset-top, 0px) + 0.5rem, 2rem)"
+                }}
+              >
                 <div className="flex items-center gap-3 mb-5">
                   <button onClick={() => setView("prelist")}
                     className="w-9 h-9 bg-slate-50 hover:bg-slate-100 border border-solid border-slate-100 cursor-pointer rounded-lg flex items-center justify-center flex-shrink-0 transition-all text-slate-400">
@@ -3637,7 +4610,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     </div>
                     <button
                       type="button"
-                      onClick={() => setShowSummaryModal(true)}
+                      onClick={() => {
+                        setVisitedBlocks(new Set(blocks.map(b => b.kode)));
+                        setShowSummaryModal(true);
+                      }}
                       className="w-8 h-8 rounded-lg bg-slate-50 hover:bg-slate-100 border border-solid border-slate-200/60 flex items-center justify-center text-slate-400 hover:text-blue-600 transition-all cursor-pointer"
                       title="Rangkuman Galat"
                     >
@@ -3654,9 +4630,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         const isCompleted = i < activeBlockIndex;
                         const isCurrent = b.kode === activeTab;
                         return (
-                          <div key={b.kode} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${
-                            isCurrent ? "bg-blue-400 animate-pulse" : isCompleted ? "bg-blue-600" : "bg-slate-100"
-                          }`}/>
+                          <div key={b.kode} className={`flex-1 h-1.5 rounded-full transition-all duration-300 ${isCurrent ? "bg-blue-400 animate-pulse" : isCompleted ? "bg-blue-600" : "bg-slate-100"
+                            }`} />
                         );
                       })}
                     </div>
@@ -3673,10 +4648,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 {visibleBlocks.map((b) => {
                   const isActive = b.kode === activeTab;
                   const status = validateBlock(b.kode);
-                  
+
                   let tabStyle = "";
                   let icon = null;
-                  
+
                   if (isActive) {
                     tabStyle = "text-white bg-blue-600 border-blue-600";
                   } else {
@@ -3693,7 +4668,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       tabStyle = "bg-slate-50 text-slate-400 border-transparent hover:bg-slate-100";
                     }
                   }
-                  
+
                   return (
                     <button key={b.kode} onClick={() => setActiveTab(b.kode)}
                       className={`flex-shrink-0 px-3.5 py-2 rounded-lg text-xs font-semibold border border-solid cursor-pointer transition-all flex items-center ${tabStyle}`}>
@@ -3706,30 +4681,32 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
               {/* Questions Render Panel */}
               <div className="px-6 py-6 space-y-4 flex-1">
-                
+
                 {/* Prepend code input at the top of Block I */}
                 {isFirstBlock && (
-                  <QCard r="kode" label={`Kode Dokumen / Nomor Urut ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}`} required hint={`Kode unik identifikasi ${selectedActivity.fokus?.toLowerCase() || 'rumah tangga'}`}>
-                    <input 
-                      type="text" 
-                      value={ans.kode} 
-                      onChange={e => {
-                        setAns(p => ({ ...p, kode: e.target.value }));
-                      }}
-                      placeholder={`Contoh: ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}-001`} 
-                      disabled={true}
-                      className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
-                    />
-                  </QCard>
+                  <div id="q-card-kode" className="scroll-mt-24">
+                    <QCard r="kode" label={`Kode Dokumen / Nomor Urut ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}`} required hint={`Kode unik identifikasi ${selectedActivity.fokus?.toLowerCase() || 'rumah tangga'}`}>
+                      <input
+                        type="text"
+                        value={ans.kode}
+                        onChange={e => {
+                          setAns(p => ({ ...p, kode: e.target.value }));
+                        }}
+                        placeholder={`Contoh: ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}-001`}
+                        disabled={true}
+                        className="w-full px-4 py-3 text-sm bg-white border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all font-medium text-slate-800 disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed"
+                      />
+                    </QCard>
+                  </div>
                 )}
                 {(() => {
-                  const activityPetugas = (petugas || []).filter(p => 
+                  const activityPetugas = (petugas || []).filter(p =>
                     p.projects?.includes(selectedActivity?.name)
                   );
-                  const pclList = activityPetugas.filter(p => 
+                  const pclList = activityPetugas.filter(p =>
                     p.projectRoles?.[selectedActivity?.name] === "PCL"
                   );
-                  const pmlList = activityPetugas.filter(p => 
+                  const pmlList = activityPetugas.filter(p =>
                     p.projectRoles?.[selectedActivity?.name] === "PML"
                   );
 
@@ -3767,7 +4744,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     const qVal = parseValidation(q.validation);
                     // isReadOnly comes from outer scope; qVal.readOnly allows per-question override
                     const isReadOnlyQ = isReadOnly || !!qVal.readOnly;
- 
+
                     return (
                       <>
                         {/* Signature Pad */}
@@ -3775,9 +4752,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                           <div className="space-y-3">
                             {instances.map((idx) => (
                               <div key={idx} className="mt-2">
-                                <SignaturePad 
-                                  value={getLoopValue(q.id, idx) || ""} 
-                                  onChange={(url) => handleValueChange(q, url, idx, instances.length)} 
+                                <SignaturePad
+                                  value={getLoopValue(q.id, idx) || ""}
+                                  onChange={(url) => handleValueChange(q, url, idx, instances.length)}
                                   disabled={isReadOnlyQ}
                                   uploadUrl={`${API_BASE}/upload/signature`}
                                 />
@@ -3795,15 +4772,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               let otherOpt = null;
                               let selectedVal = "";
                               if (val !== undefined && val !== null && val !== '') {
-                                  if (typeof val === 'string' && val.trim().startsWith('{')) {
-                                    try {
-                                      const parsed = JSON.parse(val);
-                                      selectedVal = String(parsed.value);
-                                      otherText = parsed.text || "";
-                                    } catch (e) {}
-                                  } else {
-                                    selectedVal = String(val);
-                                  }
+                                if (typeof val === 'string' && val.trim().startsWith('{')) {
+                                  try {
+                                    const parsed = JSON.parse(val);
+                                    selectedVal = String(parsed.value);
+                                    otherText = parsed.text || "";
+                                  } catch (e) { }
+                                } else {
+                                  selectedVal = String(val);
+                                }
                               }
                               if (selectedVal) {
                                 otherOpt = resolveDynamicOptions(q).find(o => String(o.value) === selectedVal && o.is_other);
@@ -3858,7 +4835,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               return (
                                 <div key={idx} className="space-y-1">
                                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                                  <input 
+                                  <input
                                     type="text"
                                     value={defaultPcl}
                                     disabled={true}
@@ -3884,7 +4861,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               return (
                                 <div key={idx} className="space-y-1">
                                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                                  <input 
+                                  <input
                                     type="text"
                                     value={defaultPml}
                                     disabled={true}
@@ -3903,24 +4880,34 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               const val = getLoopValue(q.id, idx);
                               const errMsg = getInputErrorMsg(q, val);
                               const hasErr = !!errMsg;
+                              const qVal = parseValidation(q.validation);
+                              const isDigitsOnly = qVal && (qVal.text_validation_type === 'digits_only' || qVal.text_validation_type === 'nik');
                               return (
                                 <div key={idx} className="space-y-1">
                                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
-                                  <DebouncedInput 
-                                    type="text"
-                                    value={val}
-                                    forceUppercase={true}
-                                    placeholder={`Isi ${q.label}${instances.length > 1 ? ` ke-${idx + 1}` : ""}`}
-                                    disabled={isReadOnlyQ}
-                                    onChange={(newVal) => {
-                                      handleValueChange(q, newVal, idx, instances.length);
-                                    }}
-                                    className={`w-full px-4 py-3 text-sm bg-white border border-solid rounded-xl outline-none focus:ring-2 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${
-                                      hasErr 
-                                        ? "border-red-500 text-red-905 focus:border-red-500 focus:ring-red-500/10" 
+                                  <div className="flex items-center gap-3">
+                                    <DebouncedInput
+                                      type="text"
+                                      inputMode={isDigitsOnly ? "numeric" : undefined}
+                                      pattern={isDigitsOnly ? "[0-9]*" : undefined}
+                                      value={val}
+                                      forceUppercase={true}
+                                      placeholder={`Isi ${q.label}${instances.length > 1 ? ` ke-${idx + 1}` : ""}`}
+                                      disabled={isReadOnlyQ}
+                                      onChange={(newVal) => {
+                                        handleValueChange(q, newVal, idx, instances.length);
+                                      }}
+                                      className={`w-full flex-1 px-4 py-3 text-sm bg-white border border-solid rounded-xl outline-none focus:ring-2 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${hasErr
+                                        ? "border-red-500 text-red-905 focus:border-red-500 focus:ring-red-500/10"
                                         : "border-slate-200 text-slate-800 focus:border-blue-500 focus:ring-blue-500/10"
-                                    }`}
-                                  />
+                                        }`}
+                                    />
+                                    {qVal.satuan && (
+                                      <div className="flex-shrink-0 px-1">
+                                        <span className="text-sm font-bold text-slate-500">{qVal.satuan}</span>
+                                      </div>
+                                    )}
+                                  </div>
                                   {hasErr && (
                                     <p className="text-[10px] text-red-500 font-semibold mt-1">
                                       * {errMsg}
@@ -3931,7 +4918,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             })}
                           </div>
                         )}
- 
+
                         {/* 2. NUMBER INPUTS */}
                         {isNumberType && (() => {
                           const qVal = parseValidation(q.validation);
@@ -3947,13 +4934,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                     {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
                                     <div className="flex flex-col space-y-1">
                                       <div className="flex items-center gap-2 w-full">
-                                        <div className={`flex-1 flex items-center justify-between bg-white border border-solid rounded-xl px-4 py-2.5 focus-within:ring-2 transition-all ${
-                                          hasErr 
-                                            ? "border-red-500 focus-within:ring-red-500/10" 
-                                            : "border-slate-200 focus-within:ring-blue-500/10"
-                                        }`}>
-                                          <DebouncedInput 
+                                        <div className={`flex-1 flex items-center justify-between bg-white border border-solid rounded-xl px-4 py-2.5 focus-within:ring-2 transition-all ${hasErr
+                                          ? "border-red-500 focus-within:ring-red-500/10"
+                                          : "border-slate-200 focus-within:ring-blue-500/10"
+                                          }`}>
+                                          <DebouncedInput
                                             type="text"
+                                            inputMode="decimal"
                                             value={val}
                                             allowedPattern={/^-?\d*\.?\d*$/}
                                             isNumberFormat={true}
@@ -3965,6 +4952,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                             className="w-full !border-none !outline-none focus:!ring-0 focus:!outline-none focus:!border-none focus:!shadow-none bg-transparent py-1 text-sm font-semibold text-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-left"
                                           />
                                         </div>
+                                        {qVal.satuan && (
+                                          <div className="flex-shrink-0 px-1">
+                                            <span className="text-sm font-bold text-slate-500">{qVal.satuan}</span>
+                                          </div>
+                                        )}
                                         {!isFormula && !isReadOnlyQ && (
                                           <div className="flex items-center gap-1.5 flex-shrink-0">
                                             <button
@@ -4004,7 +4996,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             </div>
                           );
                         })()}
- 
+
                         {/* 3. TEXTAREA INPUTS */}
                         {isTextAreaType && (
                           <div className="space-y-3">
@@ -4040,7 +5032,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                       try {
                                         const val = getLoopValue(q.id, idx);
                                         selectedMap = JSON.parse(val || "{}");
-                                      } catch (e) {}
+                                      } catch (e) { }
                                       isSelected = !!selectedMap[opt.value];
                                     } else {
                                       // Radio: single select
@@ -4049,15 +5041,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                         try {
                                           const parsed = JSON.parse(val);
                                           isSelected = String(parsed.value) === String(opt.value);
-                                        } catch (e) {}
+                                        } catch (e) { }
                                       } else {
                                         isSelected = String(val) === String(opt.value);
                                       }
                                     }
 
                                     return (
-                                      <FastChoiceButton 
-                                        key={opt.value} 
+                                      <FastChoiceButton
+                                        key={opt.value}
                                         type={q.type}
                                         isSelected={isSelected}
                                         disabled={isReadOnlyQ}
@@ -4068,7 +5060,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                             try {
                                               const val = getLoopValue(q.id, idx);
                                               selectedMap = JSON.parse(val || "{}");
-                                            } catch (e) {}
+                                            } catch (e) { }
                                             if (selectedMap[opt.value]) {
                                               delete selectedMap[opt.value];
                                             } else {
@@ -4077,7 +5069,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                             const valStr = JSON.stringify(selectedMap);
                                             handleValueChange(q, valStr, idx, instances.length);
                                           } else {
-                                            const val = opt.is_other 
+                                            const val = opt.is_other
                                               ? JSON.stringify({ value: opt.value, text: "" })
                                               : opt.value;
                                             handleValueChange(q, val, idx, instances.length);
@@ -4096,16 +5088,16 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 {(() => {
                                   // Find if any selected option has is_other
                                   const val = getLoopValue(q.id, idx);
-                                  
+
                                   if (q.type === 'select') {
                                     let selectedMap = {};
                                     try {
                                       selectedMap = JSON.parse(val || "{}");
-                                    } catch (e) {}
-                                    
+                                    } catch (e) { }
+
                                     const otherOpts = resolveDynamicOptions(q).filter(o => o.is_other && selectedMap[o.value] !== undefined);
                                     if (otherOpts.length === 0) return null;
-                                    
+
                                     return (
                                       <div className="space-y-2 mt-2">
                                         {otherOpts.map(opt => (
@@ -4132,14 +5124,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                     let otherText = "";
                                     let otherOpt = null;
                                     let selectedVal = "";
-                                    
+
                                     if (val !== undefined && val !== null && val !== '') {
                                       if (typeof val === 'string' && val.trim().startsWith('{')) {
                                         try {
                                           const parsed = JSON.parse(val);
                                           selectedVal = String(parsed.value);
                                           otherText = parsed.text || "";
-                                        } catch (e) {}
+                                        } catch (e) { }
                                       } else {
                                         selectedVal = String(val);
                                       }
@@ -4151,9 +5143,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                         isOtherSelected = true;
                                       }
                                     }
-                                    
+
                                     if (!isOtherSelected) return null;
-                                    
+
                                     return (
                                       <div className="space-y-1 mt-2">
                                         <label className="text-[10px] font-bold text-slate-400 uppercase">Keterangan {otherOpt.label}</label>
@@ -4185,7 +5177,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
                                 <div className="flex flex-col gap-3">
                                   <div className="flex gap-2">
-                                    <input 
+                                    <input
                                       type="text"
                                       value={getLoopValue(q.id, idx)}
                                       placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
@@ -4229,7 +5221,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             ))}
                           </div>
                         )}
- 
+
                         {/* 6. DATE/TIME INPUTS */}
                         {isDateType && (
                           <div className="space-y-4">
@@ -4241,9 +5233,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                   const parsed = JSON.parse(q.validation);
                                   dateType = parsed.date_type || "date";
                                   isAutoNow = !!parsed.auto_now;
-                                } catch (e) {}
+                                } catch (e) { }
                               }
- 
+
                               const handleAutoNowClick = () => {
                                 const now = new Date();
                                 let valueToSet = "";
@@ -4258,15 +5250,15 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                   const minutes = String(now.getMinutes()).padStart(2, "0");
                                   valueToSet = `${hours}:${minutes}`;
                                 }
- 
+
                                 handleValueChange(q, valueToSet, idx, instances.length);
                               };
- 
+
                               return (
                                 <div key={idx} className="space-y-1">
                                   {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400">Isian Ke-{idx + 1}</label>}
                                   <div className="flex flex-col sm:flex-row gap-2">
-                                    <input 
+                                    <input
                                       type={dateType}
                                       value={getLoopValue(q.id, idx)}
                                       disabled={isReadOnlyQ}
@@ -4311,7 +5303,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         })();
 
                       const lastBuildingNum = getMaxBuildingNumber();
-                      
+
                       if (isBuildingNote && !labelText.includes("{{no_bangunan_terakhir}}")) {
                         labelText = `No. bangunan terakhir: **{{no_bangunan_terakhir}}**`;
                       }
@@ -4344,56 +5336,63 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
                     if (depth === 0 || forceCard) {
                       return (
-                        <QCard 
-                          key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} 
-                          r={qCode} 
-                          label={resolveLabelText(q.label, activeInstanceIdx)} 
-                          subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
-                          required={!!q.required} 
-                          description={description}
-                        >
-                          {parentMode === "original" ? (
-                            <div className="mb-4">
-                              {renderInputs(q, instances, activeInstanceIdx)}
-                            </div>
-                          ) : (
-                            !hasChildren && renderInputs(q, instances, activeInstanceIdx)
-                          )}
+                        <div key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} id={`q-card-${q.id}`} className="scroll-mt-24">
+                          <QCard
+                            r={qCode}
+                            label={resolveLabelText(q.label, activeInstanceIdx)}
+                            subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
+                            required={!!q.required}
+                            description={description}
+                            className={getQuestionCardBgClass(q)}
+                          >
+                            {parentMode === "original" ? (
+                              <div className="mb-4">
+                                {renderInputs(q, instances, activeInstanceIdx)}
+                              </div>
+                            ) : (
+                              !hasChildren && renderInputs(q, instances, activeInstanceIdx)
+                            )}
 
-                          {isLoop && loopType === "manual" && activeInstanceIdx === null && (
-                            <div className="flex items-center gap-3 mt-4 pt-3 border-t border-dashed border-slate-100">
-                              {!isReadOnly && (
-                                <>
+                            {isLoop && loopType === "manual" && activeInstanceIdx === null && (
+                              <div className="flex flex-col gap-2 mt-4 pt-3 border-t border-solid border-slate-100">
+                                {!isReadOnly && (
                                   <button
                                     type="button"
                                     onClick={() => handleAddManualLoop(q.id)}
-                                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl cursor-pointer border-0 shadow-sm transition-all active:scale-[0.98]"
                                   >
-                                    <Plus size={14} />
+                                    <Plus size={16} />
                                     Tambah Isian
                                   </button>
-                                  {loopCount > 1 && (
+                                )}
+
+                                {!isReadOnly && loopCount > 1 ? (
+                                  <div className="flex items-center gap-3 w-full">
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveManualLoop(q.id, loopCount)}
-                                      className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                                      className="w-1/2 flex items-center justify-center gap-1.5 py-2 bg-rose-50 hover:bg-rose-100 active:scale-[0.98] text-rose-600 font-bold text-xs rounded-lg transition-all cursor-pointer border-0"
                                     >
-                                      <X size={14} />
+                                      <X size={12} />
                                       Hapus Terakhir
                                     </button>
-                                  )}
-                                </>
-                              )}
-                              <span className="text-xs text-slate-500 font-semibold ml-auto">
-                                Total: {loopCount} isian
-                              </span>
-                            </div>
-                          )}
-                        </QCard>
+                                    <div className="w-1/2 flex items-center justify-center text-xs text-slate-500 font-bold bg-slate-50 border border-solid border-slate-100 py-2 rounded-lg">
+                                      Total: {loopCount} isian
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-center text-xs text-slate-500 font-bold bg-slate-50 border border-solid border-slate-100 py-2 rounded-lg w-full">
+                                    Total: {loopCount} isian
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </QCard>
+                        </div>
                       );
                     } else {
                       return (
-                        <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0">
+                        <div key={q.id} id={`q-card-${q.id}`} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0 scroll-mt-24">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -4413,7 +5412,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                   </div>
                                 )}
                                 <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
-                                  {childQs.sort((a,b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                                  {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                                 </div>
                               </div>
                             ) : (
@@ -4457,11 +5456,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
                   const orderedBlockQs = getActiveBlockOrderedQuestions(activeBlock);
                   const renderedGroups = new Set();
-                  
+
                   return orderedBlockQs.flatMap(q => {
                     let groupId = getQuestionLoopGroup(q);
                     let isManual = false;
-                    
+
                     if (!groupId) {
                       const val = parseValidation(q.validation);
                       if (val.isLoop && val.loopByQuestionId) {
@@ -4483,7 +5482,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       const groupQs = orderedBlockQs.filter(x => {
                         const xGrp = getQuestionLoopGroup(x);
                         if (groupId === xGrp) return true;
-                        
+
                         const xVal = parseValidation(x.validation);
                         if (!xGrp && xVal.isLoop) {
                           if (xVal.loopByQuestionId && `loop_by_${xVal.loopByQuestionId}` === groupId) return true;
@@ -4504,7 +5503,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
                       const loopCount = getQuestionLoopCount(masterQ);
                       const instances = Array.from({ length: Math.max(1, loopCount) }, (_, idx) => idx);
-                      
+
                       const groupIsManual = groupQs.some(x => {
                         const v = parseValidation(x.validation);
                         return v.isLoop && v.loopType === "manual";
@@ -4522,7 +5521,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             </div>
                           );
                         }
-                        
+
                         groupQs.forEach(gq => {
                           const el = renderQuestionRow(gq, 0, true, idx);
                           if (el) {
@@ -4531,30 +5530,46 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         });
                       });
 
-                      if (groupIsManual && !(isReadOnly || !!parseValidation(masterQ.validation).readOnly)) {
+                      // Find the best manual loop master question for the Add/Remove controls
+                      // It must be is_loop=true AND loop_type=manual AND NOT read_only
+                      const manualControlQ = groupQs.find(x => {
+                        if (!x.validation) return false;
+                        try {
+                          const v = JSON.parse(x.validation);
+                          return v && v.is_loop && v.loop_type === "manual" && !v.read_only;
+                        } catch (e) { return false; }
+                      }) || (groupIsManual ? masterQ : null);
+
+                      if (groupIsManual && manualControlQ && !isReadOnly) {
                         resultElements.push(
-                          <div key={`loop_controls_${groupId}`} className="flex items-center gap-3 mt-6 p-4 bg-white rounded-xl border border-solid border-slate-200">
+                          <div key={`loop_controls_${groupId}`} className="flex flex-col gap-2 mt-6 p-4 bg-white rounded-xl border border-solid border-slate-200">
                             <button
                               type="button"
-                              onClick={() => handleAddManualLoop(masterQ.id)}
-                              className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
+                              onClick={() => handleAddManualLoop(manualControlQ.id)}
+                              className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl cursor-pointer border-0 shadow-sm transition-all active:scale-[0.98]"
                             >
-                              <Plus size={14} />
+                              <Plus size={16} />
                               Tambah Isian
                             </button>
-                            {loopCount > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveManualLoop(masterQ.id, loopCount)}
-                                className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-600 hover:bg-rose-100 active:scale-95 rounded-lg text-xs font-bold transition-all cursor-pointer border-0"
-                              >
-                                <X size={14} />
-                                Hapus Terakhir
-                              </button>
+                            {loopCount > 1 ? (
+                              <div className="flex items-center gap-3 w-full">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveManualLoop(manualControlQ.id, loopCount)}
+                                  className="w-1/2 flex items-center justify-center gap-1.5 py-2 bg-rose-50 hover:bg-rose-100 active:scale-[0.98] text-rose-600 font-bold text-xs rounded-lg transition-all cursor-pointer border-0"
+                                >
+                                  <X size={12} />
+                                  Hapus Terakhir
+                                </button>
+                                <div className="w-1/2 flex items-center justify-center text-xs text-slate-500 font-bold bg-slate-50 border border-solid border-slate-100 py-2 rounded-lg">
+                                  Total: {loopCount} isian
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-center text-xs text-slate-500 font-bold bg-slate-50 border border-solid border-slate-100 py-2 rounded-lg w-full">
+                                Total: {loopCount} isian
+                              </div>
                             )}
-                            <span className="text-xs text-slate-500 font-semibold ml-auto">
-                              Total: {loopCount} isian
-                            </span>
                           </div>
                         );
                       }
@@ -4571,12 +5586,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   {!isFirstBlock ? (
                     <button type="button" onClick={handlePrevTab}
                       className="px-5 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
-                      <ChevronLeft size={14}/> Sebelumnya
+                      <ChevronLeft size={14} /> Sebelumnya
                     </button>
                   ) : (
                     <button type="button" onClick={() => setView("prelist")}
                       className="px-5 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
-                      <ArrowLeft size={14}/> Batal
+                      <ArrowLeft size={14} /> Batal
                     </button>
                   )}
 
@@ -4616,14 +5631,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       ) : (
                         <button type="button" onClick={handleSave}
                           className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
-                          <Save size={14}/> Simpan Kuesioner
+                          <Save size={14} /> Simpan Kuesioner
                         </button>
                       )}
                     </div>
                   ) : (
                     <button type="button" onClick={handleNextTab}
                       className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
-                      Selanjutnya <ChevronRight size={14}/>
+                      Selanjutnya <ChevronRight size={14} />
                     </button>
                   )}
                 </div>
@@ -4650,14 +5665,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 <h3 className="text-sm font-bold text-slate-800">Log Aktivitas</h3>
                 <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedLogItem.krt} ({selectedLogItem.kode})</p>
               </div>
-              <button 
+              <button
                 onClick={() => setSelectedLogItem(null)}
                 className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-650 transition-all cursor-pointer"
               >
                 <X size={16} />
               </button>
             </div>
-            
+
             <div className="px-6 py-6 max-h-[380px] overflow-y-auto space-y-4">
               {selectedLogItem.logs && selectedLogItem.logs.length > 0 ? (
                 <div className="relative pl-6 border-l border-solid border-slate-200 space-y-5">
@@ -4665,10 +5680,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     const parts = log.split(": ");
                     const time = parts[0] || "";
                     const desc = parts.slice(1).join(": ") || "";
-                    
+
                     let circleColor = "bg-slate-300 ring-slate-100";
                     let textColor = "text-slate-650";
-                    
+
                     if (desc.includes("disetujui") || desc.includes("Approved")) {
                       circleColor = "bg-emerald-500 ring-emerald-100";
                       textColor = "text-emerald-800 font-semibold";
@@ -4687,7 +5702,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       <div key={index} className="relative text-xs leading-normal">
                         {/* Dot indicator */}
                         <div className={`absolute -left-[30px] top-0.5 w-3 h-3 rounded-full ring-4 ${circleColor}`} />
-                        
+
                         <div className="text-[10px] text-slate-400 font-bold flex items-center gap-1">
                           <Clock size={10} /> {time}
                         </div>
@@ -4700,9 +5715,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 <p className="text-xs text-slate-400 text-center py-6">Belum ada log aktivitas untuk {selectedActivity.fokus?.toLowerCase() || 'rumah tangga'} ini.</p>
               )}
             </div>
-            
+
             <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end">
-              <button 
+              <button
                 onClick={() => setSelectedLogItem(null)}
                 className="px-4.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all"
               >
@@ -4728,7 +5743,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             </div>
             <div className="p-6 space-y-3">
               <label className="text-xs text-slate-500 font-bold block">Berikan catatan kesalahan / pesan kesalahan untuk PCL:</label>
-              <textarea 
+              <textarea
                 value={rejectionNote}
                 onChange={(e) => setRejectionNote(e.target.value)}
                 placeholder="Contoh: Keterangan Umur tidak sesuai dengan Status Perkawinan..."
@@ -4739,12 +5754,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               <button onClick={() => setRejectionNoteItem(null)} className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-655 font-semibold text-xs rounded-xl cursor-pointer">
                 Batal
               </button>
-              <button 
+              <button
                 onClick={submitRejectionWithConfirmation}
                 disabled={!rejectionNote.trim()}
-                className={`px-4.5 py-2 font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all ${
-                  rejectionNote.trim() ? "bg-red-600 hover:bg-red-700 text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                }`}
+                className={`px-4.5 py-2 font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all ${rejectionNote.trim() ? "bg-red-600 hover:bg-red-700 text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                  }`}
               >
                 OK
               </button>
@@ -4764,7 +5778,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   <h3 className="text-sm font-bold text-slate-800">Rangkuman Kualitas Isian</h3>
                   <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{selectedRtItem?.krt || "Baru"} ({ans.kode})</p>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowSummaryModal(false)}
                   className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-650 transition-all cursor-pointer"
                 >
@@ -4791,9 +5805,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     <h4 className="text-xs font-bold text-rose-700 flex items-center gap-1.5">
                       <AlertCircle size={14} /> Kesalahan Validasi Nilai ({errors.length})
                     </h4>
-                    <ul className="space-y-1.5 text-[11px] font-semibold text-rose-600 leading-normal pl-4 list-disc bg-rose-50/30 p-3 rounded-xl border border-solid border-rose-100/50">
+                    <ul className="space-y-2 text-[11px] font-semibold text-rose-600 leading-normal pl-4 list-disc bg-rose-50/30 p-3 rounded-xl border border-solid border-rose-100/50">
                       {errors.map((err, idx) => (
-                        <li key={idx}>{err}</li>
+                        <li key={idx}>
+                          <button
+                            type="button"
+                            onClick={() => handleJumpToQuestion(err.blockKode, err.questionId)}
+                            className="hover:underline hover:text-rose-800 text-left bg-transparent border-0 cursor-pointer p-0 font-semibold inline"
+                          >
+                            <span className="text-rose-700 font-bold">[{err.blockKode}]</span> {err.message}
+                          </button>
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -4805,9 +5827,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     <h4 className="text-xs font-bold text-amber-700 flex items-center gap-1.5">
                       <AlertTriangle size={14} /> Isian Wajib Kosong ({warnings.length})
                     </h4>
-                    <ul className="space-y-1.5 text-[11px] font-semibold text-amber-600 leading-normal pl-4 list-disc bg-amber-50/30 p-3 rounded-xl border border-solid border-amber-100/50">
+                    <ul className="space-y-2 text-[11px] font-semibold text-amber-600 leading-normal pl-4 list-disc bg-amber-50/30 p-3 rounded-xl border border-solid border-amber-100/50">
                       {warnings.map((warn, idx) => (
-                        <li key={idx}>{warn}</li>
+                        <li key={idx}>
+                          <button
+                            type="button"
+                            onClick={() => handleJumpToQuestion(warn.blockKode, warn.questionId)}
+                            className="hover:underline hover:text-amber-800 text-left bg-transparent border-0 cursor-pointer p-0 font-semibold inline"
+                          >
+                            <span className="text-amber-700 font-bold">[{warn.blockKode}]</span> {warn.message}
+                          </button>
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -4823,7 +5853,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               </div>
 
               <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end flex-shrink-0">
-                <button 
+                <button
                   onClick={() => setShowSummaryModal(false)}
                   className="px-4.5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all"
                 >
@@ -4847,7 +5877,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               <p className="text-xs text-slate-500 mt-2 font-medium leading-relaxed">{warningMessage}</p>
             </div>
             <div className="pt-2">
-              <button 
+              <button
                 onClick={() => setWarningMessage(null)}
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm"
               >
@@ -4872,13 +5902,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex gap-2 justify-end">
-              <button 
+              <button
                 onClick={() => setConfirmDialog(p => ({ ...p, isOpen: false }))}
                 className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold text-xs rounded-xl cursor-pointer"
               >
                 Batal
               </button>
-              <button 
+              <button
                 onClick={confirmDialog.onConfirm}
                 className="px-5.5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm"
               >
@@ -4888,12 +5918,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           </div>
         </div>
       )}
-      
+
       {/* Floating Action Buttons */}
       {view === "form" && selectedActivity && !showSummaryModal && !selectedLogItem && !rejectionNoteItem && !confirmDialog.isOpen && !warningMessage && (
-        <FloatingActions 
-          onSave={handleIntermediateSave} 
-          isReadOnly={isReadOnly} 
+        <FloatingActions
+          onSave={handleIntermediateSave}
+          isReadOnly={isReadOnly}
         />
       )}
     </PetugasLayout>

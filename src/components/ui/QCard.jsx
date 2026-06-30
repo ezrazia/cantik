@@ -14,11 +14,11 @@ import { ToggleLeft, ChevronDown, ChevronUp } from "lucide-react";
  * @param {React.ReactNode} props.children - Input elements.
  * @returns {React.ReactElement}
  */
-function QCard({ r, label, subLabel, required, hint, skipInfo, description, children }) {
+function QCard({ r, label, subLabel, required, hint, skipInfo, description, className = "bg-white border-slate-100", children }) {
   const [isDescExpanded, setIsDescExpanded] = useState(false);
   const isSkipped = skipInfo && skipInfo.startsWith("Dilewati");
   return (
-    <div className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm transition-all">
+    <div className={`rounded-2xl border p-6 shadow-sm transition-all ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <span className="mono text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">R.{r}</span>
         {required && (
@@ -31,13 +31,12 @@ function QCard({ r, label, subLabel, required, hint, skipInfo, description, chil
         {hint && <p className="text-[10px] text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md mt-1.5 font-semibold inline-block">{hint}</p>}
       </div>
       {skipInfo && (
-        <div className={`flex items-center gap-2 text-[11px] mb-3 px-3 py-2 rounded-lg ${
-          isSkipped ? "bg-slate-50 text-slate-400" : "bg-blue-50 text-blue-600"
-        }`}>
-          <ToggleLeft size={14}/> {skipInfo}
+        <div className={`flex items-center gap-2 text-[11px] mb-3 px-3 py-2 rounded-lg ${isSkipped ? "bg-slate-50 text-slate-400" : "bg-blue-50 text-blue-600"
+          }`}>
+          <ToggleLeft size={14} /> {skipInfo}
         </div>
       )}
-      
+
       {children}
 
       {description && (

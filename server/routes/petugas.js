@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../config/database.js';
+import { syncDokumenFromPetugasKegiatan } from '../config/syncHelper.js';
 
 const router = Router();
 
@@ -10,6 +11,16 @@ const router = Router();
  */
 router.get('/', async (req, res) => {
   try {
+    const allDocs = await prisma.dokumen.findMany({
+      select: {
+        kegiatan_id: true,
+        status: true,
+        petugas_id: true,
+        assigned_pcls: true,
+        assigned_pmls: true
+      }
+    });
+
     const rows = await prisma.petugas.findMany({
       orderBy: {
         name: 'asc',
@@ -20,12 +31,6 @@ router.get('/', async (req, res) => {
             kegiatan: {
               select: { name: true },
             },
-          },
-        },
-        dokumen: {
-          select: {
-            kegiatan_id: true,
-            status: true,
           },
         },
       },
@@ -42,7 +47,12 @@ router.get('/', async (req, res) => {
         projectRoles[kName] = pk.role;
 
         // Hitung statistik target/selesai dokumen petugas untuk kegiatan ini
-        const docsForKegiatan = p.dokumen.filter(d => d.kegiatan_id === pk.kegiatan_id);
+        const docsForKegiatan = allDocs.filter(d => 
+          d.kegiatan_id === pk.kegiatan_id && 
+          (d.petugas_id === p.id || 
+           (Array.isArray(d.assigned_pcls) && (d.assigned_pcls.includes(p.username) || d.assigned_pcls.includes(p.name))) ||
+           (Array.isArray(d.assigned_pmls) && (d.assigned_pmls.includes(p.username) || d.assigned_pmls.includes(p.name))))
+        );
         const target = docsForKegiatan.length;
         const selesai = docsForKegiatan.filter(d => ['tersimpan', 'terkirim'].includes(d.status)).length;
         const draft = docsForKegiatan.filter(d => d.status === 'draft').length;
@@ -70,7 +80,7 @@ router.get('/', async (req, res) => {
       });
 
       // Hapus data relasi agar format response bersih sesuai original
-      const { petugas_kegiatan, dokumen, ...petugasData } = p;
+      const { petugas_kegiatan, ...petugasData } = p;
 
       return {
         ...petugasData,
@@ -209,11 +219,12 @@ router.post('/assign', async (req, res) => {
   }
 
   try {
+    const kegId = parseInt(kegiatan_id, 10);
     await prisma.petugasKegiatan.upsert({
       where: {
         uk_petugas_kegiatan: {
           petugas_id: parseInt(petugas_id, 10),
-          kegiatan_id: parseInt(kegiatan_id, 10),
+          kegiatan_id: kegId,
         },
       },
       update: {
@@ -223,12 +234,15 @@ router.post('/assign', async (req, res) => {
       },
       create: {
         petugas_id: parseInt(petugas_id, 10),
-        kegiatan_id: parseInt(kegiatan_id, 10),
+        kegiatan_id: kegId,
         role: role || 'PCL',
         sls_assignments: sls_assignments || null,
         pengawas: pengawas || null,
       },
     });
+
+    // Sync to Dokumen
+    await syncDokumenFromPetugasKegiatan(kegId);
 
     return res.json({ success: true, message: 'Penugasan petugas berhasil diperbarui' });
   } catch (error) {
@@ -248,14 +262,19 @@ router.post('/unassign', async (req, res) => {
   }
 
   try {
+    const kegId = parseInt(kegiatan_id, 10);
     await prisma.petugasKegiatan.delete({
       where: {
         uk_petugas_kegiatan: {
           petugas_id: parseInt(petugas_id, 10),
-          kegiatan_id: parseInt(kegiatan_id, 10),
+          kegiatan_id: kegId,
         },
       },
     });
+
+    // Sync to Dokumen
+    await syncDokumenFromPetugasKegiatan(kegId);
+
     return res.json({ success: true, message: 'Penugasan petugas berhasil dihapus' });
   } catch (error) {
     console.error('Error unassigning petugas:', error);

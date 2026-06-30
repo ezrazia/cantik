@@ -241,7 +241,7 @@ export default function App() {
     // ─── PETUGAS SCREENS ────────────────────────────────
     "petugas-home": <ErrorBoundary><PetugasHome onNavigate={go} isOffline={isOffline} setIsOffline={setIsOffline} petugas={petugas} activities={activities} currentUser={currentUser} loading={globalLoading} /></ErrorBoundary>,
     "questionnaire": <ErrorBoundary><PetugasQuestionnaire onNavigate={go} petugas={petugas} activities={activities} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} /></ErrorBoundary>,
-    "petugas-sync": <ErrorBoundary><PetugasSync onNavigate={go} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} /></ErrorBoundary>,
+    "petugas-sync": <ErrorBoundary><PetugasSync onNavigate={go} currentUser={currentUser} isOffline={isOffline} loading={globalLoading} activities={activities} petugas={petugas} /></ErrorBoundary>,
     "petugas-settings": <ErrorBoundary><PetugasSettings onNavigate={go} currentUser={currentUser} /></ErrorBoundary>,
 
     // ─── ADMIN SCREENS ──────────────────────────────────
