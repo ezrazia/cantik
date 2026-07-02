@@ -209,7 +209,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       }
       const parentId = q.parent_id || q.parentId;
       if (parentId) {
-        const parent = questions.find(p => p.id === parentId);
+        const parent = questions.find(p => String(p.id) === String(parentId));
         if (parent) {
           return getQuestionLoopGroup(parent);
         }
@@ -227,7 +227,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       if (!isLoopQ) {
         const parentId = q.parent_id || q.parentId;
         if (parentId) {
-          const parent = questions.find(p => p.id === parentId);
+          const parent = questions.find(p => String(p.id) === String(parentId));
           if (parent) {
             return getQuestionLoopCount(parent);
           }
@@ -338,14 +338,14 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       
       const parentId = q.parent_id || q.parentId;
       if (parentId) {
-        const parent = questions.find(p => p.id === parentId);
+        const parent = questions.find(p => String(p.id) === String(parentId));
         if (!parent) {
           questionCodesMap.set(cacheKey, "");
           return "";
         }
         const parentCode = getCode(parent);
         
-        const siblings = questions.filter(s => s.blok_id === q.blok_id && (s.parent_id === parentId || s.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const siblings = questions.filter(s => s.blok_id === q.blok_id && (String(s.parent_id) === String(parentId) || String(s.parentId) === String(parentId))).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
         const sibIdx = siblings.findIndex(s => s.id === q.id);
         
         if (parent.parent_id || parent.parentId) {
@@ -1055,6 +1055,42 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
   const queueItems = localRtList.filter(rt => rt.status === "tersimpan" || rt.status === "terkirim");
 
   const validateDocument = async (item) => {
+    const sortBlocksNaturally = (blks) => {
+      const romanToDecimal = (roman) => {
+        const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+        let dec = 0;
+        const str = roman.toLowerCase();
+        for (let i = 0; i < str.length; i++) {
+          const current = map[str[i]];
+          const next = map[str[i + 1]];
+          if (next && current < next) {
+            dec += next - current;
+            i++;
+          } else {
+            dec += current;
+          }
+        }
+        return dec || 0;
+      };
+      const getBlockSortKey = (block) => {
+        const kodeStr = String(block.kode || block.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          return romanToDecimal(match[1]);
+        }
+        if (kodeStr.toLowerCase() === "pengantar") {
+          return 0;
+        }
+        return 999;
+      };
+      return [...(blks || [])].sort((a, b) => {
+        const keyA = getBlockSortKey(a);
+        const keyB = getBlockSortKey(b);
+        if (keyA !== keyB) return keyA - keyB;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+    };
+
     let blocks = [];
     let questions = [];
     
@@ -1062,7 +1098,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
-        blocks = parsed.blocks || [];
+        blocks = sortBlocksNaturally(parsed.blocks || []);
         questions = parsed.questions || [];
       } catch (e) {}
     }
@@ -1071,7 +1107,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       try {
         const res = await api.form.getStructure(item.kegiatan_id);
         if (res.success) {
-          blocks = res.blocks || [];
+          blocks = sortBlocksNaturally(res.blocks || []);
           questions = res.questions || [];
           localStorage.setItem(`form_structure_${item.kegiatan_id}`, JSON.stringify({ blocks, questions }));
         }
@@ -1384,14 +1420,14 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       
       const parentId = q.parent_id || q.parentId;
       if (parentId) {
-        const parent = questions.find(p => p.id === parentId);
+        const parent = questions.find(p => String(p.id) === String(parentId));
         if (!parent) {
           questionCodesMap.set(cacheKey, "");
           return "";
         }
         const parentCode = getCode(parent);
         
-        const siblings = questions.filter(s => s.blok_id === q.blok_id && (s.parent_id === parentId || s.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const siblings = questions.filter(s => s.blok_id === q.blok_id && (String(s.parent_id) === String(parentId) || String(s.parentId) === String(parentId))).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
         const sibIdx = siblings.findIndex(s => s.id === q.id);
         
         if (parent.parent_id || parent.parentId) {
@@ -1540,7 +1576,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       }
       const parentId = q.parent_id || q.parentId;
       if (parentId) {
-        const parent = questions.find(p => p.id === parentId);
+        const parent = questions.find(p => String(p.id) === String(parentId));
         if (parent) {
           return getQuestionLoopGroup(parent);
         }
@@ -1560,7 +1596,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         // 1. Parent relationship
         const parentId = q.parent_id || q.parentId;
         if (parentId) {
-          const parent = questions.find(p => p.id === parentId);
+          const parent = questions.find(p => String(p.id) === String(parentId));
           if (parent) {
             return getQuestionLoopCount(parent);
           }
@@ -1697,7 +1733,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       const blockQs = questions.filter(x => String(x.blok_id) === String(b.id) || String(x.blok_id) === String(b.kode));
       const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId);
       const addChildrenRecursive = (parentId) => {
-        const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const children = blockQs.filter(x => (String(x.parent_id) === String(parentId) || String(x.parentId) === String(parentId))).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
         children.forEach(child => {
           cachedAllOrdered.push(child);
           addChildrenRecursive(child.id);
@@ -1933,7 +1969,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     
     questions.forEach(q => {
       // If this question has sub-questions, it doesn't render inputs of its own (unless in original input mode), so it cannot be validated/required
-      const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
+      const childQs = questions.filter(c => String(c.parent_id) === String(q.id) || String(c.parentId) === String(q.id));
       let parentMode = "label";
       if (q.validation && q.validation.trim().startsWith('{')) {
         try {
