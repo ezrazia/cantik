@@ -142,4 +142,18 @@ export const api = {
   tabulasi: {
     getData: (kegiatanId) => request(`/tabulasi/${kegiatanId}`),
   },
+
+  // ─── FREEFORM (ANOMALIES & DYNAMIC OPTIONS) ───────────
+  freeform: {
+    getAll: (kegiatan_id, type) => {
+      const params = new URLSearchParams();
+      if (kegiatan_id) params.append("kegiatan_id", kegiatan_id);
+      if (type) params.append("type", type);
+      const query = params.toString();
+      return request(`/freeform${query ? '?' + query : ''}`);
+    },
+    create: (data) => request('/freeform', { method: 'POST', body: data }),
+    update: (id, data) => request(`/freeform/${id}`, { method: 'PUT', body: data }),
+    delete: (id) => request(`/freeform/${id}`, { method: 'DELETE' }),
+  }
 };

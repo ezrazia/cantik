@@ -1422,7 +1422,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     if (loopGroupName) {
       const masterQ = loopGroupsMap.masterQs.get(`${q.blok_id}_${loopGroupName}`);
-      console.log(`[DEBUG] getQuestionLoopCount(q.id=${q.id}): loopGroupName=${loopGroupName}, masterQ=${masterQ?.id}`);
       if (masterQ && masterQ.id !== q.id) {
         return getQuestionLoopCount(masterQ, activeValues);
       }
@@ -1430,8 +1429,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     if (isLoopQ) {
       if (loopByQuestionId) {
-        let triggerValue = activeValues[loopByQuestionId];
-        console.log(`[DEBUG] getQuestionLoopCount(q.id=${q.id}): loopByQuestionId=${loopByQuestionId}, triggerValue=${triggerValue}`);
+        let triggerValue = activeValues[loopByQuestionId]
 
         if (typeof triggerValue === 'string' && triggerValue.trim().startsWith('[')) {
           try {
@@ -1440,7 +1438,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           } catch (e) { }
         }
         const parsedTrigger = parseInt(triggerValue, 10);
-        console.log(`[DEBUG] getQuestionLoopCount(q.id=${q.id}): parsedTrigger=${parsedTrigger}`);
 
         if (!isNaN(parsedTrigger) && parsedTrigger > 0) {
           return Math.max(0, parsedTrigger);
@@ -1826,7 +1823,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return false;
   };
 
-  const getInputErrorMsg = (q, val) => {
+  const getInputErrorMsg = (q, val, idx = null) => {
     if (val === undefined || val === null || val === '') return "";
 
     if (q.type === 'number' && q.validation) {
@@ -1905,6 +1902,53 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             }
           }
         } catch (e) { }
+      }
+    }
+
+    // 3. Custom cross-question validation formula check
+    const myCode = getQuestionCode(q);
+    if (myCode) {
+      const normalizedMyCode = myCode.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+      const crossQs = questions.filter(quest => quest.validation && quest.validation.trim().startsWith('{'));
+      for (const quest of crossQs) {
+        try {
+          const parsed = JSON.parse(quest.validation);
+          if (parsed && parsed.custom_validation_formula) {
+            const formula = parsed.custom_validation_formula;
+            const codeRegex = /R[0-9a-zA-Z.]+/g;
+            const codes = formula.match(codeRegex) || [];
+            const normalizedCodes = codes.map(c => c.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, ""));
+            
+            if (normalizedCodes.includes(normalizedMyCode)) {
+              let allFilled = true;
+              for (const code of codes) {
+                const targetQ = findQuestionByCode(code);
+                if (targetQ) {
+                  let targetVal = "";
+                  if (idx !== null) {
+                    targetVal = getLoopValue(targetQ.id, idx);
+                  } else {
+                    targetVal = ans.values[targetQ.id];
+                  }
+                  if (targetVal === undefined || targetVal === null || targetVal === "") {
+                    allFilled = false;
+                    break;
+                  }
+                } else {
+                  allFilled = false;
+                  break;
+                }
+              }
+              
+              if (allFilled) {
+                const result = evaluateFormula(formula, ans.values, idx);
+                if (result === "false" || result === "0") {
+                  return parsed.custom_validation_message || "Isian tidak sesuai dengan aturan konsistensi rumus.";
+                }
+              }
+            }
+          }
+        } catch (e) {}
       }
     }
 
@@ -2726,37 +2770,52 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return true;
   }, [ans.values, questionMapById, questionMapByCode, blockMap, questionIndexMap, allSkippers, findQuestionByCode, checkOptionTrigger, getBlocksToHideBySkip]);
 
+  const visibleBlocksMap = useMemo(() => {
+    const map = new Map();
+    const blocksToHide = getBlocksToHideBySkip();
+
+    blocks.forEach(block => {
+      if (blocksToHide.has(block.id) || blocksToHide.has(block.kode)) {
+        map.set(String(block.id), false);
+        return;
+      }
+      if (block.hide_logic) {
+        try {
+          const parsed = JSON.parse(block.hide_logic);
+          if (parsed && parsed.conditions && parsed.conditions.length > 0) {
+            const operator = parsed.operator || "AND";
+            const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
+            const met = operator === "OR" ? results.some(r => r) : results.every(r => r);
+            if (met) {
+              map.set(String(block.id), false);
+              return;
+            }
+          }
+        } catch (e) { }
+      }
+
+      const blockQuestions = [
+        ...(questionsByBlockMap.get(String(block.id)) || []),
+        ...(block.kode && block.kode !== block.id ? (questionsByBlockMap.get(String(block.kode)) || []) : [])
+      ];
+      if (blockQuestions.length > 0) {
+        const hasAnyVisibleQuestion = blockQuestions.some(q => isQuestionVisibleIgnoreBlock(q));
+        if (!hasAnyVisibleQuestion) {
+          map.set(String(block.id), false);
+          return;
+        }
+      }
+
+      map.set(String(block.id), true);
+    });
+
+    return map;
+  }, [blocks, ans.values, getBlocksToHideBySkip, questionsByBlockMap, isQuestionVisibleIgnoreBlock]);
+
   const isBlockVisible = useCallback((block) => {
     if (!block) return false;
-    const blocksToHide = getBlocksToHideBySkip();
-    if (blocksToHide.has(block.id) || blocksToHide.has(block.kode)) {
-      return false;
-    }
-    if (block.hide_logic) {
-      try {
-        const parsed = JSON.parse(block.hide_logic);
-        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
-          const operator = parsed.operator || "AND";
-          const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
-          const met = operator === "OR" ? results.some(r => r) : results.every(r => r);
-          if (met) return false;
-        }
-      } catch (e) { }
-    }
-
-    const blockQuestions = [
-      ...(questionsByBlockMap.get(String(block.id)) || []),
-      ...(block.kode && block.kode !== block.id ? (questionsByBlockMap.get(String(block.kode)) || []) : [])
-    ];
-    if (blockQuestions.length > 0) {
-      const hasAnyVisibleQuestion = blockQuestions.some(q => isQuestionVisibleIgnoreBlock(q));
-      if (!hasAnyVisibleQuestion) {
-        return false;
-      }
-    }
-
-    return true;
-  }, [getBlocksToHideBySkip, ans.values, questionsByBlockMap, isQuestionVisibleIgnoreBlock]);
+    return visibleBlocksMap.get(String(block.id)) !== false;
+  }, [visibleBlocksMap]);
 
   const isQuestionVisible = useCallback((q, activeInstanceIdx = null) => {
     const block = blockMap.get(String(q.blok_id));
@@ -3140,6 +3199,49 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         }
 
         const isRequired = isQuestionRequiredForRole(q, isPml);
+
+        // Check custom validation formulas
+        if (q.validation && q.validation.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(q.validation);
+            if (parsed && parsed.custom_validation_formula) {
+              const formula = parsed.custom_validation_formula;
+              const codeRegex = /R[0-9a-zA-Z.]+/g;
+              const codes = formula.match(codeRegex) || [];
+              
+              let allFilled = true;
+              for (const code of codes) {
+                const targetQ = findQuestionByCode(code);
+                if (targetQ) {
+                  let targetVal = "";
+                  if (idx !== null) {
+                    targetVal = getLoopValueFromResolved(targetQ.id, idx);
+                  } else {
+                    targetVal = resolvedValues[targetQ.id];
+                  }
+                  if (targetVal === undefined || targetVal === null || targetVal === "") {
+                    allFilled = false;
+                    break;
+                  }
+                } else {
+                  allFilled = false;
+                  break;
+                }
+              }
+              
+              if (allFilled) {
+                const result = evaluateFormula(formula, resolvedValues, idx);
+                if (result === "false" || result === "0") {
+                  errors.push({
+                    blockKode: blockName,
+                    questionId: q.id,
+                    message: parsed.custom_validation_message || `Aturan konsistensi ${formula} tidak terpenuhi.`
+                  });
+                }
+              }
+            }
+          } catch (e) {}
+        }
 
         if (val !== undefined && val !== null && val !== '' && !isOtherTextEmpty) {
           if (q.type === 'number' && q.validation) {
@@ -4047,18 +4149,19 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     setRejectionNoteItem(selectedRtItem);
   };
 
-  const submitRejectionWithConfirmation = () => {
+  const submitRejectionWithConfirmation = (note) => {
+    setRejectionNote(note);
     setRejectionNoteItem(null);
     askConfirmation(
       "Reject Dokumen",
       "Apakah Anda yakin ingin menolak dokumen kuesioner ini?",
-      executePmlReject
+      () => executePmlReject(note)
     );
   };
 
-  const executePmlReject = async () => {
+  const executePmlReject = async (note) => {
     try {
-      const res = await api.dokumen.review(selectedRtItem.id, 'rejected', rejectionNote);
+      const res = await api.dokumen.review(selectedRtItem.id, 'rejected', note || rejectionNote);
       if (res.success) {
         const docs = await fetchDocuments();
         const cached = localStorage.getItem(`offline_docs_${currentUser.id}`);
@@ -4878,7 +4981,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                           <div className="space-y-3">
                             {instances.map((idx) => {
                               const val = getLoopValue(q.id, idx);
-                              const errMsg = getInputErrorMsg(q, val);
+                              const errMsg = getInputErrorMsg(q, val, idx);
                               const hasErr = !!errMsg;
                               const qVal = parseValidation(q.validation);
                               const isDigitsOnly = qVal && (qVal.text_validation_type === 'digits_only' || qVal.text_validation_type === 'nik');
@@ -4927,7 +5030,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             <div className="space-y-3">
                               {instances.map((idx) => {
                                 const val = getLoopValue(q.id, idx);
-                                const errMsg = getInputErrorMsg(q, val);
+                                const errMsg = getInputErrorMsg(q, val, idx);
                                 const hasErr = !!errMsg;
                                 return (
                                   <div key={idx} className="space-y-1">
@@ -5730,41 +5833,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
       {/* Rejection Note Popup Modal */}
       {rejectionNoteItem && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden" style={{ animation: "scaleUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
-            <div className="px-6 py-4 bg-slate-50 border-b border-solid border-slate-100 flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Catatan Rejection</h3>
-                <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{rejectionNoteItem.krt} ({rejectionNoteItem.kode})</p>
-              </div>
-              <button onClick={() => setRejectionNoteItem(null)} className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-450 cursor-pointer">
-                <X size={16} />
-              </button>
-            </div>
-            <div className="p-6 space-y-3">
-              <label className="text-xs text-slate-500 font-bold block">Berikan catatan kesalahan / pesan kesalahan untuk PCL:</label>
-              <textarea
-                value={rejectionNote}
-                onChange={(e) => setRejectionNote(e.target.value)}
-                placeholder="Contoh: Keterangan Umur tidak sesuai dengan Status Perkawinan..."
-                className="w-full h-24 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none"
-              />
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end gap-2">
-              <button onClick={() => setRejectionNoteItem(null)} className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-655 font-semibold text-xs rounded-xl cursor-pointer">
-                Batal
-              </button>
-              <button
-                onClick={submitRejectionWithConfirmation}
-                disabled={!rejectionNote.trim()}
-                className={`px-4.5 py-2 font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all ${rejectionNote.trim() ? "bg-red-600 hover:bg-red-700 text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed"
-                  }`}
-              >
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
+        <RejectionNoteModal
+          item={rejectionNoteItem}
+          onCancel={() => setRejectionNoteItem(null)}
+          onSubmit={submitRejectionWithConfirmation}
+        />
       )}
 
       {/* Validation Summary Modal */}
@@ -5998,5 +6071,46 @@ function renderNoteText(text, computeAggregation) {
     return part;
   });
 }
+
+const RejectionNoteModal = ({ item, onCancel, onSubmit }) => {
+  const [note, setNote] = useState("");
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden" style={{ animation: "scaleUp 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+        <div className="px-6 py-4 bg-slate-50 border-b border-solid border-slate-100 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-bold text-slate-800">Catatan Rejection</h3>
+            <p className="text-[10px] text-slate-400 font-semibold mt-0.5">{item.krt} ({item.kode})</p>
+          </div>
+          <button onClick={onCancel} className="w-8 h-8 rounded-lg bg-white border border-solid border-slate-200 hover:bg-slate-100 flex items-center justify-center text-slate-450 cursor-pointer">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-6 space-y-3">
+          <label className="text-xs text-slate-500 font-bold block">Berikan catatan kesalahan / pesan kesalahan untuk PCL:</label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Contoh: Keterangan Umur tidak sesuai dengan Status Perkawinan..."
+            className="w-full h-24 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none"
+          />
+        </div>
+        <div className="px-6 py-4 bg-slate-50 border-t border-solid border-slate-100 flex justify-end gap-2">
+          <button onClick={onCancel} className="px-4 py-2 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-655 font-semibold text-xs rounded-xl cursor-pointer">
+            Batal
+          </button>
+          <button
+            onClick={() => onSubmit(note)}
+            disabled={!note.trim()}
+            className={`px-4.5 py-2 font-semibold text-xs rounded-xl cursor-pointer border-0 shadow-sm transition-all ${note.trim() ? "bg-red-600 hover:bg-red-700 text-white" : "bg-slate-100 text-slate-400 cursor-not-allowed"
+              }`}
+          >
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default PetugasQuestionnaire;

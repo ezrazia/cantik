@@ -84,9 +84,11 @@ export function NotificationProvider({ children }) {
                 {alertDialog.type === "warning" && <AlertCircle size={24} />}
                 {alertDialog.type === "info" && <Info size={24} />}
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold text-slate-800 leading-snug">{alertDialog.title}</h3>
-                <p className="mt-2 text-sm text-slate-600 whitespace-pre-line leading-relaxed">{alertDialog.message}</p>
+                <div className="mt-2 max-h-[50vh] overflow-y-auto pr-2">
+                  <p className="text-sm text-slate-600 whitespace-pre-line leading-relaxed break-words">{alertDialog.message}</p>
+                </div>
               </div>
             </div>
             <div className="mt-6 flex justify-end">
@@ -115,9 +117,11 @@ export function NotificationProvider({ children }) {
                 {confirmDialog.type === "success" && <CheckCircle2 size={24} />}
                 {confirmDialog.type === "warning" && <AlertCircle size={24} />}
               </div>
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <h3 className="text-lg font-bold text-slate-800 leading-snug">{confirmDialog.title}</h3>
-                <p className="mt-2 text-sm text-slate-600 whitespace-pre-line leading-relaxed">{confirmDialog.message}</p>
+                <div className="mt-2 max-h-[50vh] overflow-y-auto pr-2">
+                  <p className="text-sm text-slate-600 whitespace-pre-line leading-relaxed break-words">{confirmDialog.message}</p>
+                </div>
               </div>
             </div>
             <div className="mt-6 flex justify-end gap-3">

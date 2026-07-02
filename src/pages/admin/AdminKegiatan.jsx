@@ -559,7 +559,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
       } else if (lokus.desa && lokus.desa.length > 0) {
         lokus.desa.forEach(d => {
           const dNorm = d.trim().toLowerCase();
-          const isAssigned = assignedClean.some(a => a.desa === dNorm);
+          const isAssigned = assignedClean.some(a => a.desa === dNorm || a.sls === dNorm);
           if (!isAssigned) {
             errors.push(`Desa "${d}" belum ditugaskan ke PCL manapun.`);
           }

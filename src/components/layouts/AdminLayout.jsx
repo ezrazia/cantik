@@ -1,4 +1,4 @@
-import { BarChart2, Eye, Layers, Users, Database, LogOut, ChevronDown, Menu, X, Home, Briefcase, Table } from "lucide-react";
+import { BarChart2, Eye, Layers, Users, Database, LogOut, ChevronDown, Menu, X, Home, Briefcase, Table, Sliders } from "lucide-react";
 import { useState, useEffect } from "react";
 
 /**
@@ -66,7 +66,7 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         onNavigate("admin-dash");
       }
     } else {
-      if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas") {
+      if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas" && tab !== "admin-freeform") {
         onNavigate("admin-beranda");
       }
     }
@@ -141,7 +141,7 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
 
       {/* Master Petugas (Overall List) - Positioned above Project Selector */}
       {!isKegiatanAdmin && (
-        <div className="px-3 mb-4">
+        <div className="px-3 mb-2">
           <button key="admin-master-petugas"
             onClick={() => { onNavigate("admin-master-petugas"); if (isMobile) setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
@@ -152,6 +152,23 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
             title="Master Petugas">
             <Users size={18} strokeWidth={tab === "admin-master-petugas" ? 2 : 1.5}/>
             {(isSidebarOpen || isMobile) && <span>Master Petugas</span>}
+          </button>
+        </div>
+      )}
+
+      {/* Freeform (Dynamic Options & Anomalies) */}
+      {!isKegiatanAdmin && (
+        <div className="px-3 mb-4">
+          <button key="admin-freeform"
+            onClick={() => { onNavigate("admin-freeform"); if (isMobile) setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+              tab === "admin-freeform"
+                ? "bg-blue-600 text-white font-semibold shadow-sm"
+                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+            title="Freeform">
+            <Sliders size={18} strokeWidth={tab === "admin-freeform" ? 2 : 1.5}/>
+            {(isSidebarOpen || isMobile) && <span>Freeform</span>}
           </button>
         </div>
       )}

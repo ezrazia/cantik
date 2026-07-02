@@ -7,9 +7,13 @@ import { useNotification } from "../../components/ui/NotificationContext";
 
 const checkOptionTrigger = (val, triggerOptions) => {
   if (val === undefined || val === null || val === '') return false;
-  if (typeof val === 'string' && val.trim().startsWith('{')) {
+  const trimmed = typeof val === 'string' ? val.trim() : '';
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
-      const parsedVal = JSON.parse(val);
+      const parsedVal = JSON.parse(trimmed);
+      if (Array.isArray(parsedVal)) {
+        return parsedVal.some(item => triggerOptions.includes(String(item)));
+      }
       if (parsedVal && typeof parsedVal === 'object') {
         if ('value' in parsedVal) {
           return triggerOptions.includes(String(parsedVal.value));
@@ -1080,6 +1084,361 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     const errors = [];
     const values = item.values || {};
 
+
+
+    const evaluateFormulaLocal = (formulaStr, currentValues, idx = null) => {
+      if (!formulaStr) return "0";
+      let evalStr = formulaStr.trim();
+
+      const extractNumbers = (raw) => {
+        if (raw === undefined || raw === null || raw === "") return [];
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed.map(x => {
+              if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+              if (typeof x === 'string' && x.startsWith('{')) {
+                try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
+              }
+              return parseFloat(x);
+            }).filter(x => !isNaN(x));
+          } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+            const n = parseFloat(parsed.value);
+            return isNaN(n) ? [] : [n];
+          } else {
+            const n = parseFloat(parsed);
+            return isNaN(n) ? [] : [n];
+          }
+        } catch (e) {
+          const n = parseFloat(raw);
+          return isNaN(n) ? [] : [n];
+        }
+      };
+
+      const getLoopValueFromValuesLocal = (qId, idx) => {
+        const raw = currentValues[qId];
+        const targetQ = questions.find(x => x.id === qId);
+        const isSerialNumber = targetQ && targetQ.type === 'number' && (
+          targetQ.label.toLowerCase().includes('no. urut') ||
+          targetQ.label.toLowerCase().includes('nomor urut') ||
+          targetQ.label.toLowerCase().includes('no urut')
+        ) && isQuestionInLoop(targetQ);
+
+        if (!raw) {
+          return isSerialNumber ? String(idx + 1) : "";
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const val = parsed[idx];
+            if (isSerialNumber && (val === undefined || val === null || val === '')) {
+              return String(idx + 1);
+            }
+            return val !== undefined && val !== null ? val : (isSerialNumber ? String(idx + 1) : "");
+          } else if (typeof parsed === 'object' && parsed !== null) {
+            if (parsed.hasOwnProperty('value')) {
+              return idx === 0 ? raw : "";
+            }
+            const val = parsed[idx];
+            if (isSerialNumber && (val === undefined || val === null || val === '')) {
+              return String(idx + 1);
+            }
+            return val !== undefined && val !== null ? val : "";
+          }
+        } catch (e) { }
+        if (isSerialNumber && idx > 0) {
+          return String(idx + 1);
+        }
+        return idx === 0 ? raw : "";
+      };
+
+      // AGE function (e.g. AGE(R410))
+      const ageRegex = /AGE\((R[0-9a-zA-Z.]+)\)/gi;
+      evalStr = evalStr.replace(ageRegex, (match, code) => {
+        const targetQ = findQuestionByCode(code);
+        if (!targetQ) return "0";
+
+        let birthDateStr = "";
+        if (idx !== null) {
+          birthDateStr = getLoopValueFromValuesLocal(targetQ.id, idx);
+        } else {
+          birthDateStr = currentValues[targetQ.id] || "";
+        }
+
+        if (!birthDateStr) return "0";
+
+        if (birthDateStr.trim().startsWith('{') || birthDateStr.trim().startsWith('[')) {
+          try {
+            const parsed = JSON.parse(birthDateStr);
+            if (Array.isArray(parsed)) {
+              birthDateStr = parsed[0] || "";
+            } else if (parsed && parsed.value) {
+              birthDateStr = parsed.value;
+            }
+          } catch (e) { }
+        }
+
+        const birthDate = new Date(birthDateStr);
+        if (isNaN(birthDate.getTime())) return "0";
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const m = today.getMonth() - birthDate.getMonth();
+        if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+          age--;
+        }
+        return String(age >= 0 ? age : 0);
+      });
+
+      // Aggregation functions on loop/array values: e.g. MAX(R401)
+      const funcRegex = /(MAX|MIN|SUM|AVG|COUNT)\((R[0-9a-zA-Z.]+)\)/gi;
+      evalStr = evalStr.replace(funcRegex, (match, op, code) => {
+        const targetQ = findQuestionByCode(code);
+        if (!targetQ) return "0";
+
+        const targetQVal = parseValidation(targetQ.validation);
+        const isTargetLoop = targetQVal.isLoop || targetQVal.is_loop || !!targetQ.parent_id || !!targetQ.parentId || !!targetQVal.loop_group;
+
+        let numbers = [];
+        if (isTargetLoop) {
+          const loopCount = getQuestionLoopCount(targetQ);
+          if (loopCount > 0) {
+            for (let i = 0; i < loopCount; i++) {
+              const val = getLoopValueFromValuesLocal(targetQ.id, i);
+              const num = parseFloat(val);
+              if (!isNaN(num)) {
+                numbers.push(num);
+              }
+            }
+          }
+        } else {
+          numbers = extractNumbers(currentValues[targetQ.id]);
+        }
+
+        if (numbers.length === 0 && targetQ.validation) {
+          try {
+            const vParsed = JSON.parse(targetQ.validation);
+            if (vParsed && vParsed.loop_group) {
+              const groupQs = questions.filter(x => {
+                if (!x.validation) return false;
+                try { const p = JSON.parse(x.validation); return p && p.loop_group === vParsed.loop_group; }
+                catch (e) { return false; }
+              });
+              groupQs.forEach(gq => {
+                numbers = numbers.concat(extractNumbers(currentValues[gq.id]));
+              });
+            }
+          } catch (e) { }
+        }
+
+        if (numbers.length === 0) {
+          const loopCountRaw = currentValues[`${targetQ.id}_loop_count`];
+          const loopCount = loopCountRaw ? parseInt(loopCountRaw, 10) : 0;
+          if (loopCount > 0) {
+            const raw = currentValues[targetQ.id];
+            if (raw) {
+              try {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                  numbers = arr.slice(0, loopCount).map(x => parseFloat(x)).filter(x => !isNaN(x));
+                }
+              } catch (e) { }
+            }
+          }
+        }
+
+        if (numbers.length === 0) return "0";
+        switch (op.toUpperCase()) {
+          case "MAX": return String(Math.max(...numbers));
+          case "MIN": return String(Math.min(...numbers));
+          case "SUM": return String(numbers.reduce((a, b) => a + b, 0));
+          case "AVG": return String(numbers.reduce((a, b) => a + b, 0) / numbers.length);
+          case "COUNT": return String(numbers.length);
+          default: return "0";
+        }
+      });
+
+      const codeRegex = /R[0-9a-zA-Z.]+/g;
+      const codes = evalStr.match(codeRegex) || [];
+
+      for (const code of codes) {
+        const targetQ = findQuestionByCode(code);
+        if (targetQ) {
+          let val = "";
+          if (idx !== null) {
+            val = getLoopValueFromValuesLocal(targetQ.id, idx);
+          } else {
+            val = currentValues[targetQ.id] || "0";
+          }
+          let valNum = parseFloat(val);
+          if (isNaN(valNum)) {
+            try {
+              const parsed = JSON.parse(val);
+              if (Array.isArray(parsed)) {
+                const numbers = parsed.map(x => {
+                  if (x && typeof x === 'object' && 'value' in x) return parseFloat(x.value);
+                  if (typeof x === 'string' && x.startsWith('{')) {
+                    try { const p = JSON.parse(x); if (p && 'value' in p) return parseFloat(p.value); } catch (e) { }
+                  }
+                  return parseFloat(x);
+                }).filter(x => !isNaN(x));
+                valNum = numbers.length > 0 ? Math.max(...numbers) : 0;
+              } else if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+                valNum = parseFloat(parsed.value);
+              }
+            } catch (e) {
+              valNum = 0;
+            }
+          }
+          evalStr = evalStr.replace(new RegExp(code, 'g'), isNaN(valNum) ? "0" : String(valNum));
+        } else {
+          evalStr = evalStr.replace(new RegExp(code, 'g'), "0");
+        }
+      }
+
+      try {
+        const result = new Function(`return (${evalStr})`)();
+        return isNaN(result) ? "0" : String(result);
+      } catch (e) {
+        return "0";
+      }
+    };
+
+    const selectedActivity = (activities || []).find(a => a.id === item.kegiatan_id);
+    const isPml = selectedActivity?.role === "PML";
+
+    const isQuestionRequiredForRole = (q, isPmlUser) => {
+      if (!q.required) return false;
+      if (q.type === 'note') return false;
+
+      // If user is PCL, PML-specific questions are not required
+      if (!isPmlUser) {
+        const lowerLabel = (q.label || "").toLowerCase();
+        if (
+          q.type === 'pml' ||
+          lowerLabel.includes("pml") ||
+          lowerLabel.includes("pengawas") ||
+          lowerLabel.includes("pemeriksa")
+        ) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    const romanToDecimal = (roman) => {
+      const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
+      let dec = 0;
+      const str = roman.toLowerCase();
+      for (let i = 0; i < str.length; i++) {
+        const current = map[str[i]];
+        const next = map[str[i + 1]];
+        if (next && current < next) { dec += next - current; i++; } else { dec += current; }
+      }
+      return dec || 0;
+    };
+
+    const questionCodesMap = new Map();
+    const getCode = (q) => {
+      const cacheKey = String(q.id);
+      if (questionCodesMap.has(cacheKey)) return questionCodesMap.get(cacheKey);
+
+      const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+      let blockIdx = 0;
+      if (block) {
+        const kodeStr = String(block.kode || block.id || "");
+        const match = kodeStr.match(/^Blok\s+([IVXLCDMivxlcdm]+)/i);
+        if (match) {
+          blockIdx = romanToDecimal(match[1]);
+        }
+      }
+
+      if (!blockIdx) {
+        const standardBlocks = blocks.filter(b => {
+          const idStr = String(b.kode || b.id || "");
+          return idStr.startsWith("Blok ");
+        });
+        blockIdx = standardBlocks.findIndex(b => (b.id === q.blok_id || b.kode === q.blok_id)) + 1;
+      }
+      if (blockIdx === 0) {
+        questionCodesMap.set(cacheKey, "");
+        return "";
+      }
+      
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questions.find(p => p.id === parentId);
+        if (!parent) {
+          questionCodesMap.set(cacheKey, "");
+          return "";
+        }
+        const parentCode = getCode(parent);
+        
+        const siblings = questions.filter(s => s.blok_id === q.blok_id && (s.parent_id === parentId || s.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        const sibIdx = siblings.findIndex(s => s.id === q.id);
+        
+        if (parent.parent_id || parent.parentId) {
+          const romanNumerals = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
+          const suffix = romanNumerals[sibIdx] || (sibIdx + 1).toString();
+          const code = `${parentCode}.${suffix}`;
+          questionCodesMap.set(cacheKey, code);
+          return code;
+        } else {
+          const letter = String.fromCharCode(97 + (sibIdx >= 0 ? sibIdx : 0));
+          const code = `${parentCode}${letter}`;
+          questionCodesMap.set(cacheKey, code);
+          return code;
+        }
+      } else {
+        const mainQs = questions.filter(s => s.blok_id === q.blok_id && !s.parent_id && !s.parentId && s.type !== 'note').sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        
+        let startIndex = 1;
+        const firstQ = mainQs[0];
+        if (firstQ) {
+          const firstValStr = firstQ.validation || firstQ.val;
+          if (firstValStr && firstValStr.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(firstValStr);
+              const custom = parsed.custom_code || parsed.customCode || "";
+              if (parsed.start_zero || parsed.start_from_zero || custom.endsWith("00") || custom === "400" || custom === "R400") {
+                startIndex = 0;
+              }
+            } catch (e) {}
+          }
+        }
+
+        const qIdx = mainQs.findIndex(s => s.id === q.id) + startIndex;
+        const padded = qIdx.toString().padStart(2, '0');
+        const code = `${blockIdx}${padded}`;
+        questionCodesMap.set(cacheKey, code);
+        return code;
+      }
+    };
+
+    questions.forEach(q => {
+      getCode(q);
+    });
+
+    const getQuestionCode = (q) => {
+      if (!q) return "";
+      return questionCodesMap.get(String(q.id)) || "";
+    };
+
+    const questionMapByCode = new Map();
+    questions.forEach(q => {
+      const qCode = getQuestionCode(q);
+      if (qCode) {
+        const normalized = qCode.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+        questionMapByCode.set(normalized, q);
+      }
+    });
+
+    const findQuestionByCode = (codeStr) => {
+      if (!codeStr) return null;
+      const normalizedCode = codeStr.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, "");
+      return questionMapByCode.get(normalizedCode) || null;
+    };
+
     const parseValidation = (str) => {
       if (!str) return { isLoop: false, loopByQuestionId: null };
       const trimmed = str.trim();
@@ -1323,64 +1682,52 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       // Parent value check is bypassed because parents with sub-questions do not render inputs of their own.
       // Conditional visibility is handled properly by show_if rules.
       
+      // Build ordered question index map once (cached outside skipper loop)
+      const allOrdered = [];
+      blocks.forEach(b => {
+        const blockQs = questions.filter(x => x.blok_id === b.id);
+        const mainQs = blockQs.filter(x => !x.parent_id);
+        const addChildrenRecursive = (parentId) => {
+          const children = blockQs.filter(x => x.parent_id === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          children.forEach(child => {
+            allOrdered.push(child);
+            addChildrenRecursive(child.id);
+          });
+        };
+        mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        mainQs.forEach(parent => {
+          allOrdered.push(parent);
+          addChildrenRecursive(parent.id);
+        });
+      });
+
       const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
       for (const skipper of skippers) {
         let matchesTrigger = false;
-        let isJson = false;
 
         try {
           const parsed = JSON.parse(skipper.skip_logic);
-          if (parsed && parsed.conditions) {
-            isJson = true;
+          if (parsed && parsed.conditions && parsed.conditions.length > 0) {
             const operator = parsed.operator || "AND";
             const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
             matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
           }
-        } catch (e) {}
-
-        if (!isJson) {
+        } catch (e) {
           const skipperVal = resolvedValues[skipper.id];
-          const hasValue = skipperVal !== undefined && skipperVal !== null && skipperVal !== '';
-          if (hasValue) {
-            const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
-            if (typeof skipperVal === 'string' && skipperVal.trim().startsWith('{')) {
-              try {
-                const parsed = JSON.parse(skipperVal);
-                matchesTrigger = triggerOptions.some(opt => String(parsed[opt]) === "1");
-              } catch (e) {}
-            } else {
-              matchesTrigger = triggerOptions.includes(String(skipperVal));
-            }
-          }
+          const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+          matchesTrigger = checkOptionTrigger(skipperVal, triggerOptions);
         }
         
         if (matchesTrigger) {
-          const allOrdered = [];
-          blocks.forEach(b => {
-            const blockQs = questions.filter(x => x.blok_id === b.id);
-            const mainQs = blockQs.filter(x => !x.parent_id);
-            const addChildrenRecursive = (parentId) => {
-              const children = blockQs.filter(x => x.parent_id === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-              children.forEach(child => {
-                allOrdered.push(child);
-                addChildrenRecursive(child.id);
-              });
-            };
-            mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-            mainQs.forEach(parent => {
-              allOrdered.push(parent);
-              addChildrenRecursive(parent.id);
-            });
-          });
-
-          const skipperIdx = allOrdered.findIndex(x => x.id === skipper.id);
-          const targetIdx = allOrdered.findIndex(x => x.id === skipper.skip_target);
-          const currentIdx = allOrdered.findIndex(x => x.id === q.id);
+          const skipperIdx = allOrdered.findIndex(x => String(x.id) === String(skipper.id));
+          let targetQ = questions.find(x => String(x.id) === String(skipper.skip_target));
+          if (!targetQ) {
+            targetQ = findQuestionByCode(String(skipper.skip_target));
+          }
+          const targetIdx = targetQ ? allOrdered.findIndex(x => String(x.id) === String(targetQ.id)) : -1;
+          const currentIdx = allOrdered.findIndex(x => String(x.id) === String(q.id));
 
           if (skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
-            if (targetIdx === skipperIdx + 1 && q.id === skipper.skip_target) {
-              if (!matchesTrigger) return false;
-            }
             if (currentIdx > skipperIdx && currentIdx < targetIdx) {
               return false;
             }
@@ -1391,7 +1738,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     };
 
     const getSkipTargetBlock = (skipTargetId) => {
-      const targetQ = questions.find(q => q.id === skipTargetId);
+      let targetQ = questions.find(q => String(q.id) === String(skipTargetId));
+      if (!targetQ) {
+        targetQ = findQuestionByCode(String(skipTargetId));
+      }
       if (!targetQ) return null;
       const targetBlock = blocks.find(b => b.id === targetQ.blok_id || b.kode === targetQ.blok_id);
       return targetBlock;
@@ -1457,7 +1807,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       });
 
       activeSkips.forEach(skip => {
-        const skipperQ = questions.find(q => q.id === skip.questionId);
+        const skipperQ = questions.find(q => String(q.id) === String(skip.questionId));
         if (!skipperQ) return;
         const skipperBlock = blocks.find(b => b.id === skipperQ.blok_id || b.kode === skipperQ.blok_id);
         const targetBlock = getSkipTargetBlock(skip.skipTargetId);
@@ -1543,6 +1893,43 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         const block = blocks.find(b => b.id === q.blok_id);
         const blockName = block ? block.kode : "Form";
         const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
+
+        // Check custom validation formulas
+        if (q.validation && q.validation.trim().startsWith('{')) {
+          try {
+            const parsed = JSON.parse(q.validation);
+            if (parsed && parsed.custom_validation_formula) {
+              const formula = parsed.custom_validation_formula;
+              const codeRegex = /R[0-9a-zA-Z.]+/g;
+              const codes = formula.match(codeRegex) || [];
+              
+              let allFilled = true;
+              for (const code of codes) {
+                const targetQ = findQuestionByCode(code);
+                if (targetQ) {
+                  const targetRawVal = values[targetQ.id];
+                  const targetVal = (loopCount > 1 || (typeof targetRawVal === 'string' && targetRawVal.startsWith('[')))
+                    ? getLoopValue(targetQ.id, idx)
+                    : targetRawVal;
+                  if (targetVal === undefined || targetVal === null || targetVal === "") {
+                    allFilled = false;
+                    break;
+                  }
+                } else {
+                  allFilled = false;
+                  break;
+                }
+              }
+              
+              if (allFilled) {
+                const result = evaluateFormulaLocal(formula, values, idx);
+                if (result === "false" || result === "0") {
+                  errors.push(`[${blockName}] ${parsed.custom_validation_message || `Peringatan konsistensi ${formula} tidak terpenuhi.`}`);
+                }
+              }
+            }
+          } catch (e) {}
+        }
 
         if (val !== undefined && val !== null && val !== '') {
           if (q.type === 'number' && q.validation) {
@@ -1633,7 +2020,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
               } catch(e) {}
             }
           }
-        } else if (q.required) {
+        } else if (isQuestionRequiredForRole(q, isPml)) {
           errors.push(`[${blockName}] Isian wajib ${q.label}${suffix} masih kosong.`);
         }
       }

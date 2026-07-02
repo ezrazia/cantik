@@ -12,6 +12,7 @@ import desaRoutes from './desa.js';
 import dashboardRoutes from './dashboard.js';
 import tabulasiRoutes from './tabulasi.js';
 import uploadRoutes from './upload.js';
+import freeformRoutes from './freeform.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,5 +54,6 @@ router.use('/desa', desaRoutes);
 router.use('/dashboard', dashboardRoutes);
 router.use('/tabulasi', tabulasiRoutes);
 router.use('/upload', uploadRoutes);
+router.use('/freeform', freeformRoutes);
 
 export default router;

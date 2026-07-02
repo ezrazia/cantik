@@ -478,6 +478,21 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
   // ─── PETUGAS PREVIEW HELPERS & LOGIC ────────────────────────
   const [previewAnswers, setPreviewAnswers] = useState({});
+  const [freeformOptions, setFreeformOptions] = useState([]);
+
+  useEffect(() => {
+    if (selectedProject) {
+      api.freeform.getAll(selectedProject, 'PILIHAN_DINAMIS')
+        .then(res => {
+          if (res?.success) {
+            setFreeformOptions(res.data);
+          }
+        })
+        .catch(err => console.error("Failed to fetch freeform options:", err));
+    } else {
+      setFreeformOptions([]);
+    }
+  }, [selectedProject]);
 
   const parseValidation = (str) => {
     if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopByQuestionId: null, subLabel: "" };
@@ -4485,23 +4500,50 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       )}
 
                       {selected.type === "number" && (
-                        <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase">Formula Kalkulasi Otomatis</label>
-                          <div>
-                            <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Rumus Operasi (misal: R101a + R101b atau AGE(R410))</label>
-                            <input
-                              type="text"
-                              value={parsedVal.formula || ""}
-                              disabled={!canEdit}
-                              onChange={e => updateValObj({ formula: e.target.value })}
-                              placeholder="Kosongkan jika diinput manual"
-                              className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500 mb-1"
-                            />
-                            <p className="text-[9px] text-slate-400 leading-normal">
-                              Tips: Gunakan <strong className="text-slate-600">AGE(R410)</strong> untuk menghitung umur otomatis berdasarkan tanggal lahir dari pertanyaan berkode R410.
-                            </p>
+                        <>
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Formula Kalkulasi Otomatis</label>
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Rumus Operasi (misal: R101a + R101b atau AGE(R410))</label>
+                              <input
+                                type="text"
+                                value={parsedVal.formula || ""}
+                                disabled={!canEdit}
+                                onChange={e => updateValObj({ formula: e.target.value })}
+                                placeholder="Kosongkan jika diinput manual"
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500 mb-1"
+                              />
+                              <p className="text-[9px] text-slate-400 leading-normal">
+                                Tips: Gunakan <strong className="text-slate-600">AGE(R410)</strong> untuk menghitung umur otomatis berdasarkan tanggal lahir dari pertanyaan berkode R410.
+                              </p>
+                            </div>
                           </div>
-                        </div>
+                          <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3 mt-3">
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Konsistensi Rumus</label>
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Rumus Logika (misal: R806c + R806d === R806b)</label>
+                              <input
+                                type="text"
+                                value={parsedVal.custom_validation_formula || ""}
+                                disabled={!canEdit}
+                                onChange={e => updateValObj({ custom_validation_formula: e.target.value })}
+                                placeholder="Contoh: R806c + R806d === R806b"
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500 mb-1"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-0.5">Pesan Peringatan Jika Salah</label>
+                              <input
+                                type="text"
+                                value={parsedVal.custom_validation_message || ""}
+                                disabled={!canEdit}
+                                onChange={e => updateValObj({ custom_validation_message: e.target.value })}
+                                placeholder="Masukkan pesan peringatan untuk petugas"
+                                className="w-full px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg outline-none font-semibold text-slate-600 focus:border-blue-500"
+                              />
+                            </div>
+                          </div>
+                        </>
                       )}
                       {selected.type === "text" && (
                         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
@@ -4628,7 +4670,49 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
                           {!parsedVal.options_source_question_id && (
                             <>
-                              <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                              <div className="pt-2 border-t border-slate-100">
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Gunakan Template dari Freeform (Opsional):</label>
+                                {canEdit ? (
+                                  <SearchableSelect
+                                    options={[
+                                      { value: "", label: "-- Pilih Template Pilihan Dinamis --" },
+                                      ...freeformOptions.map(opt => ({
+                                        value: opt.id,
+                                        label: opt.key_name
+                                      }))
+                                    ]}
+                                    value={""} // Always unselected to act as a trigger
+                                    onChange={(val) => {
+                                      if (!val) return;
+                                      const selectedFreeform = freeformOptions.find(opt => opt.id === val);
+                                      if (selectedFreeform && Array.isArray(selectedFreeform.payload)) {
+                                        // Payload format should be an array of { value, label }
+                                        const newOptions = selectedFreeform.payload.map(item => {
+                                            // Handle various formats
+                                            if (item.value !== undefined && item.label !== undefined) return item;
+                                            const keys = Object.keys(item);
+                                            if (keys.length >= 2) return { value: String(item[keys[0]]), label: String(item[keys[1]]) };
+                                            if (keys.length === 1) return { value: String(item[keys[0]]), label: String(item[keys[0]]) };
+                                            return null;
+                                        }).filter(Boolean);
+                                        
+                                        if (newOptions.length > 0) {
+                                            handleUpdateQuestion("options", newOptions);
+                                            alert(`Berhasil mengambil ${newOptions.length} opsi dari template "${selectedFreeform.key_name}"!`);
+                                        } else {
+                                            alert(`Template "${selectedFreeform.key_name}" tidak memiliki daftar opsi yang valid.`);
+                                        }
+                                      }
+                                    }}
+                                    placeholder="Cari Template Pilihan Dinamis..."
+                                    className="w-full"
+                                  />
+                                ) : (
+                                  <div className="text-xs font-semibold text-slate-500">Pilihan Manual (Bukan Template)</div>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between pt-3 mt-2 border-t border-slate-100">
                                 <label className="block text-[10px] font-bold text-slate-500 uppercase">Daftar Pilihan Opsi</label>
                                 {canEdit && (
                                   <button type="button" onClick={() => handleAddOption(selected, optionsList)} className="px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 text-[10px] font-bold rounded border-0 cursor-pointer">

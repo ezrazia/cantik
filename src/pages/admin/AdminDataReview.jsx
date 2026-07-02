@@ -276,6 +276,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   const [isEditing, setIsEditing] = useState(false);
   const [ans, setAns] = useState({});
   const [confirmModalType, setConfirmModalType] = useState(null); // 'approve' | 'unapprove' | null
+  const [anomalyRules, setAnomalyRules] = useState([]);
+  const [detectedAnomalies, setDetectedAnomalies] = useState(null);
+  const [isCheckingAnomalies, setIsCheckingAnomalies] = useState(false);
 
   // States for Prelist Upload Modal
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -313,6 +316,99 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (selectedProject) {
+      api.freeform.getAll(selectedProject, 'ATURAN_ANOMALI')
+        .then(res => {
+          if (res?.success) {
+            setAnomalyRules(res.data);
+          }
+        })
+        .catch(err => console.error("Failed to fetch anomaly rules:", err));
+    } else {
+      setAnomalyRules([]);
+    }
+  }, [selectedProject]);
+
+  const handleCheckAnomalies = () => {
+    setIsCheckingAnomalies(true);
+    setDetectedAnomalies(null);
+    
+    setTimeout(() => {
+      const valueMap = {};
+      questions.forEach(q => {
+        const code = getQuestionCode(q, questions, blocks);
+        if (code) {
+          let val = ans[q.id];
+          try {
+            if (val && (val.startsWith('{') || val.startsWith('['))) {
+               val = JSON.parse(val);
+               if (Array.isArray(val)) val = val[0] || 0; // fallback array
+               if (typeof val === 'object' && val !== null && 'value' in val) {
+                 val = val.value;
+               }
+            }
+          } catch(e) {}
+          valueMap[`R${code}`] = val;
+        }
+      });
+
+      const anomaliesFound = [];
+
+      anomalyRules.forEach(rule => {
+        const payload = rule.payload || {};
+        let logika = (payload.logika || "").trim();
+        if (!logika) return;
+
+        logika = logika.replace(/=\//g, '!=');
+        
+        let conditionToEval = "";
+        if (logika.toLowerCase().includes('jika')) {
+          const parts = logika.toLowerCase().split('jika');
+          if (parts.length === 2) {
+             const thenCond = parts[0].trim();
+             const ifCond = parts[1].trim();
+             conditionToEval = `!(${ifCond}) || (${thenCond})`;
+          } else {
+             conditionToEval = logika;
+          }
+        } else {
+          conditionToEval = logika;
+        }
+
+        const varRegex = /r\d+[a-z]?/gi;
+        const matchedVars = conditionToEval.match(varRegex) || [];
+        
+        let jsCode = conditionToEval;
+        
+        matchedVars.forEach(v => {
+          const upperV = v.toUpperCase();
+          jsCode = jsCode.replace(new RegExp(v, 'gi'), `(parseFloat(valueMap['${upperV}']) || valueMap['${upperV}'])`); 
+        });
+        
+        // Single '=' to '==' safely (if not already '==', '!=', '>=', '<=')
+        jsCode = jsCode.replace(/(?<![=!<>])=(?![=])/g, '==');
+        jsCode = jsCode.replace(/\bAND\b/gi, '&&').replace(/\bOR\b/gi, '||');
+
+        try {
+          const evaluator = new Function('valueMap', `return !!(${jsCode});`);
+          const isAnomaly = evaluator(valueMap);
+          if (isAnomaly) {
+            anomaliesFound.push({
+              kode: rule.key_name,
+              pesan: payload.errorMessage || "Terjadi anomali pada dokumen ini"
+            });
+          }
+        } catch (err) {
+          console.warn("Gagal evaluasi logika anomali:", rule.key_name, jsCode, err);
+        }
+      });
+
+      setDetectedAnomalies(anomaliesFound);
+      setIsCheckingAnomalies(false);
+    }, 500); // add slight delay for better UX
+  };
 
   const activeProjectPetugas = useMemo(() => {
     return (petugas || []).filter(p => p.projects && p.projects.includes(selectedProject));
@@ -2018,12 +2114,49 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
           {/* Right Area: Anomaly Space */}
           <div className="w-full xl:w-80 shrink-0 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col xl:h-[620px] xl:sticky xl:top-6">
-            <div className="p-5 border-b border-slate-50 bg-slate-50/50">
+            <div className="p-5 border-b border-slate-50 bg-slate-50/50 flex items-center justify-between">
               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Anomali & Validasi</p>
+              {anomalyRules.length > 0 && (
+                <button 
+                  onClick={handleCheckAnomalies}
+                  disabled={isCheckingAnomalies}
+                  className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-bold rounded cursor-pointer disabled:opacity-50 transition-colors"
+                >
+                  {isCheckingAnomalies ? 'Mengecek...' : 'Cek Anomali'}
+                </button>
+              )}
             </div>
-            <div className="p-5 flex-1 flex flex-col items-center justify-center text-center">
-               <AlertTriangle size={32} className="text-slate-200 mb-3" />
-               <p className="text-xs text-slate-400 font-medium">Fitur anomali sedang dalam pengembangan.</p>
+            <div className="p-5 flex-1 flex flex-col overflow-y-auto">
+               {anomalyRules.length === 0 ? (
+                 <div className="flex-1 flex flex-col items-center justify-center text-center">
+                   <AlertTriangle size={32} className="text-slate-200 mb-3" />
+                   <p className="text-xs text-slate-400 font-medium">Belum ada anomali yang diterapkan.</p>
+                 </div>
+               ) : detectedAnomalies === null ? (
+                 <div className="flex-1 flex flex-col items-center justify-center text-center">
+                   <p className="text-xs text-slate-500 font-medium">Klik tombol "Cek Anomali" untuk memeriksa dokumen ini.</p>
+                 </div>
+               ) : detectedAnomalies.length === 0 ? (
+                 <div className="flex-1 flex flex-col items-center justify-center text-center">
+                   <div className="w-12 h-12 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-3">
+                     <Check size={24} />
+                   </div>
+                   <p className="text-sm text-slate-700 font-bold mb-1">Tidak ada anomali</p>
+                   <p className="text-xs text-slate-400 font-medium">Dokumen ini telah lolos pengecekan anomali.</p>
+                 </div>
+               ) : (
+                 <div className="space-y-3">
+                   {detectedAnomalies.map((anom, idx) => (
+                     <div key={idx} className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-3 items-start">
+                       <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                       <div>
+                         <p className="text-[10px] font-bold text-red-600 uppercase mb-0.5">{anom.kode}</p>
+                         <p className="text-xs text-red-700 font-medium">{anom.pesan}</p>
+                       </div>
+                     </div>
+                   ))}
+                 </div>
+               )}
             </div>
           </div>
 
