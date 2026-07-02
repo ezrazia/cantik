@@ -1625,12 +1625,41 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       try {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          return parsed[idx] || "";
+          return parsed[idx] !== undefined && parsed[idx] !== null ? String(parsed[idx]) : "";
         } else if (typeof parsed === 'object' && parsed !== null) {
-          return parsed[idx] || "";
+          // Handle {"value":"..."} wrapper objects — treat as single non-loop value
+          if ('value' in parsed) {
+            return idx === 0 ? raw : "";
+          }
+          return parsed[idx] !== undefined && parsed[idx] !== null ? String(parsed[idx]) : "";
         }
       } catch (e) {}
       return idx === 0 ? raw : "";
+    };
+
+    // Helper: extract the actual primitive value from a potentially wrapped value
+    // e.g. '{"value":"3"}' → '3', '["a","b"]' with idx→specific element, plain '5' → '5'
+    const extractActualValue = (rawVal, isLoop, loopCount, idx) => {
+      if (rawVal === undefined || rawVal === null) return rawVal;
+      if (typeof rawVal !== 'string') return rawVal;
+      
+      // Loop array extraction
+      if (isLoop || loopCount > 1 || rawVal.startsWith('[')) {
+        return getLoopValue(rawVal === values[0] ? null : null, idx); // will be called via qId above
+      }
+      
+      // Object wrapper extraction for non-loop values: {"value":"3"}
+      const trimmed = rawVal.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+            return parsed.value !== undefined && parsed.value !== null ? String(parsed.value) : "";
+          }
+        } catch (e) {}
+      }
+      
+      return rawVal;
     };
 
     const getResolvedValuesForIndex = (values, idx) => {
@@ -1657,6 +1686,34 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       }
       return resolved;
     };
+
+    // Pre-build allOrdered question list ONCE (cached for all visibility checks)
+    const cachedAllOrdered = [];
+    blocks.forEach(b => {
+      const blockQs = questions.filter(x => x.blok_id === b.id || x.blok_id === b.kode);
+      const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId);
+      const addChildrenRecursive = (parentId) => {
+        const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+        children.forEach(child => {
+          cachedAllOrdered.push(child);
+          addChildrenRecursive(child.id);
+        });
+      };
+      mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      mainQs.forEach(parent => {
+        cachedAllOrdered.push(parent);
+        addChildrenRecursive(parent.id);
+      });
+    });
+
+    // Pre-build question index map for fast lookups
+    const cachedQuestionIndexMap = new Map();
+    cachedAllOrdered.forEach((q, idx) => {
+      cachedQuestionIndexMap.set(String(q.id), idx);
+    });
+
+    // Pre-build skippers list ONCE
+    const cachedSkippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
 
     const isQuestionVisibleIgnoreBlock = (q, activeInstanceIdx = null) => {
       const parentId = q.parent_id || q.parentId;
@@ -1696,30 +1753,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         }
       }
 
-      // Parent value check is bypassed because parents with sub-questions do not render inputs of their own.
-      // Conditional visibility is handled properly by show_if rules.
-      
-      // Build ordered question index map once (cached outside skipper loop)
-      const allOrdered = [];
-      blocks.forEach(b => {
-        const blockQs = questions.filter(x => x.blok_id === b.id);
-        const mainQs = blockQs.filter(x => !x.parent_id);
-        const addChildrenRecursive = (parentId) => {
-          const children = blockQs.filter(x => x.parent_id === parentId).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-          children.forEach(child => {
-            allOrdered.push(child);
-            addChildrenRecursive(child.id);
-          });
-        };
-        mainQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-        mainQs.forEach(parent => {
-          allOrdered.push(parent);
-          addChildrenRecursive(parent.id);
-        });
-      });
+      // Use pre-built cachedAllOrdered and cachedSkippers instead of rebuilding each call
+      const currentIdx = cachedQuestionIndexMap.get(String(q.id));
 
-      const skippers = questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
-      for (const skipper of skippers) {
+      for (const skipper of cachedSkippers) {
         let matchesTrigger = false;
 
         try {
@@ -1736,15 +1773,14 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         }
         
         if (matchesTrigger) {
-          const skipperIdx = allOrdered.findIndex(x => String(x.id) === String(skipper.id));
+          const skipperIdx = cachedQuestionIndexMap.get(String(skipper.id));
           let targetQ = questions.find(x => String(x.id) === String(skipper.skip_target));
           if (!targetQ) {
             targetQ = findQuestionByCode(String(skipper.skip_target));
           }
-          const targetIdx = targetQ ? allOrdered.findIndex(x => String(x.id) === String(targetQ.id)) : -1;
-          const currentIdx = allOrdered.findIndex(x => String(x.id) === String(q.id));
+          const targetIdx = targetQ ? cachedQuestionIndexMap.get(String(targetQ.id)) : -1;
 
-          if (skipperIdx !== -1 && targetIdx !== -1 && currentIdx !== -1) {
+          if (skipperIdx !== undefined && targetIdx !== undefined && targetIdx !== -1 && currentIdx !== undefined) {
             if (currentIdx > skipperIdx && currentIdx < targetIdx) {
               return false;
             }
@@ -1843,10 +1879,12 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       return blocksToHide;
     };
 
+    // Pre-compute blocksToHide ONCE instead of per-call
+    const cachedBlocksToHide = getBlocksToHideBySkip();
+
     const isBlockVisible = (block) => {
       if (!block) return false;
-      const blocksToHide = getBlocksToHideBySkip();
-      if (blocksToHide.has(block.id) || blocksToHide.has(block.kode)) {
+      if (cachedBlocksToHide.has(block.id) || cachedBlocksToHide.has(block.kode)) {
         return false;
       }
       if (block.hide_logic) {
@@ -1878,6 +1916,10 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       if (block && !isBlockVisible(block)) {
         return false;
       }
+      // Also check if the question's block is being skipped
+      if (block && (cachedBlocksToHide.has(block.id) || cachedBlocksToHide.has(block.kode))) {
+        return false;
+      }
       return isQuestionVisibleIgnoreBlock(q, activeInstanceIdx);
     };
     
@@ -1899,15 +1941,33 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       
       const loopCount = getQuestionLoopCount(q);
       const manualCount = getManualLoopCount(q);
+      const qParsedVal = parseValidation(q.validation);
+      const qIsLoop = qParsedVal.isLoop || !!q.parent_id || !!q.parentId || (q.validation && (q.validation.includes('loop_group') || q.validation.includes('is_loop')));
 
       for (let idx = 0; idx < loopCount; idx++) {
         // Evaluate visibility relative to the loop index/instance!
         if (!isQuestionVisible(q, (loopCount > 1 || manualCount !== null) ? idx : null)) continue;
         const rawVal = values[q.id];
-        const val = (loopCount > 1 || (typeof rawVal === 'string' && rawVal.startsWith('['))) 
-          ? getLoopValue(q.id, idx) 
-          : rawVal;
-        const block = blocks.find(b => b.id === q.blok_id);
+        let val;
+        if (qIsLoop || loopCount > 1 || (typeof rawVal === 'string' && rawVal.startsWith('['))) {
+          // Loop value: extract from array
+          val = getLoopValue(q.id, idx);
+        } else if (typeof rawVal === 'string' && rawVal.trim().startsWith('{')) {
+          // Non-loop JSON object value: extract actual value from {"value":"..."} wrapper
+          try {
+            const parsed = JSON.parse(rawVal.trim());
+            if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+              val = parsed.value !== undefined && parsed.value !== null ? String(parsed.value) : "";
+            } else {
+              val = rawVal;
+            }
+          } catch (e) {
+            val = rawVal;
+          }
+        } else {
+          val = rawVal;
+        }
+        const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
         const blockName = block ? block.kode : "Form";
         const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
 
@@ -1925,9 +1985,23 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
                 const targetQ = findQuestionByCode(code);
                 if (targetQ) {
                   const targetRawVal = values[targetQ.id];
-                  const targetVal = (loopCount > 1 || (typeof targetRawVal === 'string' && targetRawVal.startsWith('[')))
-                    ? getLoopValue(targetQ.id, idx)
-                    : targetRawVal;
+                  let targetVal;
+                  if (qIsLoop || loopCount > 1 || (typeof targetRawVal === 'string' && targetRawVal.startsWith('['))) {
+                    targetVal = getLoopValue(targetQ.id, idx);
+                  } else if (typeof targetRawVal === 'string' && targetRawVal.trim().startsWith('{')) {
+                    try {
+                      const tParsed = JSON.parse(targetRawVal.trim());
+                      if (tParsed && typeof tParsed === 'object' && 'value' in tParsed) {
+                        targetVal = tParsed.value !== undefined && tParsed.value !== null ? String(tParsed.value) : "";
+                      } else {
+                        targetVal = targetRawVal;
+                      }
+                    } catch (e) {
+                      targetVal = targetRawVal;
+                    }
+                  } else {
+                    targetVal = targetRawVal;
+                  }
                   if (targetVal === undefined || targetVal === null || targetVal === "") {
                     allFilled = false;
                     break;
