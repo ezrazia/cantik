@@ -1673,7 +1673,11 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
             if (Array.isArray(parsed)) {
               resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
             } else if (typeof parsed === 'object' && parsed !== null) {
-              resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+              if ('value' in parsed) {
+                resolved[qId] = parsed.value !== undefined && parsed.value !== null ? parsed.value : "";
+              } else {
+                resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+              }
             } else {
               resolved[qId] = raw;
             }
