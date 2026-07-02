@@ -1960,10 +1960,20 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Q.{qCode}</span>
-                              {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
-                            </div>
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Q.{qCode}</span>
+                                {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+                                {q.show_logic || q.show_if ? (
+                                  <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-bold">
+                                    <Eye size={10} className="text-emerald-500" /> Tampil jika: {formatLogic(q.show_logic || q.show_if)}
+                                  </span>
+                                ) : null}
+                                {q.skip_logic ? (
+                                  <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">
+                                    <FastForward size={10} className="text-amber-500" /> Skip logic: {formatLogic(q.skip_logic)}
+                                  </span>
+                                ) : null}
+                              </div>
                             <h4 className="text-xs font-bold text-slate-700 mt-1">{resolveLabelText(q.label, activeInstanceIdx)}</h4>
                             {subLabel && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
                           </div>

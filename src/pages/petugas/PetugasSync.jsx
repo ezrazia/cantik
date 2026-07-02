@@ -833,9 +833,9 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
 
     const mergedValues = { ...apiVals, ...localVals };
     const hasLocalUnsynced = localDoc.sync === false;
-    const serverHasPriority = apiDoc.status === 'terkirim' || 
+    const serverHasPriority = (apiDoc.status === 'terkirim' && apiDoc.review_status !== 'rejected') || 
                               apiDoc.review_status === 'approved' || 
-                              apiDoc.review_status === 'rejected';
+                              (apiDoc.review_status === 'rejected' && !hasLocalUnsynced);
 
     let mergedDoc = { ...localDoc, ...apiDoc };
 
@@ -870,7 +870,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     }
 
     mergedDoc.values = mergedValues;
-    mergedDoc.sync = (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved') 
+    mergedDoc.sync = ((apiDoc.status === 'terkirim' && apiDoc.review_status !== 'rejected') || apiDoc.review_status === 'approved') 
       ? true 
       : (localDoc.sync === false ? false : apiDoc.sync);
 

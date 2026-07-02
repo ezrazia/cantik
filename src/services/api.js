@@ -106,8 +106,36 @@ export const api = {
 
   // ─── DOKUMEN (HEADER & ANSWERS) ───────────────────────
   dokumen: {
-    getByPetugas: (petugasId) => request(`/dokumen/petugas/${petugasId}`),
-    getForReview: (kegiatanId) => request(`/dokumen/review/${kegiatanId}`),
+    getByPetugas: async (petugasId) => {
+      const res = await request(`/dokumen/petugas/${petugasId}`);
+      if (Array.isArray(res)) {
+        return res.map(doc => {
+          if (doc.review_status === 'approved') {
+            const logsStr = typeof doc.logs === 'string' ? doc.logs : JSON.stringify(doc.logs || []);
+            if (logsStr.toLowerCase().includes('admin') || logsStr.toLowerCase().includes('oleh admin')) {
+              return { ...doc, status: 'selesai' };
+            }
+          }
+          return doc;
+        });
+      }
+      return res;
+    },
+    getForReview: async (kegiatanId) => {
+      const res = await request(`/dokumen/review/${kegiatanId}`);
+      if (Array.isArray(res)) {
+        return res.map(doc => {
+          if (doc.review_status === 'approved') {
+            const logsStr = typeof doc.logs === 'string' ? doc.logs : JSON.stringify(doc.logs || []);
+            if (logsStr.toLowerCase().includes('admin') || logsStr.toLowerCase().includes('oleh admin')) {
+              return { ...doc, status: 'selesai' };
+            }
+          }
+          return doc;
+        });
+      }
+      return res;
+    },
     getDetail: (id) => request(`/dokumen/${id}`),
     save: (data) => request('/dokumen', { method: 'POST', body: data }),
     sync: (petugasId, documents) => request('/dokumen/sync', { method: 'POST', body: { petugas_id: petugasId, documents } }),

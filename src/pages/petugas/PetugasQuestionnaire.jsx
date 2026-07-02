@@ -1114,9 +1114,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     const mergedValues = { ...apiVals, ...localVals };
     const hasLocalUnsynced = localDoc.sync === false;
-    const serverHasPriority = apiDoc.status === 'terkirim' ||
+    const serverHasPriority = (apiDoc.status === 'terkirim' && apiDoc.review_status !== 'rejected') ||
       apiDoc.review_status === 'approved' ||
-      apiDoc.review_status === 'rejected';
+      (apiDoc.review_status === 'rejected' && !hasLocalUnsynced);
 
     let mergedDoc = { ...localDoc, ...apiDoc };
 
@@ -1151,7 +1151,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }
 
     mergedDoc.values = mergedValues;
-    mergedDoc.sync = (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved')
+    mergedDoc.sync = ((apiDoc.status === 'terkirim' && apiDoc.review_status !== 'rejected') || apiDoc.review_status === 'approved')
       ? true
       : (localDoc.sync === false ? false : apiDoc.sync);
 
@@ -3816,7 +3816,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     const localDoc = {
       ...payload,
       id: selectedRtItem?.id || null,
-      review_status: selectedRtItem?.review_status || "draft",
+      review_status: "draft",
       sync: false,
       logs: newLogs,
       created_at: selectedRtItem?.created_at || new Date().toISOString(),
@@ -4073,7 +4073,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     const localDoc = {
       ...payload,
       id: selectedRtItem?.id || null,
-      review_status: selectedRtItem?.review_status || "draft",
+      review_status: "draft",
       sync: false,
       logs: newLogs,
       created_at: selectedRtItem?.created_at || new Date().toISOString(),
@@ -4565,7 +4565,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 item.review_status === "approved" ? (
                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-teal-50 text-teal-700 border border-solid border-teal-100/50 flex items-center gap-1">
                                     <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-                                    Approved
+                                    {item.status === "selesai" ? "Selesai" : "Approved"}
                                   </span>
                                 ) : item.review_status === "rejected" ? (
                                   <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-50 text-rose-700 border border-solid border-rose-100/50 flex items-center gap-1">
@@ -4641,7 +4641,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     <div className="bg-emerald-50 border-b border-solid border-emerald-100 px-6 py-3 flex items-center gap-2.5 text-emerald-800"
                       style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 0.75rem)" }}>
                       <ShieldCheck size={16} className="text-emerald-600" />
-                      <p className="text-xs font-semibold">Dokumen telah disetujui (Approved) dan tidak dapat diubah kembali.</p>
+                      <p className="text-xs font-semibold">Dokumen telah disetujui ({selectedRtItem.status === 'selesai' ? 'Selesai' : 'Approved'}) dan tidak dapat diubah kembali.</p>
                     </div>
                   );
                 }
@@ -5460,7 +5460,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
                             required={!!q.required}
                             readOnly={isReadOnly || !!qVal.readOnly}
-                            description={description}
+                            showIfInfo={formatLogic(q.show_logic || q.show_if)}
+                            skipInfo={formatLogic(q.skip_logic)}
                             className={getQuestionCardBgClass(q)}
                           >
                             {parentMode === "original" ? (
@@ -5516,6 +5517,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
                                 {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+                                {isReadOnly && <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase border border-slate-200">Read Only</span>}
+                                {q.show_logic || q.show_if ? (
+                                  <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-bold">
+                                    <Eye size={10} className="text-emerald-500" /> Tampil jika: {formatLogic(q.show_logic || q.show_if)}
+                                  </span>
+                                ) : null}
+                                {q.skip_logic ? (
+                                  <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">
+                                    <FastForward size={10} className="text-amber-500" /> Skip logic: {formatLogic(q.skip_logic)}
+                                  </span>
+                                ) : null}
                               </div>
                               <p className="text-xs font-bold text-slate-700 mt-1">{resolveLabelText(q.label, activeInstanceIdx)}</p>
                               {subLabel && !(q.type === 'number' && subLabel === 'Satuan Angka') && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
