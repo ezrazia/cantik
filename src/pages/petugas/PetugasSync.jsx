@@ -1694,7 +1694,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     // Pre-build allOrdered question list ONCE (cached for all visibility checks)
     const cachedAllOrdered = [];
     blocks.forEach(b => {
-      const blockQs = questions.filter(x => x.blok_id === b.id || x.blok_id === b.kode);
+      const blockQs = questions.filter(x => String(x.blok_id) === String(b.id) || String(x.blok_id) === String(b.kode));
       const mainQs = blockQs.filter(x => !x.parent_id && !x.parentId);
       const addChildrenRecursive = (parentId) => {
         const children = blockQs.filter(x => (x.parent_id === parentId || x.parentId === parentId)).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
@@ -1800,7 +1800,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         targetQ = findQuestionByCode(String(skipTargetId));
       }
       if (!targetQ) return null;
-      const targetBlock = blocks.find(b => b.id === targetQ.blok_id || b.kode === targetQ.blok_id);
+      const targetBlock = blocks.find(b => String(b.id) === String(targetQ.blok_id) || String(b.kode) === String(targetQ.blok_id));
       return targetBlock;
     };
 
@@ -1866,7 +1866,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       activeSkips.forEach(skip => {
         const skipperQ = questions.find(q => String(q.id) === String(skip.questionId));
         if (!skipperQ) return;
-        const skipperBlock = blocks.find(b => b.id === skipperQ.blok_id || b.kode === skipperQ.blok_id);
+        const skipperBlock = blocks.find(b => String(b.id) === String(skipperQ.blok_id) || String(b.kode) === String(skipperQ.blok_id));
         const targetBlock = getSkipTargetBlock(skip.skipTargetId);
         if (!skipperBlock || !targetBlock) return;
 
@@ -1904,7 +1904,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       }
 
       // Check if all questions in this block are hidden by logic.
-      const blockQuestions = questions.filter(q => q.blok_id === block.id || q.blok_id === block.kode);
+      const blockQuestions = questions.filter(q => String(q.blok_id) === String(block.id) || String(q.blok_id) === String(block.kode));
       if (blockQuestions.length > 0) {
         const hasAnyVisibleQuestion = blockQuestions.some(q => isQuestionVisibleIgnoreBlock(q));
         if (!hasAnyVisibleQuestion) {
@@ -1916,7 +1916,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     };
 
     const isQuestionVisible = (q, activeInstanceIdx = null) => {
-      const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+      const block = blocks.find(b => String(b.id) === String(q.blok_id) || String(b.kode) === String(q.blok_id));
       if (block && !isBlockVisible(block)) {
         return false;
       }
@@ -1971,7 +1971,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         } else {
           val = rawVal;
         }
-        const block = blocks.find(b => b.id === q.blok_id || b.kode === q.blok_id);
+        const block = blocks.find(b => String(b.id) === String(q.blok_id) || String(b.kode) === String(q.blok_id));
         const blockName = block ? block.kode : "Form";
         const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
 
