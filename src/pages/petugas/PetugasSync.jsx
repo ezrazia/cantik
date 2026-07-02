@@ -821,7 +821,17 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     if (!localDoc) return apiDoc;
     if (!apiDoc) return localDoc;
 
-    const mergedValues = { ...(apiDoc.values || {}), ...(localDoc.values || {}) };
+    let apiVals = apiDoc.values || {};
+    let localVals = localDoc.values || {};
+    
+    if (typeof apiVals === 'string') {
+      try { apiVals = JSON.parse(apiVals); } catch(e) { apiVals = {}; }
+    }
+    if (typeof localVals === 'string') {
+      try { localVals = JSON.parse(localVals); } catch(e) { localVals = {}; }
+    }
+
+    const mergedValues = { ...apiVals, ...localVals };
     const hasLocalUnsynced = localDoc.sync === false;
     const serverHasPriority = apiDoc.status === 'terkirim' || 
                               apiDoc.review_status === 'approved' || 
@@ -1082,7 +1092,14 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
     }
 
     const errors = [];
-    const values = item.values || {};
+    let values = item.values || {};
+    if (typeof values === 'string') {
+      try {
+        values = JSON.parse(values);
+      } catch (e) {
+        values = {};
+      }
+    }
 
 
 
@@ -2062,8 +2079,16 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
   };
 
   const filterTemporaryValues = (kegiatanId, valuesObj) => {
-    if (!valuesObj) return {};
-    const filtered = { ...valuesObj };
+    let parsedValues = valuesObj;
+    if (typeof parsedValues === 'string') {
+      try {
+        parsedValues = JSON.parse(parsedValues);
+      } catch (e) {
+        parsedValues = {};
+      }
+    }
+    if (!parsedValues) return {};
+    const filtered = { ...parsedValues };
     const cached = localStorage.getItem(`form_structure_${kegiatanId}`);
     if (cached) {
       try {
