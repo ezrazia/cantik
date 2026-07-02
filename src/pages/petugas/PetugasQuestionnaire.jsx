@@ -1102,7 +1102,17 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     if (!localDoc) return apiDoc;
     if (!apiDoc) return localDoc;
 
-    const mergedValues = { ...(apiDoc.values || {}), ...(localDoc.values || {}) };
+    let apiVals = apiDoc.values || {};
+    let localVals = localDoc.values || {};
+    
+    if (typeof apiVals === 'string') {
+      try { apiVals = JSON.parse(apiVals); } catch(e) { apiVals = {}; }
+    }
+    if (typeof localVals === 'string') {
+      try { localVals = JSON.parse(localVals); } catch(e) { localVals = {}; }
+    }
+
+    const mergedValues = { ...apiVals, ...localVals };
     const hasLocalUnsynced = localDoc.sync === false;
     const serverHasPriority = apiDoc.status === 'terkirim' ||
       apiDoc.review_status === 'approved' ||
@@ -3465,7 +3475,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     // Jika ada draft lokal yang belum sinkron, prioritaskan itu. Jika tidak, pakai docDetail dari server/offline, terakhir item
     const finalDoc = localDraft || docDetail || item;
 
-    const updatedValues = { ...(finalDoc.values || {}) };
+    let fVals = finalDoc.values || {};
+    if (typeof fVals === 'string') {
+      try { fVals = JSON.parse(fVals); } catch(e) { fVals = {}; }
+    }
+    const updatedValues = { ...fVals };
     questions.forEach(q => {
       if (q.type === 'pcl' && !updatedValues[q.id]) {
         updatedValues[q.id] = currentUser.name;
