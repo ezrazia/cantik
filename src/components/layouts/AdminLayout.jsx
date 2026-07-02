@@ -66,7 +66,7 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         onNavigate("admin-dash");
       }
     } else {
-      if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas" && tab !== "admin-freeform") {
+      if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas" && tab !== "admin-freeform" && tab !== "admin-backup") {
         onNavigate("admin-beranda");
       }
     }
@@ -158,7 +158,7 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
 
       {/* Freeform (Dynamic Options & Anomalies) */}
       {!isKegiatanAdmin && (
-        <div className="px-3 mb-4">
+        <div className="px-3 mb-2">
           <button key="admin-freeform"
             onClick={() => { onNavigate("admin-freeform"); if (isMobile) setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
@@ -169,6 +169,23 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
             title="Freeform">
             <Sliders size={18} strokeWidth={tab === "admin-freeform" ? 2 : 1.5}/>
             {(isSidebarOpen || isMobile) && <span>Freeform</span>}
+          </button>
+        </div>
+      )}
+
+      {/* Backup & Restore */}
+      {!isKegiatanAdmin && (
+        <div className="px-3 mb-4">
+          <button key="admin-backup"
+            onClick={() => { onNavigate("admin-backup"); if (isMobile) setIsMobileMenuOpen(false); }}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+              tab === "admin-backup"
+                ? "bg-blue-600 text-white font-semibold shadow-sm"
+                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+            title="Backup & Restore">
+            <Database size={18} strokeWidth={tab === "admin-backup" ? 2 : 1.5}/>
+            {(isSidebarOpen || isMobile) && <span>Backup & Restore</span>}
           </button>
         </div>
       )}

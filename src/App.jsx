@@ -14,6 +14,7 @@ import AdminBeranda from "./pages/admin/AdminBeranda";
 import AdminKegiatan from "./pages/admin/AdminKegiatan";
 import AdminTabulasi from "./pages/admin/AdminTabulasi";
 import AdminFreeform from "./pages/admin/AdminFreeform";
+import AdminBackup from "./pages/admin/AdminBackup";
 import { api, API_BASE } from "./services/api";
 import PWAPrompt from "./components/ui/PWAPrompt";
 import { NotificationProvider } from "./components/ui/NotificationContext";
@@ -255,6 +256,7 @@ export default function App() {
     "admin-freeform": <ErrorBoundary><AdminFreeform onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} currentUser={currentUser} /></ErrorBoundary>,
     "admin-kegiatan": <ErrorBoundary><AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} loading={globalLoading} /></ErrorBoundary>,
     "admin-tabulasi": <ErrorBoundary><AdminTabulasi onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} newDataTrigger={newDataTrigger} loading={globalLoading} /></ErrorBoundary>,
+    "admin-backup": <ErrorBoundary><AdminBackup onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} loading={globalLoading} /></ErrorBoundary>,
   };
 
   return (

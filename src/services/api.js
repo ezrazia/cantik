@@ -155,5 +155,14 @@ export const api = {
     create: (data) => request('/freeform', { method: 'POST', body: data }),
     update: (id, data) => request(`/freeform/${id}`, { method: 'PUT', body: data }),
     delete: (id) => request(`/freeform/${id}`, { method: 'DELETE' }),
+  },
+
+  // ─── DATABASE BACKUP & RESTORE ───────────────────────
+  backupDb: {
+    getHistory: () => request('/backup/history'),
+    create: () => request('/backup/create', { method: 'POST' }),
+    restoreFile: (filename) => request('/backup/restore-file', { method: 'POST', body: { filename } }),
+    restoreUpload: (sqlContent) => request('/backup/restore-upload', { method: 'POST', body: { sqlContent } }),
+    delete: (filename) => request(`/backup/delete/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
   }
 };
