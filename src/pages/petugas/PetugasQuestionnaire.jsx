@@ -4802,7 +4802,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 {/* Prepend code input at the top of Block I */}
                 {isFirstBlock && (
                   <div id="q-card-kode" className="scroll-mt-24">
-                    <QCard r="kode" label={`Kode Dokumen / Nomor Urut ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}`} required hint={`Kode unik identifikasi ${selectedActivity.fokus?.toLowerCase() || 'rumah tangga'}`}>
+                    <QCard r="kode" label={`Kode Dokumen / Nomor Urut ${selectedActivity.fokus === 'Rumah Tangga' ? 'RT' : (selectedActivity.fokus || 'RT')}`} required readOnly={isReadOnly} hint={`Kode unik identifikasi ${selectedActivity.fokus?.toLowerCase() || 'rumah tangga'}`}>
                       <input
                         type="text"
                         value={ans.kode}
@@ -5459,6 +5459,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             label={resolveLabelText(q.label, activeInstanceIdx)}
                             subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
                             required={!!q.required}
+                            readOnly={isReadOnly || !!qVal.readOnly}
                             description={description}
                             className={getQuestionCardBgClass(q)}
                           >

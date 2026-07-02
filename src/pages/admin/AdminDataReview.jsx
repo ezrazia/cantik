@@ -1478,6 +1478,35 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
       p.projectRoles?.[selectedProject] === "PML"
     );
 
+    const formatLogic = (logicStr) => {
+      if (!logicStr) return null;
+      if (typeof logicStr !== 'string') {
+        logicStr = JSON.stringify(logicStr);
+      }
+      if (logicStr.trim().startsWith('{') || logicStr.trim().startsWith('[')) {
+        try {
+          const parsed = JSON.parse(logicStr);
+          if (parsed.conditions && Array.isArray(parsed.conditions)) {
+            return parsed.conditions.map(c => {
+              const targetQ = questions.find(x => String(x.id) === String(c.question_id));
+              const qCode = targetQ ? `R.${getQuestionCode(targetQ, questions, blocks)}` : `Q.${c.question_id}`;
+              let op = c.operator || '==';
+              if (op === 'contains') op = 'mengandung';
+              if (op === 'not_contains') op = 'tidak mengandung';
+              if (op === '!=') op = '≠';
+              if (op === '==') op = '=';
+              let val = c.value;
+              if (Array.isArray(val)) val = `[${val.join(', ')}]`;
+              return `${qCode} ${op} ${val}`;
+            }).join(` ${parsed.operator === 'OR' ? 'ATAU' : 'DAN'} `);
+          }
+        } catch (e) {
+          return logicStr;
+        }
+      }
+      return logicStr;
+    };
+
     return (
       <div className="p-6 lg:p-8 w-full slide-up">
         {/* Top Control Bar */}
@@ -1883,7 +1912,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         label={resolveLabelText(q.label, activeInstanceIdx)}
                         subLabel={subLabel}
                         required={!!q.required}
-                        skipInfo={q.skip_logic}
+                        skipInfo={formatLogic(q.skip_logic)}
+                        showIfInfo={formatLogic(q.show_logic || q.show_if)}
                         className="bg-white border-slate-100 shadow-sm"
                       >
                         {hasChildren ? (
