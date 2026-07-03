@@ -7,6 +7,21 @@ import { useNotification } from "../../components/ui/NotificationContext";
 
 const checkOptionTrigger = (val, triggerOptions) => {
   if (val === undefined || val === null || val === '') return false;
+  
+  if (Array.isArray(val)) {
+    return val.some(item => triggerOptions.includes(String(item)));
+  }
+  
+  if (val && typeof val === 'object') {
+    if ('value' in val) {
+      return triggerOptions.includes(String(val.value));
+    }
+    return triggerOptions.some(opt => {
+      const optVal = val[opt];
+      return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
+    });
+  }
+
   const trimmed = typeof val === 'string' ? val.trim() : '';
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
@@ -33,7 +48,13 @@ const evaluateCondition = (c, values) => {
   if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
     if (val === undefined || val === null || val === '') return false;
     let actualVal = val;
-    if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
+    if (val && typeof val === 'object') {
+      if (Array.isArray(val)) {
+        actualVal = val[0];
+      } else if ('value' in val) {
+        actualVal = val.value;
+      }
+    } else if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
       try {
         const parsed = JSON.parse(val);
         if (Array.isArray(parsed)) {
@@ -43,9 +64,16 @@ const evaluateCondition = (c, values) => {
         }
       } catch (e) { }
     }
+    
+    // Support comparing string value directly (like code matching) if not numeric
     const numericVal = parseFloat(actualVal);
     const targetVal = parseFloat(c.value);
-    if (isNaN(numericVal) || isNaN(targetVal)) return false;
+    if (isNaN(numericVal) || isNaN(targetVal)) {
+      if (c.operator === '=') {
+        return String(actualVal) === String(c.value);
+      }
+      return false;
+    }
     switch (c.operator) {
       case '=': return numericVal === targetVal;
       case '>': return numericVal > targetVal;
@@ -1137,7 +1165,31 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
       }
     }
 
-
+    const resolveDynamicOptions = (q) => {
+      let qVal = null;
+      try { qVal = JSON.parse(q.validation || "{}"); } catch(e) {}
+      
+      if (qVal && qVal.options_source_question_id) {
+        const sourceVal = values[qVal.options_source_question_id];
+        if (sourceVal && typeof sourceVal === 'string' && sourceVal.startsWith('[')) {
+          try {
+            const arr = JSON.parse(sourceVal);
+            if (Array.isArray(arr)) {
+              return arr.map((item, idx) => ({
+                value: String(idx + 1).padStart(3, '0'),
+                label: String(item)
+              }));
+            }
+          } catch(e) {}
+        }
+      }
+      
+      let opts = q.options;
+      if (typeof opts === 'string') {
+        try { opts = JSON.parse(opts); } catch(e) { opts = []; }
+      }
+      return Array.isArray(opts) ? opts : [];
+    };
 
     const evaluateFormulaLocal = (formulaStr, currentValues, idx = null) => {
       if (!formulaStr) return "0";
@@ -1986,7 +2038,7 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
 
       for (let idx = 0; idx < loopCount; idx++) {
         // Evaluate visibility relative to the loop index/instance!
-        if (!isQuestionVisible(q, (loopCount > 1 || manualCount !== null) ? idx : null)) continue;
+        if (!isQuestionVisible(q, idx)) continue;
         const rawVal = values[q.id];
         let val;
         if (qIsLoop || loopCount > 1 || (typeof rawVal === 'string' && rawVal.startsWith('['))) {
@@ -2007,9 +2059,54 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
         } else {
           val = rawVal;
         }
+
         const block = blocks.find(b => String(b.id) === String(q.blok_id) || String(b.kode) === String(q.blok_id));
         const blockName = block ? block.kode : "Form";
         const suffix = loopCount > 1 ? ` ke-${idx + 1}` : "";
+
+        let isOtherTextEmpty = false;
+        if (val !== undefined && val !== null && val !== '') {
+          if (typeof val === 'string' && val.trim().startsWith('{')) {
+            try {
+              const parsedVal = JSON.parse(val);
+              if (parsedVal && typeof parsedVal === 'object') {
+                if ('value' in parsedVal) {
+                  const selectedOpt = resolveDynamicOptions(q).find(o => String(o.value) === String(parsedVal.value));
+                  if (selectedOpt && selectedOpt.is_other && (!parsedVal.text || !parsedVal.text.trim())) {
+                    isOtherTextEmpty = true;
+                  }
+                } else {
+                  resolveDynamicOptions(q).forEach(opt => {
+                    if (opt.is_other && parsedVal[opt.value] !== undefined && parsedVal[opt.value] !== 0 && parsedVal[opt.value] !== '0') {
+                      const txt = parsedVal[opt.value];
+                      if (txt === 1 || txt === '1' || (typeof txt === 'string' && !txt.trim())) {
+                        isOtherTextEmpty = true;
+                      }
+                    }
+                  });
+                }
+              }
+            } catch (e) { }
+          }
+        }
+
+        // Post-extraction: unpack wrapped JSON values if present (both loop and non-loop)
+        if (val !== undefined && val !== null) {
+          if (typeof val === 'string' && val.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(val.trim());
+              if (parsed && typeof parsed === 'object' && 'value' in parsed) {
+                val = parsed.value !== undefined && parsed.value !== null ? String(parsed.value) : "";
+              }
+            } catch (e) {}
+          } else if (typeof val === 'object' && 'value' in val) {
+            val = val.value !== undefined && val.value !== null ? String(val.value) : "";
+          }
+        }
+
+        if (isOtherTextEmpty) {
+          errors.push(`[${blockName}] Keterangan opsi Lainnya untuk ${q.label}${suffix} belum diisi.`);
+        }
 
         // Check custom validation formulas
         if (q.validation && q.validation.trim().startsWith('{')) {

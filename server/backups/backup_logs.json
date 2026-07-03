@@ -1,0 +1,10 @@
+[
+  {
+    "id": "1783038198139_60c79ojwl",
+    "timestamp": "2026-07-03T00:23:18.139Z",
+    "action": "backup",
+    "status": "failed",
+    "message": "Gagal membuat backup",
+    "details": "\nInvalid `prisma.dokumenJawaban.findMany()` invocation:\n\n\nThis request could not be understood by the server: {\"type\":\"UnknownJsonError\",\"body\":{\"code\":\"P6009\",\"message\":\"The response size of the query exceeded the the maximum of 5MB with 5.95MB. Consider refining the query by narrowing the selection set or applying appropriate filters.  This limit is configurable, see pris.ly/configure-limits for more information.\"}} (The request id was: a151bd9b8f3a4ab5)"
+  }
+]

@@ -160,8 +160,11 @@ export const api = {
 
   // ─── DASHBOARD STATS ──────────────────────────────────
   dashboard: {
-    getStats: (kegiatanId = '') => {
-      const q = kegiatanId ? `?kegiatan_id=${encodeURIComponent(kegiatanId)}` : '';
+    getStats: (kegiatanId = '', desa = '') => {
+      const params = new URLSearchParams();
+      if (kegiatanId) params.append("kegiatan_id", kegiatanId);
+      if (desa) params.append("desa", desa);
+      const q = params.toString() ? `?${params.toString()}` : '';
       return request(`/dashboard/stats${q}`);
     },
   },

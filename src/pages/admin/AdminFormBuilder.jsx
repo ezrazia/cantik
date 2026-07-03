@@ -19,6 +19,87 @@ function getRoman(num) {
   return ROMAN_NUMERALS[num - 1] || num.toString();
 }
 
+const checkOptionTrigger = (val, triggerOptions) => {
+  if (val === undefined || val === null || val === '') return false;
+  
+  if (Array.isArray(val)) {
+    return val.some(item => triggerOptions.includes(String(item)));
+  }
+  
+  if (val && typeof val === 'object') {
+    if ('value' in val) {
+      return triggerOptions.includes(String(val.value));
+    }
+    return triggerOptions.some(opt => {
+      const optVal = val[opt];
+      return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
+    });
+  }
+
+  const trimmed = typeof val === 'string' ? val.trim() : '';
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const parsedVal = JSON.parse(trimmed);
+      if (Array.isArray(parsedVal)) {
+        return parsedVal.some(item => triggerOptions.includes(String(item)));
+      }
+      if (parsedVal && typeof parsedVal === 'object') {
+        if ('value' in parsedVal) {
+          return triggerOptions.includes(String(parsedVal.value));
+        }
+        return triggerOptions.some(opt => {
+          const optVal = parsedVal[opt];
+          return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
+        });
+      }
+    } catch (e) { }
+  }
+  return triggerOptions.includes(String(val));
+};
+
+const evaluateCondition = (c, values) => {
+  const val = values[c.question_id];
+  if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
+    if (val === undefined || val === null || val === '') return false;
+    let actualVal = val;
+    if (val && typeof val === 'object') {
+      if (Array.isArray(val)) {
+        actualVal = val[0];
+      } else if ('value' in val) {
+        actualVal = val.value;
+      }
+    } else if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
+      try {
+        const parsed = JSON.parse(val);
+        if (Array.isArray(parsed)) {
+          actualVal = parsed[0];
+        } else if (parsed && 'value' in parsed) {
+          actualVal = parsed.value;
+        }
+      } catch (e) { }
+    }
+    
+    const numericVal = parseFloat(actualVal);
+    const targetVal = parseFloat(c.value);
+    if (isNaN(numericVal) || isNaN(targetVal)) {
+      if (c.operator === '=') {
+        return String(actualVal) === String(c.value);
+      }
+      return false;
+    }
+    switch (c.operator) {
+      case '=': return numericVal === targetVal;
+      case '>': return numericVal > targetVal;
+      case '>=': return numericVal >= targetVal;
+      case '<': return numericVal < targetVal;
+      case '<=': return numericVal <= targetVal;
+      default: return false;
+    }
+  }
+  const triggerOptions = String(c.value).split(",").map(x => x.trim()).filter(Boolean);
+  return checkOptionTrigger(val, triggerOptions);
+};
+
 function sortBlocksNaturally(blks) {
   const romanToDecimal = (roman) => {
     const map = { i: 1, v: 5, x: 10, l: 50, c: 100, d: 500, m: 1000 };
@@ -1086,7 +1167,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           try {
             const arr = JSON.parse(triggerValue);
             if (Array.isArray(arr)) triggerValue = arr[0];
-          } catch(e) {}
+          } catch (e) { }
         }
         const parsedTrigger = parseInt(triggerValue, 10);
         return isNaN(parsedTrigger) ? 0 : Math.max(0, parsedTrigger);
@@ -1395,7 +1476,11 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
           if (Array.isArray(parsed)) {
             resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
           } else if (typeof parsed === 'object' && parsed !== null) {
-            resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+            if ('value' in parsed) {
+              resolved[qId] = parsed.value !== undefined && parsed.value !== null ? parsed.value : "";
+            } else {
+              resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+            }
           } else {
             resolved[qId] = raw;
           }
@@ -1801,13 +1886,13 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           }
                         }}
                         className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left cursor-pointer ${isSelected
-                            ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
-                            : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
+                          ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
+                          : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
                           }`}
                       >
                         <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${q.type === 'select'
-                            ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
-                            : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
+                          ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
+                          : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
                           }`}>
                           {isSelected && (
                             q.type === 'select'
@@ -3393,8 +3478,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
               onClick={() => alert("Perubahan kuesioner berhasil disinkronkan. Sistem selalu menyimpan perubahan Anda secara otomatis ke database!")}
               disabled={!canEdit}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold rounded-xl border-0 transition-all ${canEdit
-                  ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-[0.98]"
-                  : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                ? "bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-[0.98]"
+                : "bg-slate-100 text-slate-400 cursor-not-allowed"
                 }`}
               title={!canEdit ? "Kuesioner hanya dapat diedit ketika berstatus Draft atau Published" : "Simpan kuesioner"}
             >
@@ -3638,8 +3723,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           disabled={!canEdit}
                           onClick={copiedBlockId === activeBlok ? () => { setCopiedBlockId(null); setShowBlockMenu(false); } : handleCopyBlock}
                           className={`w-full flex items-center gap-2 px-3.5 py-2 text-left text-xs font-medium border-0 bg-transparent cursor-pointer ${copiedBlockId === activeBlok
-                              ? 'hover:bg-red-50 text-red-600 disabled:opacity-40'
-                              : 'hover:bg-violet-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent'
+                            ? 'hover:bg-red-50 text-red-600 disabled:opacity-40'
+                            : 'hover:bg-violet-50 text-slate-700 disabled:opacity-40 disabled:hover:bg-transparent'
                             }`}
                         >
                           {copiedBlockId === activeBlok ? (
@@ -3682,8 +3767,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   disabled={!canEdit}
                   onClick={handleAddNote}
                   className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${canEdit
-                      ? "text-amber-700 bg-amber-50 hover:bg-amber-100 cursor-pointer"
-                      : "bg-slate-50 text-slate-300 cursor-not-allowed"
+                    ? "text-amber-700 bg-amber-50 hover:bg-amber-100 cursor-pointer"
+                    : "bg-slate-50 text-slate-300 cursor-not-allowed"
                     }`}
                   title={!canEdit ? "Catatan dinonaktifkan untuk kegiatan published" : "Tambah catatan/instruksi di antara pertanyaan"}
                 >
@@ -3694,8 +3779,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   disabled={!canEdit}
                   onClick={() => { setInsertMode('after_selected'); setShowAdd(!showAdd); }}
                   className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg border-0 transition-all ${canEdit
-                      ? "text-blue-600 bg-blue-50 hover:bg-blue-100 cursor-pointer"
-                      : "bg-slate-50 text-slate-300 cursor-not-allowed"
+                    ? "text-blue-600 bg-blue-50 hover:bg-blue-100 cursor-pointer"
+                    : "bg-slate-50 text-slate-300 cursor-not-allowed"
                     }`}
                   title={!canEdit ? "Tambah dinonaktifkan untuk kegiatan published" : "Tambah rincian secara manual"}
                 >
@@ -3817,14 +3902,14 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             onClick={() => setSelectedId(isSelected ? null : q.id)}
                             {...dragProps}
                             className={`group/card flex-1 min-w-0 flex items-start gap-3 px-4 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${isSelected
-                                ? 'border-amber-300 bg-amber-50/80'
-                                : 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:bg-amber-50/70'
+                              ? 'border-amber-300 bg-amber-50/80'
+                              : 'border-amber-200 bg-amber-50/40 hover:border-amber-300 hover:bg-amber-50/70'
                               }`}
                           >
                             {canDrag && (
                               <div className={`cursor-grab flex-shrink-0 p-0.5 mt-0.5 ${depth === 0
-                                  ? 'text-amber-300 group-hover/card:text-amber-400'
-                                  : 'text-amber-200 group-hover/card:text-amber-300'
+                                ? 'text-amber-300 group-hover/card:text-amber-400'
+                                : 'text-amber-200 group-hover/card:text-amber-300'
                                 }`}>
                                 <GripVertical size={depth === 0 ? 13 : 11} />
                               </div>
@@ -3857,16 +3942,16 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             onClick={() => setSelectedId(isSelected ? null : q.id)}
                             {...dragProps}
                             className={`group/card flex-1 min-w-0 flex items-center gap-3 p-4 rounded-xl text-left border cursor-pointer transition-all ${isSelected
-                                ? "border-blue-200 bg-blue-50/50 shadow-sm"
-                                : isAddingSubHere
-                                  ? "border-blue-200 bg-blue-50/30"
-                                  : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
+                              ? "border-blue-200 bg-blue-50/50 shadow-sm"
+                              : isAddingSubHere
+                                ? "border-blue-200 bg-blue-50/30"
+                                : "border-slate-100 bg-white hover:border-slate-200 hover:shadow-sm"
                               }`}
                           >
                             {canDrag && (
                               <div className={`cursor-grab flex-shrink-0 p-0.5 ${depth === 0
-                                  ? 'text-slate-300 group-hover/card:text-slate-400'
-                                  : 'text-slate-200 group-hover/card:text-slate-300'
+                                ? 'text-slate-300 group-hover/card:text-slate-400'
+                                : 'text-slate-200 group-hover/card:text-slate-300'
                                 }`}>
                                 <GripVertical size={depth === 0 ? 13 : 11} />
                               </div>
@@ -3930,8 +4015,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                     }
                                   }}
                                   className={`text-[10px] font-semibold px-2 py-1 rounded transition-all border-0 cursor-pointer ${isAddingSubHere
-                                      ? 'opacity-100 bg-blue-100 text-blue-700'
-                                      : 'opacity-0 group-hover/card:opacity-100 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600'
+                                    ? 'opacity-100 bg-blue-100 text-blue-700'
+                                    : 'opacity-0 group-hover/card:opacity-100 bg-slate-50 hover:bg-blue-50 text-slate-500 hover:text-blue-600'
                                     }`}
                                   title={isAddingSubHere ? "Tutup" : "Tambah Sub-Pertanyaan"}
                                 >
@@ -4688,19 +4773,19 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                       if (selectedFreeform && Array.isArray(selectedFreeform.payload)) {
                                         // Payload format should be an array of { value, label }
                                         const newOptions = selectedFreeform.payload.map(item => {
-                                            // Handle various formats
-                                            if (item.value !== undefined && item.label !== undefined) return item;
-                                            const keys = Object.keys(item);
-                                            if (keys.length >= 2) return { value: String(item[keys[0]]), label: String(item[keys[1]]) };
-                                            if (keys.length === 1) return { value: String(item[keys[0]]), label: String(item[keys[0]]) };
-                                            return null;
+                                          // Handle various formats
+                                          if (item.value !== undefined && item.label !== undefined) return item;
+                                          const keys = Object.keys(item);
+                                          if (keys.length >= 2) return { value: String(item[keys[0]]), label: String(item[keys[1]]) };
+                                          if (keys.length === 1) return { value: String(item[keys[0]]), label: String(item[keys[0]]) };
+                                          return null;
                                         }).filter(Boolean);
-                                        
+
                                         if (newOptions.length > 0) {
-                                            handleUpdateQuestion("options", newOptions);
-                                            alert(`Berhasil mengambil ${newOptions.length} opsi dari template "${selectedFreeform.key_name}"!`);
+                                          handleUpdateQuestion("options", newOptions);
+                                          alert(`Berhasil mengambil ${newOptions.length} opsi dari template "${selectedFreeform.key_name}"!`);
                                         } else {
-                                            alert(`Template "${selectedFreeform.key_name}" tidak memiliki daftar opsi yang valid.`);
+                                          alert(`Template "${selectedFreeform.key_name}" tidak memiliki daftar opsi yang valid.`);
                                         }
                                       }
                                     }}
@@ -5553,8 +5638,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                   key={b.id}
                   onClick={() => setPreviewActiveBlok(b.id)}
                   className={`px-4 py-2 rounded-xl text-xs font-bold border-0 cursor-pointer transition-all flex-shrink-0 whitespace-nowrap ${previewActiveBlok === b.id
-                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-100'
-                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-100'
+                    : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200'
                     }`}
                 >
                   {b.id}: {b.title}
@@ -5803,8 +5888,8 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
       {pasteToast && (
         <div
           className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[300] flex items-center gap-3 px-4 py-3 rounded-2xl shadow-lg text-xs font-semibold border ${pasteToast.type === 'success'
-              ? 'bg-emerald-600 text-white border-emerald-500'
-              : 'bg-violet-600 text-white border-violet-500'
+            ? 'bg-emerald-600 text-white border-emerald-500'
+            : 'bg-violet-600 text-white border-violet-500'
             }`}
           style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)', minWidth: '280px', maxWidth: '400px' }}
         >

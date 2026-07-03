@@ -241,6 +241,21 @@ const getCachedValidation = (validation) => {
 
 const checkOptionTrigger = (val, triggerOptions) => {
   if (val === undefined || val === null || val === '') return false;
+  
+  if (Array.isArray(val)) {
+    return val.some(item => triggerOptions.includes(String(item)));
+  }
+  
+  if (val && typeof val === 'object') {
+    if ('value' in val) {
+      return triggerOptions.includes(String(val.value));
+    }
+    return triggerOptions.some(opt => {
+      const optVal = val[opt];
+      return optVal !== undefined && optVal !== null && optVal !== '' && optVal !== 0 && optVal !== '0';
+    });
+  }
+
   const trimmed = typeof val === 'string' ? val.trim() : '';
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
@@ -267,7 +282,13 @@ const evaluateCondition = (c, values) => {
   if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
     if (val === undefined || val === null || val === '') return false;
     let actualVal = val;
-    if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
+    if (val && typeof val === 'object') {
+      if (Array.isArray(val)) {
+        actualVal = val[0];
+      } else if ('value' in val) {
+        actualVal = val.value;
+      }
+    } else if (typeof val === 'string' && (val.trim().startsWith('{') || val.trim().startsWith('['))) {
       try {
         const parsed = JSON.parse(val);
         if (Array.isArray(parsed)) {
@@ -277,9 +298,16 @@ const evaluateCondition = (c, values) => {
         }
       } catch (e) { }
     }
+    
+    // Support comparing string value directly (like code matching) if not numeric
     const numericVal = parseFloat(actualVal);
     const targetVal = parseFloat(c.value);
-    if (isNaN(numericVal) || isNaN(targetVal)) return false;
+    if (isNaN(numericVal) || isNaN(targetVal)) {
+      if (c.operator === '=') {
+        return String(actualVal) === String(c.value);
+      }
+      return false;
+    }
     switch (c.operator) {
       case '=': return numericVal === targetVal;
       case '>': return numericVal > targetVal;
@@ -1133,12 +1161,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     let apiVals = apiDoc.values || {};
     let localVals = localDoc.values || {};
-    
+
     if (typeof apiVals === 'string') {
-      try { apiVals = JSON.parse(apiVals); } catch(e) { apiVals = {}; }
+      try { apiVals = JSON.parse(apiVals); } catch (e) { apiVals = {}; }
     }
     if (typeof localVals === 'string') {
-      try { localVals = JSON.parse(localVals); } catch(e) { localVals = {}; }
+      try { localVals = JSON.parse(localVals); } catch (e) { localVals = {}; }
     }
 
     const mergedValues = { ...apiVals, ...localVals };
@@ -1957,7 +1985,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             const codeRegex = /R[0-9a-zA-Z.]+/g;
             const codes = formula.match(codeRegex) || [];
             const normalizedCodes = codes.map(c => c.toLowerCase().replace(/^r\.?/, "").replace(/\s/g, ""));
-            
+
             if (normalizedCodes.includes(normalizedMyCode)) {
               let allFilled = true;
               for (const code of codes) {
@@ -1978,7 +2006,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   break;
                 }
               }
-              
+
               if (allFilled) {
                 const result = evaluateFormula(formula, ans.values, idx);
                 if (result === "false" || result === "0") {
@@ -1987,7 +2015,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               }
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -2704,7 +2732,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           if (Array.isArray(parsed)) {
             resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
           } else if (typeof parsed === 'object' && parsed !== null) {
-            resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+            if ('value' in parsed) {
+              resolved[qId] = parsed.value !== undefined && parsed.value !== null ? parsed.value : "";
+            } else {
+              resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
+            }
           } else {
             resolved[qId] = raw;
           }
@@ -3247,7 +3279,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               const formula = parsed.custom_validation_formula;
               const codeRegex = /R[0-9a-zA-Z.]+/g;
               const codes = formula.match(codeRegex) || [];
-              
+
               let allFilled = true;
               for (const code of codes) {
                 const targetQ = findQuestionByCode(code);
@@ -3267,7 +3299,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                   break;
                 }
               }
-              
+
               if (allFilled) {
                 const result = evaluateFormula(formula, resolvedValues, idx);
                 if (result === "false" || result === "0") {
@@ -3279,7 +3311,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 }
               }
             }
-          } catch (e) {}
+          } catch (e) { }
         }
 
         if (val !== undefined && val !== null && val !== '' && !isOtherTextEmpty) {
@@ -3506,7 +3538,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
     let fVals = finalDoc.values || {};
     if (typeof fVals === 'string') {
-      try { fVals = JSON.parse(fVals); } catch(e) { fVals = {}; }
+      try { fVals = JSON.parse(fVals); } catch (e) { fVals = {}; }
     }
     const updatedValues = { ...fVals };
     questions.forEach(q => {

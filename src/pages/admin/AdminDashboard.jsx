@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import AdminLayout from '../../components/layouts/AdminLayout';
 import { api } from '../../services/api';
 import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer, CartesianGrid } from 'recharts';
@@ -16,6 +16,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const status = activeActivity ? activeActivity.status : "draft";
 
+  const villageDropdown = useDropdown("Semua Desa");
   const [desaStats, setDesaStats] = useState([]);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [localLoading, setLocalLoading] = useState(false);
@@ -26,7 +27,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     try {
       const [desaData, dashData] = await Promise.all([
         api.desa.getStats(activeActivity.id),
-        api.dashboard.getStats(activeActivity.id)
+        api.dashboard.getStats(activeActivity.id, villageDropdown.selected)
       ]);
       setDesaStats(desaData);
       setDashboardStats(dashData);
@@ -37,9 +38,15 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     }
   };
 
+  const prevProjectRef = useRef(selectedProject);
   useEffect(() => {
+    if (prevProjectRef.current !== selectedProject) {
+      prevProjectRef.current = selectedProject;
+      villageDropdown.select("Semua Desa");
+      return;
+    }
     fetchStats();
-  }, [selectedProject, activeActivity]);
+  }, [selectedProject, activeActivity, villageDropdown.selected]);
 
   const handleRefresh = async () => {
     if (refreshData) {
@@ -65,8 +72,6 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   };
 
   const statusConfig = getStatusConfig();
-
-  const villageDropdown = useDropdown("Semua Desa");
 
   // Get actual village data from activity lokus - handle both string JSON and object
   const parseLokus = (lokus) => {
@@ -127,33 +132,16 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
         return d.name === villageName;
       });
 
-  // Safe division to avoid Infinity/NaN
-  const total = filteredDesa.reduce((a, b) => a + b.target, 0);
-  const selesaiTotal = filteredDesa.reduce((a, b) => a + b.selesai, 0);
-  const completionPercent = total > 0 ? Math.round((selesaiTotal / total) * 100) : 0;
+  const draft = dashboardStats?.summary?.draft ?? 0;
+  const review = dashboardStats?.summary?.pending ?? 0;
+  const ditolak = dashboardStats?.summary?.rejected ?? 0;
+  const selesaiTotal = dashboardStats?.summary?.approved ?? 0;
+  const tambahan = dashboardStats?.summary?.tambahan ?? 0;
+  const totalAssignment = dashboardStats?.summary?.totalAssignment ?? 0;
 
-  const draft = (villageDropdown.selected === "Semua Desa" && dashboardStats)
-    ? dashboardStats.summary.draft
-    : filteredPetugas.reduce((a, b) => a + (b.assignments?.[selectedProject]?.draft || 0), 0);
-
-  // Use backend stats for overall view or fallback to filtered data
-  const review = villageDropdown.selected === "Semua Desa" && dashboardStats
-    ? dashboardStats.summary.pending
-    : Math.round(selesaiTotal * 0.3);
-
-  const ditolak = villageDropdown.selected === "Semua Desa" && dashboardStats
-    ? dashboardStats.summary.rejected
-    : Math.round(selesaiTotal * 0.1);
+  const completionPercent = totalAssignment > 0 ? Math.round((selesaiTotal / totalAssignment) * 100) : 0;
 
   const lokusProgress = dashboardStats?.summary?.lokusProgress || [];
-
-  const tambahan = (villageDropdown.selected === "Semua Desa" && dashboardStats)
-    ? dashboardStats.summary.tambahan || 0
-    : 0;
-
-  const totalAssignment = (villageDropdown.selected === "Semua Desa" && dashboardStats)
-    ? dashboardStats.summary.totalAssignment || 0
-    : total;
 
   const stats = [
     { icon: Target, l: "Total Assignment", v: totalAssignment, color: "text-indigo-600", bg: "bg-indigo-50", ic: "text-indigo-500" },

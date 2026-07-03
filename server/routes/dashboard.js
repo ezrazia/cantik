@@ -8,7 +8,7 @@ const router = Router();
  * Mengambil ringkasan statistik untuk dashboard admin.
  */
 router.get('/stats', async (req, res) => {
-  const { kegiatan_id } = req.query;
+  const { kegiatan_id, desa } = req.query;
   try {
     // 1. Total petugas
     const totalPetugas = await prisma.petugas.count();
@@ -79,6 +79,16 @@ router.get('/stats', async (req, res) => {
       return rawDesa;
     };
 
+    // Filter docs in-memory if a specific village is requested
+    let filteredDocs = allDocs;
+    if (desa && desa !== 'Semua Desa') {
+      const targetDesaUpper = desa.replace(/^Desa\s+/i, '').toUpperCase();
+      filteredDocs = allDocs.filter(d => {
+        const norm = normalizeDesa(d.desa);
+        return norm && norm.toUpperCase() === targetDesaUpper;
+      });
+    }
+
     /**
      * Extract clean SLS code from raw sls field.
      * Handles formats like: "01", "02", "SLS 01 Limbu Sedulun", "(*01*)", "00",
@@ -141,10 +151,10 @@ router.get('/stats', async (req, res) => {
     let totalDokumen = 0, approved = 0, rejected = 0, pending = 0, draft = 0, tambahan = 0;
     const lokusMap = {};
 
-    allDocs.forEach(d => {
+    filteredDocs.forEach(d => {
       totalDokumen++;
-      const isPending = d.review_status === 'draft' && ['tersimpan', 'terkirim'].includes(d.status);
-      const isDraft = d.review_status === 'draft' && d.status === 'draft' && d.is_prelist;
+      const isPending = d.review_status === 'draft' && d.status === 'terkirim';
+      const isDraft = d.review_status === 'draft' && (d.status === 'draft' || d.status === 'tersimpan');
       const isTambahan = !d.is_prelist;
 
       if (d.review_status === 'approved') approved++;
@@ -214,9 +224,19 @@ router.get('/stats', async (req, res) => {
       }
     });
 
+    // Filter documents for daily chart in-memory if a specific village is requested
+    let filteredDailyDocs = documents;
+    if (desa && desa !== 'Semua Desa') {
+      const targetDesaUpper = desa.replace(/^Desa\s+/i, '').toUpperCase();
+      filteredDailyDocs = documents.filter(d => {
+        const norm = normalizeDesa(d.desa);
+        return norm && norm.toUpperCase() === targetDesaUpper;
+      });
+    }
+
     // Group documents by date in memory (database-agnostic)
     const groups = {};
-    documents.forEach(doc => {
+    filteredDailyDocs.forEach(doc => {
       // Use updated_at for prelist documents to reflect when they were actually submitted, 
       // otherwise use created_at (for new tambahan)
       const targetDate = doc.is_prelist ? doc.updated_at : doc.created_at;
@@ -252,6 +272,7 @@ router.get('/stats', async (req, res) => {
         dokumen: {
           select: {
             kode: true,
+            desa: true,
             petugas: {
               select: { name: true }
             }
@@ -261,8 +282,18 @@ router.get('/stats', async (req, res) => {
       orderBy: {
         created_at: 'desc'
       },
-      take: 5
+      take: 100
     });
+
+    let filteredLogs = recentLogs;
+    if (desa && desa !== 'Semua Desa') {
+      const targetDesaUpper = desa.replace(/^Desa\s+/i, '').toUpperCase();
+      filteredLogs = recentLogs.filter(l => {
+        const norm = normalizeDesa(l.dokumen?.desa);
+        return norm && norm.toUpperCase() === targetDesaUpper;
+      });
+    }
+    const finalLogs = filteredLogs.slice(0, 5);
 
     return res.json({
       success: true,
@@ -280,7 +311,7 @@ router.get('/stats', async (req, res) => {
         lokusProgress
       },
       chartData: formattedChartData,
-      recentLogs: recentLogs.map(l => ({
+      recentLogs: finalLogs.map(l => ({
         message: l.message,
         time: l.created_at.toLocaleString('id-ID'),
         petugas: l.dokumen?.petugas?.name || 'Unknown',
