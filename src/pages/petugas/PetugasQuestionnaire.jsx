@@ -568,6 +568,35 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return questionCodesMap.get(String(q.id)) || "";
   }, [questionCodesMap]);
 
+  const formatLogic = useCallback((logicStr) => {
+    if (!logicStr) return null;
+    if (typeof logicStr !== 'string') {
+      logicStr = JSON.stringify(logicStr);
+    }
+    if (logicStr.trim().startsWith('{') || logicStr.trim().startsWith('[')) {
+      try {
+        const parsed = JSON.parse(logicStr);
+        if (parsed.conditions && Array.isArray(parsed.conditions)) {
+          return parsed.conditions.map(c => {
+            const targetQ = questions.find(x => String(x.id) === String(c.question_id));
+            const qCode = targetQ ? `R.${getQuestionCode(targetQ)}` : `Q.${c.question_id}`;
+            let op = c.operator || '==';
+            if (op === 'contains') op = 'mengandung';
+            if (op === 'not_contains') op = 'tidak mengandung';
+            if (op === '!=') op = '≠';
+            if (op === '==') op = '=';
+            let val = c.value;
+            if (Array.isArray(val)) val = `[${val.join(', ')}]`;
+            return `${qCode} ${op} ${val}`;
+          }).join(` ${parsed.operator === 'OR' ? 'ATAU' : 'DAN'} `);
+        }
+      } catch (e) {
+        return logicStr;
+      }
+    }
+    return logicStr;
+  }, [questions, getQuestionCode]);
+
   const parentKeyCounts = useMemo(() => {
     const counts = {};
     questions.forEach(q => {
