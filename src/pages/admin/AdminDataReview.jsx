@@ -8,7 +8,7 @@ import useDropdown from "../../hooks/useDropdown";
 import SearchableSelect from "../../components/ui/SearchableSelect";
 import {
   Search, Eye, Check, X, AlertTriangle, Filter, Upload,
-  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus, Award, ChevronDown
+  Database, FileText, ArrowLeft, ChevronLeft, ChevronRight, CornerDownRight, Edit3, Plus, Award, ChevronDown, FastForward
 } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 
@@ -251,6 +251,8 @@ function MultiSelectDropdown({ idPrefix, selectedNames, allOptions, onChange, pl
 }
 
 function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activities, onApproveDocument, petugas, loading: propLoading, currentUser }) {
+  const activeActivity = activities?.find(a => a.name === selectedProject);
+  const status = activeActivity ? activeActivity.status : "draft";
   const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -318,8 +320,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   }, []);
 
   useEffect(() => {
-    if (selectedProject) {
-      api.freeform.getAll(selectedProject, 'ATURAN_ANOMALI')
+    if (activeActivity?.id) {
+      api.freeform.getAll(activeActivity.id, 'ANOMALI')
         .then(res => {
           if (res?.success) {
             setAnomalyRules(res.data);
@@ -329,7 +331,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
     } else {
       setAnomalyRules([]);
     }
-  }, [selectedProject]);
+  }, [activeActivity]);
 
   const handleCheckAnomalies = () => {
     setIsCheckingAnomalies(true);
@@ -350,7 +352,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                }
             }
           } catch(e) {}
-          valueMap[`R${code}`] = val;
+          valueMap[`R${code}`.toUpperCase()] = val;
         }
       });
 
@@ -377,14 +379,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           conditionToEval = logika;
         }
 
-        const varRegex = /r\d+[a-z]?/gi;
-        const matchedVars = conditionToEval.match(varRegex) || [];
-        
-        let jsCode = conditionToEval;
-        
-        matchedVars.forEach(v => {
-          const upperV = v.toUpperCase();
-          jsCode = jsCode.replace(new RegExp(v, 'gi'), `(parseFloat(valueMap['${upperV}']) || valueMap['${upperV}'])`); 
+        const varRegex = /r[a-z0-9_.]+/gi;
+        let jsCode = conditionToEval.replace(varRegex, (match) => {
+          const upperV = match.toUpperCase();
+          return `(parseFloat(valueMap['${upperV}']) || valueMap['${upperV}'])`;
         });
         
         // Single '=' to '==' safely (if not already '==', '!=', '>=', '<=')
@@ -397,7 +395,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           if (isAnomaly) {
             anomaliesFound.push({
               kode: rule.key_name,
-              pesan: payload.errorMessage || "Terjadi anomali pada dokumen ini"
+              pesan: payload.errorMessage || "Terjadi anomali pada dokumen ini",
+              logika: payload.logika || ""
             });
           }
         } catch (err) {
@@ -435,17 +434,17 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   }, [activeProjectPetugas, pmlSearch, selectedProject]);
 
   // Check activity status to decide if prelist is editable
-  const activeActivity = activities?.find(a => a.name === selectedProject);
-  const status = activeActivity ? activeActivity.status : "draft";
 
   // Village Stats & Dropdown
   const [desaStats, setDesaStats] = useState([]);
-  const activeDesas = activeActivity
-    ? (typeof activeActivity.lokus === 'string'
-      ? (JSON.parse(activeActivity.lokus)?.desa || [])
-      : (activeActivity.lokus?.desa || []))
-    : [];
-  const villages = ["Semua Desa", ...(desaStats.length > 0 ? desaStats.map(d => `Desa ${d.name}`) : activeDesas.map(d => `Desa ${d}`))];
+  const uniqueDesas = useMemo(() => {
+    const desas = new Set();
+    data.forEach(item => {
+      if (item.desa) desas.add(item.desa);
+    });
+    return Array.from(desas).sort();
+  }, [data]);
+  const villages = ["Semua Desa", ...uniqueDesas];
   const villageDropdown = useDropdown("Semua Desa");
 
   useEffect(() => {
@@ -780,7 +779,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
   const villageData = villageDropdown.selected === "Semua Desa"
     ? projectFilteredData
-    : projectFilteredData.filter(r => r.desa === villageDropdown.selected.replace("Desa ", ""));
+    : projectFilteredData.filter(r => r.desa === villageDropdown.selected);
   const filtered = filter === "all" ? villageData : villageData.filter(r => r.status === filter);
   const count = s => villageData.filter(r => r.status === s).length;
 
@@ -859,6 +858,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
           petugas: res.dokumen.petugas_name
         });
         setAns(res.values); // question_id -> value map
+        setDetectedAnomalies(null);
         setIsEditing(false);
       }
     } catch (err) {
@@ -1496,9 +1496,17 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               if (op === '!=') op = '≠';
               if (op === '==') op = '=';
               let val = c.value;
-              if (Array.isArray(val)) val = `[${val.join(', ')}]`;
+              if (Array.isArray(val)) val = val.join(', ');
+              if (typeof val === 'string' && val.includes(',')) {
+                const parts = val.split(',').map(v => v.trim()).filter(v => v);
+                if (parts.length > 5) {
+                  val = `${parts.slice(0, 5).join(', ')} ... (+${parts.length - 5} lainnya)`;
+                } else {
+                  val = parts.join(', ');
+                }
+              }
               return `${qCode} ${op} ${val}`;
-            }).join(` ${parsed.operator === 'OR' ? 'ATAU' : 'DAN'} `);
+            }).join(parsed.operator === 'OR' ? ' ATAU ' : ', ');
           }
         } catch (e) {
           return logicStr;
@@ -1533,55 +1541,94 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
         <div className="flex flex-col xl:flex-row gap-6 w-full items-start">
 
           {/* Inner Left Sidebar Container */}
-          <div className="w-full xl:w-72 shrink-0 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col justify-between xl:h-[620px] xl:sticky xl:top-6">
+          <div className="w-full xl:w-72 shrink-0 bg-white rounded-xl border border-slate-100 overflow-hidden shadow-sm flex flex-col justify-between xl:h-[calc(100vh-3rem)] xl:max-h-[850px] xl:sticky xl:top-6">
 
             {/* Top: Document Information */}
-            <div className="p-5 border-b border-slate-50 bg-slate-50/50">
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-4">Informasi Dokumen</p>
-              <div className="space-y-4 text-xs font-semibold text-slate-700">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-slate-400 font-medium">ID Dokumen</span>
-                  <span className="mono font-bold text-blue-600 break-all">{viewingRecord.id}</span>
+            <div className="p-4 border-b border-slate-50 bg-slate-50/50 shrink-0">
+              <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-2">Informasi Dokumen</p>
+              <div className="space-y-2.5 text-xs font-semibold text-slate-700">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] text-slate-400 font-medium leading-none">ID Dokumen</span>
+                  <span className="mono font-bold text-blue-600 break-all leading-tight">{viewingRecord.id}</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-400 font-medium">Kepala Keluarga</span>
-                  <span className="text-slate-800 text-sm leading-tight">{krtName}</span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] text-slate-400 font-medium leading-none">Kepala Keluarga</span>
+                  <span className="text-slate-800 text-xs leading-tight">{krtName}</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-400 font-medium">Petugas</span>
-                  <span className="text-slate-800 text-sm leading-tight">{viewingRecord.petugas}</span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-[10px] text-slate-400 font-medium leading-none">Petugas</span>
+                  <span className="text-slate-800 text-xs leading-tight">{viewingRecord.petugas}</span>
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-slate-400 font-medium">Desa</span>
-                  <span className="text-slate-800 text-sm leading-tight">{viewingRecord.desa}</span>
+                <div className="flex gap-4">
+                  <div className="flex flex-col gap-0.5 flex-1">
+                    <span className="text-[10px] text-slate-400 font-medium leading-none">Desa</span>
+                    <span className="text-slate-800 text-xs leading-tight">{viewingRecord.desa}</span>
+                  </div>
+                  <div className="flex flex-col gap-0.5 flex-1">
+                    <span className="text-[10px] text-slate-400 font-medium leading-none">SLS</span>
+                    <span className="text-slate-800 text-xs leading-tight">{viewingRecord.sls || "-"}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Middle: Block List */}
-            <div className="p-4 space-y-1.5 flex-1 overflow-y-auto bg-white">
-              <p className="px-2 py-1.5 text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">Daftar Blok</p>
-              {BLOCKS.map((b, i) => {
-                const isCurrent = viewingBlock === b.id;
-                return (
-                  <button
-                    key={i}
-                    onClick={() => setViewingBlock(b.id)}
-                    className={`w-full flex items-start gap-3 px-3 py-3 rounded-xl text-xs font-bold border cursor-pointer transition-all ${isCurrent
-                      ? "text-blue-700 bg-blue-50/80 border-blue-200 shadow-sm"
-                      : "bg-transparent text-slate-500 border-transparent hover:bg-slate-50 hover:border-slate-100"
-                      }`}
-                  >
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 transition-colors ${isCurrent ? 'bg-blue-600 animate-pulse' : 'bg-slate-300'}`} />
-                    <div className="text-left flex flex-col min-w-0">
-                      <span className="leading-tight">{b.l}</span>
-                      <span className={`text-[10px] font-normal mt-1 leading-normal ${isCurrent ? 'text-blue-500/80' : 'text-slate-400'}`}>{b.title}</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            {/* Activity Log */}
+            {viewingRecord.dokumen_log && viewingRecord.dokumen_log.length > 0 && (
+              <div className="border-b border-slate-100 bg-slate-50/50 shrink-0 border-t flex flex-col">
+                <div className="pt-3 px-4 pb-1 shrink-0">
+                  <p className="px-1 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Log Aktivitas</p>
+                </div>
+                <div className="px-5 pb-3 space-y-0 overflow-y-auto max-h-28" style={{ scrollbarWidth: 'thin' }}>
+                  {viewingRecord.dokumen_log.map((log, i) => {
+                    const msg = log.message.toLowerCase();
+                    let dotColor = 'bg-slate-300';
+                    if (msg.includes('reject') || msg.includes('tolak') || msg.includes('batal')) dotColor = 'bg-red-500';
+                    else if (msg.includes('simpan') || msg.includes('submit') || msg.includes('kirim')) dotColor = 'bg-blue-500';
+                    else if (msg.includes('approve') || msg.includes('setuju')) dotColor = 'bg-emerald-500';
 
+                    return (
+                      <div key={i} className="flex gap-3 relative mt-2">
+                        <div className="flex flex-col items-center">
+                          <div className={`w-2 h-2 rounded-full mt-1.5 shrink-0 shadow-sm ${dotColor}`} />
+                          {i !== viewingRecord.dokumen_log.length - 1 && <div className="w-[1px] h-full bg-slate-200 min-h-[16px] my-1" />}
+                        </div>
+                        <div className="flex flex-col pb-2">
+                          <span className="text-[11px] font-semibold text-slate-700 leading-snug">{log.message}</span>
+                          <span className="text-[9px] text-slate-400 mt-0.5">{new Date(log.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Middle: Block List */}
+            <div className="flex-1 bg-white flex flex-col overflow-hidden">
+              <div className="pt-4 px-4 pb-2 shrink-0 bg-white">
+                <p className="px-2 text-[9px] text-slate-400 font-bold uppercase tracking-wider">Daftar Blok</p>
+              </div>
+              <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5" style={{ scrollbarWidth: 'thin' }}>
+                {BLOCKS.map((b, i) => {
+                  const isCurrent = viewingBlock === b.id;
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => setViewingBlock(b.id)}
+                      className={`w-full flex items-start px-3 py-3 rounded-xl text-xs font-bold border cursor-pointer transition-all ${isCurrent
+                        ? "text-blue-700 bg-blue-50/80 border-blue-200 shadow-sm"
+                        : "bg-transparent text-slate-500 border-transparent hover:bg-slate-50 hover:border-slate-100"
+                        }`}
+                    >
+                      <div className="text-left flex flex-col min-w-0">
+                        <span className="leading-tight">{b.l}</span>
+                        <span className={`text-[10px] font-normal mt-1 leading-normal ${isCurrent ? 'text-blue-500/80' : 'text-slate-400'}`}>{b.title}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             {/* Bottom: Stuck to bottom controls */}
             <div className="p-5 border-t border-slate-100 bg-slate-50/50 space-y-3 mt-auto">
               {isKegiatanAdmin ? (
@@ -1904,6 +1951,32 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   const hasChildren = childQs.length > 0;
                   const qCode = getQuestionCode(q, questions, blocks);
 
+                  let showIfInfoStr = formatLogic(q.show_logic || q.show_if);
+                  if (!showIfInfoStr && q.show_if_parent_id) {
+                    const parsedVal = formatLogic(q.show_if_value);
+                    if (parsedVal && parsedVal !== q.show_if_value) {
+                      showIfInfoStr = parsedVal;
+                    } else {
+                      const parentQ = questions.find(x => x.id === q.show_if_parent_id);
+                      if (parentQ) {
+                        const pCode = getQuestionCode(parentQ, questions, blocks);
+                        let val = q.show_if_value || "";
+                        if (val.startsWith("[") && val.endsWith("]")) {
+                          try { val = JSON.parse(val).join(", "); } catch(e) {}
+                        }
+                        showIfInfoStr = `R.${pCode} = ${val}`;
+                      }
+                    }
+                  }
+
+                  let skipInfoStr = formatLogic(q.skip_logic);
+                  if (skipInfoStr && q.skip_target) {
+                    const targetQ = questions.find(x => String(x.id) === String(q.skip_target));
+                    if (targetQ) {
+                      skipInfoStr = `Lompat ke R.${getQuestionCode(targetQ, questions, blocks)} jika ${skipInfoStr}`;
+                    }
+                  }
+
                   if (depth === 0 || forceCard) {
                     return (
                       <QCard
@@ -1912,8 +1985,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         label={resolveLabelText(q.label, activeInstanceIdx)}
                         subLabel={subLabel}
                         required={!!q.required}
-                        skipInfo={formatLogic(q.skip_logic)}
-                        showIfInfo={formatLogic(q.show_logic || q.show_if)}
+                        skipInfo={skipInfoStr}
+                        showIfInfo={showIfInfoStr}
                         className="bg-white border-slate-100 shadow-sm"
                       >
                         {hasChildren ? (
@@ -1961,16 +2034,16 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">Q.{qCode}</span>
+                                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
                                 {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
-                                {q.show_logic || q.show_if ? (
+                                {showIfInfoStr ? (
                                   <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-bold">
-                                    <Eye size={10} className="text-emerald-500" /> Tampil jika: {formatLogic(q.show_logic || q.show_if)}
+                                    <Eye size={10} className="text-emerald-500" /> Tampil jika: {showIfInfoStr}
                                   </span>
                                 ) : null}
-                                {q.skip_logic ? (
+                                {skipInfoStr ? (
                                   <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">
-                                    <FastForward size={10} className="text-amber-500" /> Skip logic: {formatLogic(q.skip_logic)}
+                                    <FastForward size={10} className="text-amber-500" /> Skip logic: {skipInfoStr}
                                   </span>
                                 ) : null}
                               </div>
@@ -2190,8 +2263,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                      <div key={idx} className="p-3 bg-red-50 border border-red-100 rounded-xl flex gap-3 items-start">
                        <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
                        <div>
-                         <p className="text-[10px] font-bold text-red-600 uppercase mb-0.5">{anom.kode}</p>
-                         <p className="text-xs text-red-700 font-medium">{anom.pesan}</p>
+                         <p className="text-[11px] text-red-700 font-medium mb-0.5">
+                           <span className="font-bold">Kode {anom.kode}</span> {anom.logika ? `[${anom.logika}]` : ''}
+                         </p>
+                         <p className="text-[11px] text-red-600/90">{anom.pesan}</p>
                        </div>
                      </div>
                    ))}
@@ -2452,28 +2527,27 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   <tr className="bg-slate-50/50">
                     {(status === "draft"
                       ? [
-                          { label: "ID", key: "id" },
-                          { label: "Kepala Keluarga", key: "krt" },
-                          { label: "Desa", key: "desa" },
-                          { label: "SLS", key: "sls" },
-                          { label: "Sub SLS", key: "subSls" },
-                          { label: "Tipe", key: "isPrelist" },
-                          { label: "Petugas Pendataan (PCL)", key: "petugas" },
-                          { label: "Pengawas (PML)", key: "pengawas" },
-                          { label: "Aksi", key: null }
+                          { label: "ID", key: "id", width: "w-[180px] min-w-[180px]" },
+                          { label: "Kepala Keluarga", key: "krt", width: "w-[200px] min-w-[200px]" },
+                          { label: "Desa", key: "desa", width: "w-[120px] min-w-[120px]" },
+                          { label: "SLS", key: "sls", width: "w-[100px] min-w-[100px]" },
+                          { label: "Sub SLS", key: "subSls", width: "w-[100px] min-w-[100px]" },
+                          { label: "Tipe", key: "isPrelist", width: "w-[100px] min-w-[100px]" },
+                          { label: "Petugas Pendataan (PCL)", key: "petugas", width: "w-[200px] min-w-[200px]" },
+                          { label: "Pengawas (PML)", key: "pengawas", width: "w-[200px] min-w-[200px]" },
+                          { label: "Aksi", key: null, width: "w-[60px] min-w-[60px]" }
                         ]
                       : [
-                          { label: "ID", key: "id" },
-                          { label: "Kepala Keluarga", key: "krt" },
-                          { label: "Petugas", key: "petugas" },
-                          { label: "Desa", key: "desa" },
-                          { label: "SLS", key: "sls" },
-                          { label: "Sub SLS", key: "subSls" },
-                          { label: "Tipe", key: "isPrelist" },
-                          { label: "Tgl. Kirim", key: "tgl_kirim" },
-                          { label: "Warning", key: "warning" },
-                          { label: "Status", key: "status" },
-                          { label: "Aksi", key: null }
+                          { label: "ID", key: "id", width: "w-[180px] min-w-[180px]" },
+                          { label: "Kepala Keluarga", key: "krt", width: "w-[200px] min-w-[200px]" },
+                          { label: "Petugas", key: "petugas", width: "w-[150px] min-w-[150px]" },
+                          { label: "Desa", key: "desa", width: "w-[120px] min-w-[120px]" },
+                          { label: "SLS", key: "sls", width: "w-[100px] min-w-[100px]" },
+                          { label: "Sub SLS", key: "subSls", width: "w-[100px] min-w-[100px]" },
+                          { label: "Tipe", key: "isPrelist", width: "w-[100px] min-w-[100px]" },
+                          { label: "Tgl. Kirim", key: "tgl_kirim", width: "w-[120px] min-w-[120px]" },
+                          { label: "Status", key: "status", width: "w-[120px] min-w-[120px]" },
+                          { label: "Aksi", key: null, width: "w-[60px] min-w-[60px]" }
                         ]
                     ).map(h => (
                       <th
@@ -2487,7 +2561,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             setSortDirection("asc");
                           }
                         }}
-                        className={`px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider select-none ${
+                        className={`px-6 py-3.5 text-left text-[11px] text-slate-400 font-bold uppercase tracking-wider select-none ${h.width || 'w-auto'} ${
                           h.key ? 'cursor-pointer hover:text-slate-600' : ''
                         }`}
                       >
@@ -2516,23 +2590,23 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       <Fragment key={r.id}>
                         {showPrelistHeader && (
                           <tr className="bg-slate-50/30">
-                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-b border-slate-100/80 whitespace-nowrap">
+                            <td colSpan={status === "draft" ? 9 : 10} className="px-6 py-2.5 text-[10px] font-bold text-slate-400 tracking-wider uppercase border-t border-b border-slate-100/80 whitespace-nowrap">
                               Target Prelist Desa ({sortedFiltered.filter(item => item.isPrelist).length} Keluarga)
                             </td>
                           </tr>
                         )}
                         {showTambahanHeader && (
                           <tr className="bg-indigo-50/10">
-                            <td colSpan={status === "draft" ? 9 : 11} className="px-6 py-2.5 text-[10px] font-bold text-indigo-500 tracking-wider uppercase border-t border-b border-indigo-50/30 whitespace-nowrap">
+                            <td colSpan={status === "draft" ? 9 : 10} className="px-6 py-2.5 text-[10px] font-bold text-indigo-500 tracking-wider uppercase border-t border-b border-indigo-50/30 whitespace-nowrap">
                               Temuan Baru / Tambahan Lapangan ({sortedFiltered.filter(item => !item.isPrelist).length} Keluarga)
                             </td>
                           </tr>
                         )}
                         <tr className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
-                            <span className="mono text-xs font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded-md">{r.id}</span>
+                          <td className="px-6 py-3.5 border-t border-slate-50 max-w-[180px]" title={r.id}>
+                            <div className="mono text-[11px] font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded-md truncate max-w-full inline-block">{r.id}</div>
                           </td>
-                          <td className="px-6 py-3.5 border-t border-slate-50 text-sm font-semibold text-slate-700 whitespace-nowrap">
+                          <td className="px-6 py-3.5 border-t border-slate-50 text-sm font-semibold text-slate-700 truncate max-w-[200px]" title={r.krt || r.nama_krt}>
                             {r.krt || r.nama_krt || "Kepala Rumah Tangga"}
                           </td>
                           {status === "draft" ? (
@@ -2596,8 +2670,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             </>
                           ) : (
                             <>
-                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
-                                <span className="text-sm font-semibold text-slate-700">{r.petugas}</span>
+                              <td className="px-6 py-3.5 border-t border-slate-50 text-sm font-semibold text-slate-700 truncate max-w-[150px]" title={r.petugas}>
+                                {r.petugas}
                               </td>
                               <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold whitespace-nowrap">{r.desa}</td>
                               <td className="px-6 py-3.5 border-t border-slate-50 text-xs text-slate-500 font-semibold whitespace-nowrap">{r.sls || "—"}</td>
@@ -2614,16 +2688,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                 )}
                               </td>
                               <td className="px-6 py-3.5 border-t border-slate-50 mono text-xs text-slate-400 font-semibold whitespace-nowrap">{new Date(r.updated_at || r.created_at).toLocaleDateString('id-ID')}</td>
-                              <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
-                                {r.flag > 0
-                                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-600 rounded-md"><AlertTriangle size={11} />{r.flag}</span>
-                                  : <span className="text-slate-200">—</span>}
-                              </td>
                               <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap"><Badge status={r.status} /></td>
                             </>
                           )}
                           <td className="px-6 py-3.5 border-t border-slate-50 whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center justify-center">
                               <button
                                 onClick={() => handleOpenDetail(r)}
                                 className="w-8 h-8 rounded-lg hover:bg-blue-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-blue-600 transition-all bg-transparent"
@@ -2631,29 +2700,6 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                               >
                                 <Eye size={15} />
                               </button>
-                              {status !== "draft" && r.status === "approved" && !isKegiatanAdmin && (
-                                <>
-                                  <button onClick={() => setModal({ ...r, type: "approve" })}
-                                    className="w-8 h-8 rounded-lg hover:bg-emerald-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-emerald-600 transition-all bg-transparent"
-                                    title="Setujui (Admin)">
-                                    <Check size={15} />
-                                  </button>
-                                  <button onClick={() => setModal({ ...r, type: "reject" })}
-                                    className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-600 transition-all bg-transparent"
-                                    title="Tolak (Admin)">
-                                    <X size={15} />
-                                  </button>
-                                </>
-                              )}
-                              {status === "draft" && !isKegiatanAdmin && (
-                                <button
-                                  onClick={() => setData(prev => prev.filter(item => item.id !== r.id))}
-                                  className="w-8 h-8 rounded-lg hover:bg-red-50 flex items-center justify-center border-0 cursor-pointer text-slate-400 hover:text-red-500 transition-all bg-transparent"
-                                  title="Hapus Data Keluarga"
-                                >
-                                  <X size={15} />
-                                </button>
-                              )}
                             </div>
                           </td>
                         </tr>
@@ -2661,7 +2707,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     );
                   })}
                   {sortedFiltered.length === 0 && (
-                    <tr><td colSpan={status === "draft" ? 9 : 11} className="px-6 py-16 text-center">
+                    <tr><td colSpan={status === "draft" ? 9 : 10} className="px-6 py-16 text-center">
                       <Search size={24} className="text-slate-200 mx-auto mb-2" />
                       <p className="text-xs text-slate-400 font-medium">Tidak ada dokumen di {villageDropdown.selected}</p>
                     </td></tr>

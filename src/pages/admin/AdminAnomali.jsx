@@ -7,9 +7,12 @@ import { api } from "../../services/api";
  * Halaman Freeform (Sementara/Mockup)
  * Mengelola aturan anomali dan daftar isian dinamis (dropdown, radio, dll).
  */
-export default function AdminFreeform({ onNavigate, selectedProject, onProjectChange, activities, currentUser }) {
-  const activeTab = "dinamis";
-  const [selectedActivityId, setSelectedActivityId] = useState("");
+export default function AdminAnomali({ onNavigate, selectedProject, onProjectChange, activities, currentUser }) {
+  const activeTab = "anomali";
+  
+  const act = activities.find(a => a.name === selectedProject);
+  const selectedActivityId = act ? act.id : "";
+
   const [formVariables, setFormVariables] = useState([]);
   
   // Modal states
@@ -163,7 +166,7 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
 
   return (
     <AdminLayout 
-      tab="admin-freeform" 
+      tab="admin-anomali" 
       onNavigate={onNavigate} 
       selectedProject={selectedProject} 
       onProjectChange={onProjectChange} 
@@ -176,9 +179,9 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
           <div>
             <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
               <Sliders className="text-blue-600" />
-              Global Configuration
+              Aturan Anomali
             </h1>
-            <p className="text-slate-500 mt-1 text-sm">Kelola grup pilihan dinamis untuk Form Builder.</p>
+            <p className="text-slate-500 mt-1 text-sm">Kelola aturan anomali spesifik untuk kegiatan yang dipilih.</p>
           </div>
           <div className="flex gap-2">
             <button 
@@ -214,16 +217,7 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
               <div className="flex-1 max-w-md">
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Pilih Kegiatan (Master)</label>
                 <div className="relative">
-                  <select
-                    className="w-full pl-3 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white font-medium text-slate-700"
-                    value={selectedActivityId}
-                    onChange={(e) => setSelectedActivityId(e.target.value)}
-                  >
-                    <option value="" className="text-slate-400">-- Pilih Master Kegiatan --</option>
-                    {activities?.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
-                    ))}
-                  </select>
+                  
                 </div>
               </div>
               

@@ -1,4 +1,4 @@
-import { BarChart2, Eye, Layers, Users, Database, LogOut, ChevronDown, Menu, X, Home, Briefcase, Table, Sliders } from "lucide-react";
+import { BarChart2, Eye, Layers, Users, Database, LogOut, ChevronDown, Menu, X, Home, Briefcase, Table, Sliders, Globe, AlertTriangle, FileText } from "lucide-react";
 import { useState, useEffect } from "react";
 
 /**
@@ -76,8 +76,10 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
   
   const navItems = [
     { id:"admin-dash",    icon: BarChart2, label:"Dashboard" },
+      { id:"admin-detail-kegiatan", icon: FileText, label:"Detail Kegiatan" },
     { id:"admin-review",  icon: Eye,       label:"Review Data" },
     ...(!isKegiatanAdmin ? [{ id:"admin-builder", icon: Layers,    label:"Form Builder" }] : []),
+      ...(!isKegiatanAdmin ? [{ id:"admin-anomali", icon: AlertTriangle, label:"Anomali" }] : []),
     { id:"admin-users",   icon: Users,     label:"Petugas Kegiatan" },
     ...(!isKegiatanAdmin ? [{ id:"admin-tabulasi",icon: Table,     label:"Tabulasi" }] : []),
   ];
@@ -132,9 +134,9 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
                 ? "bg-blue-600 text-white font-semibold shadow-sm"
                 : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
             } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-            title="Kegiatan">
+            title="Master Kegiatan">
             <Briefcase size={18} strokeWidth={tab === "admin-kegiatan" ? 2 : 1.5}/>
-            {(isSidebarOpen || isMobile) && <span>Kegiatan</span>}
+            {(isSidebarOpen || isMobile) && <span>Master Kegiatan</span>}
           </button>
         </div>
       )}
@@ -166,9 +168,9 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
                 ? "bg-blue-600 text-white font-semibold shadow-sm"
                 : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
             } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-            title="Freeform">
-            <Sliders size={18} strokeWidth={tab === "admin-freeform" ? 2 : 1.5}/>
-            {(isSidebarOpen || isMobile) && <span>Freeform</span>}
+            title="Global">
+            <Globe size={18} strokeWidth={tab === "admin-freeform" ? 2 : 1.5}/>
+            {(isSidebarOpen || isMobile) && <span>Global</span>}
           </button>
         </div>
       )}
