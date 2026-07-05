@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback, startTransition } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp, Search, Filter, ArrowUpDown } from "lucide-react";
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp, ChevronDown, Search, Filter, ArrowUpDown } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
@@ -389,6 +389,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   const [filterStatus, setFilterStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [sortOption, setSortOption] = useState("waktu-desc");
+  const [showSearchModal, setShowSearchModal] = useState(false);
+  const [questionSearchQuery, setQuestionSearchQuery] = useState("");
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [activitySearchQuery, setActivitySearchQuery] = useState("");
+  const [refreshingActivities, setRefreshingActivities] = useState(false);
 
   useEffect(() => {
     setFilterSls("");
@@ -2388,18 +2393,24 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
 
-  useEffect(() => {
+  const fetchLatestActivities = async () => {
     if (isOffline) return;
-    const fetchLatestActivities = async () => {
-      try {
-        const res = await api.kegiatan.getAll();
-        if (Array.isArray(res)) {
-          setLocalActivities(res);
-        }
-      } catch (err) {
-        console.error("Gagal refresh kegiatan di petugas:", err);
+    setRefreshingActivities(true);
+    try {
+      const minDelay = new Promise(resolve => setTimeout(resolve, 500));
+      const res = await api.kegiatan.getAll();
+      await minDelay;
+      if (Array.isArray(res)) {
+        setLocalActivities(res);
       }
-    };
+    } catch (err) {
+      console.error("Gagal refresh kegiatan di petugas:", err);
+    } finally {
+      setRefreshingActivities(false);
+    }
+  };
+
+  useEffect(() => {
     fetchLatestActivities();
   }, [activities, isOffline]);
 
@@ -2412,7 +2423,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         role: currentPetugas.projectRoles?.[projName] || "PCL"
       };
     })
-    .filter(act => act && act.status !== "draft" && act.status !== "selesai");
+    .filter(act => act && act.status !== "draft" && act.status !== "selesai")
+    .filter(act => !activitySearchQuery || act.name.toLowerCase().includes(activitySearchQuery.toLowerCase()));
 
   const fetchDocuments = async () => {
     if (selectedActivity?.role === "PML") {
@@ -2652,7 +2664,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return () => {
       isMounted = false;
     };
-  }, [selectedActivity, isOffline, currentUser.id]);
+  }, [selectedActivity, isOffline, currentUser.id, refreshTrigger]);
 
   useEffect(() => {
     if (!isOffline) {
@@ -4402,41 +4414,85 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 style={{ paddingTop: "max(env(safe-area-inset-top, 0px) + 0.75rem, 3rem)" }}
               >
                 <div className="absolute top-0 right-0 w-48 h-48 bg-blue-100/30 rounded-full blur-3xl pointer-events-none -mr-16 -mt-16" />
-                <div className="relative z-10">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold">Pengisian Kuesioner</p>
-                  <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight font-bold">Pilih Kegiatan</h2>
-                  <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">Pilih salah satu kegiatan aktif untuk mulai mengelola kuesioner.</p>
+                <div className="relative z-10 flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider font-semibold">Pengisian Kuesioner</p>
+                    <h2 className="text-lg font-extrabold text-slate-900 mt-0.5 tracking-tight font-bold">Pilih Kegiatan</h2>
+                    <p className="text-xs text-slate-400 mt-1.5 font-medium leading-relaxed">Pilih salah satu kegiatan aktif untuk mulai mengelola kuesioner.</p>
+                  </div>
+                  <button onClick={fetchLatestActivities}
+                    disabled={refreshingActivities}
+                    className="flex-shrink-0 px-3 py-2.5 bg-white text-slate-600 border border-solid border-slate-200 rounded-xl text-xs font-bold cursor-pointer hover:bg-slate-50 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm mt-1"
+                  >
+                    <RefreshCw size={14} className={refreshingActivities ? "animate-spin" : ""} /> <span className="hidden sm:inline">Refresh</span>
+                  </button>
+                </div>
+              </div>
+              <div className="px-6 py-4 border-b border-solid border-slate-100 bg-slate-50/50">
+                <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                  <Search size={14} className="text-slate-400 flex-shrink-0" />
+                  <input
+                    type="text"
+                    value={activitySearchQuery}
+                    onChange={e => setActivitySearchQuery(e.target.value)}
+                    className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0"
+                    placeholder="Cari kegiatan survei..."
+                  />
+                  {activitySearchQuery && (
+                    <button onClick={() => setActivitySearchQuery("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-655 cursor-pointer flex items-center p-0">
+                      <X size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="p-6 space-y-3">
-                {officerActivities.map(act => (
-                  <button key={act.name} onClick={() => handleSelectActivity(act)}
-                    className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md hover:shadow-blue-500/5 group relative overflow-hidden active:scale-[0.99]">
-                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${act.color || 'bg-blue-600'}`} />
-                    <div className="flex items-start justify-between w-full">
-                      <div className="flex-1 min-w-0 pr-4">
-                        <h4 className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors truncate">{act.name}</h4>
-                        <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 leading-relaxed font-semibold">{act.description}</p>
+                {refreshingActivities ? (
+                  <>
+                    {[1, 2, 3].map(n => (
+                      <div key={n} className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left animate-pulse">
+                        <div className="flex items-start justify-between w-full">
+                          <div className="flex-1 min-w-0 pr-4 space-y-2">
+                            <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                            <div className="h-3 bg-slate-100 rounded w-full"></div>
+                          </div>
+                          <div className="flex-shrink-0">
+                            <div className="h-6 w-24 bg-slate-100 rounded-full"></div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex-shrink-0">
-                        {act.role === "PML" ? (
-                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-solid border-purple-100/50 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
-                            Pengawas (PML)
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-solid border-blue-100/50 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                            Pencacah (PCL)
-                          </span>
-                        )}
+                    ))}
+                  </>
+                ) : officerActivities.length > 0 ? (
+                  officerActivities.map(act => (
+                    <button key={act.name} onClick={() => handleSelectActivity(act)}
+                      className="w-full bg-white rounded-2xl p-5 border border-solid border-slate-100 flex flex-col gap-4 text-left cursor-pointer transition-all hover:border-blue-300 hover:shadow-md hover:shadow-blue-500/5 group relative overflow-hidden active:scale-[0.99]">
+                      <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${act.color || 'bg-blue-600'}`} />
+                      <div className="flex items-start justify-between w-full">
+                        <div className="flex-1 min-w-0 pr-4">
+                          <h4 className="text-sm font-bold text-slate-800 tracking-tight group-hover:text-blue-600 transition-colors truncate">{act.name}</h4>
+                          <p className="text-xs text-slate-400 mt-1.5 line-clamp-2 leading-relaxed font-semibold">{act.description}</p>
+                        </div>
+                        <div className="flex-shrink-0">
+                          {act.role === "PML" ? (
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-purple-50 text-purple-700 border border-solid border-purple-100/50 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 animate-pulse" />
+                              Pengawas (PML)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-solid border-blue-100/50 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                              Pencacah (PCL)
+                            </span>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  </button>
-                ))}
-                {officerActivities.length === 0 && (
+                    </button>
+                  ))
+                ) : (
                   <div className="bg-slate-50 border border-dashed border-slate-200 rounded-2xl py-12 text-center">
-                    <p className="text-xs text-slate-400 font-bold">Belum ditugaskan ke kegiatan survei apapun.</p>
+                    <p className="text-xs text-slate-400 font-bold">
+                      {activitySearchQuery ? "Tidak ada kegiatan yang cocok dengan pencarian." : "Belum ditugaskan ke kegiatan survei apapun."}
+                    </p>
                   </div>
                 )}
               </div>
@@ -4467,21 +4523,29 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     {sortedPrelist.length !== displayPrelist.length ? `${sortedPrelist.length} dari ` : ""}
                     {displayPrelist.length} {selectedActivity.fokus || 'Rumah Tangga'}
                   </span>
-                  {!isPml && (
-                    <button onClick={handleAddNew}
-                      disabled={loadingForm || blocks.length === 0}
-                      className="px-4 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm hover:shadow-lg hover:shadow-blue-500/20 disabled:opacity-50"
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setRefreshTrigger(p => p + 1)}
+                      disabled={loadingForm}
+                      className="px-3 py-2 bg-white text-slate-600 border border-solid border-slate-200 rounded-xl text-xs font-bold cursor-pointer hover:bg-slate-50 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm"
                     >
-                      <Plus size={14} /> Tambah Baru
+                      <RefreshCw size={14} className={loadingForm ? "animate-spin" : ""} /> <span className="hidden sm:inline">Refresh</span>
                     </button>
-                  )}
+                    {!isPml && (
+                      <button onClick={handleAddNew}
+                        disabled={loadingForm || blocks.length === 0}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all flex items-center gap-1.5 shadow-sm hover:shadow-lg hover:shadow-blue-500/20 disabled:opacity-50"
+                      >
+                        <Plus size={14} /> Tambah Baru
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {/* Filter and Search Bar */}
                 {displayPrelist.length > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-2xl border border-solid border-slate-100">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-3 rounded-2xl border border-solid border-slate-100">
                     {/* Input Search */}
-                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                    <div className="col-span-2 sm:col-span-1 flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
                       <Search size={14} className="text-slate-400 flex-shrink-0" />
                       <input
                         type="text"
@@ -4537,7 +4601,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     </div>
 
                     {/* Dropdown Sort */}
-                    <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                    <div className="col-span-2 sm:col-span-1 flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
                       <ArrowUpDown size={14} className="text-slate-400 flex-shrink-0" />
                       <select
                         value={sortOption}
@@ -5522,7 +5586,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             required={!!q.required}
                             readOnly={isReadOnly || !!qVal.readOnly}
                             showIfInfo={formatLogic(q.show_logic || q.show_if)}
-                            skipInfo={formatLogic(q.skip_logic)}
                             className={getQuestionCardBgClass(q)}
                           >
                             {parentMode === "original" ? (
@@ -5582,11 +5645,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                 {q.show_logic || q.show_if ? (
                                   <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-bold">
                                     <Eye size={10} className="text-emerald-500" /> Tampil jika: {formatLogic(q.show_logic || q.show_if)}
-                                  </span>
-                                ) : null}
-                                {q.skip_logic ? (
-                                  <span className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded text-[9px] font-bold">
-                                    <FastForward size={10} className="text-amber-500" /> Skip logic: {formatLogic(q.skip_logic)}
                                   </span>
                                 ) : null}
                               </div>
@@ -6080,11 +6138,72 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         </div>
       )}
 
+      {/* Search Modal */}
+      {showSearchModal && (
+        <div className="fixed inset-0 z-[70] bg-black/40 flex items-start justify-center p-4 backdrop-blur-sm pt-20">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[70vh]" style={{ animation: "scaleUp 0.15s ease-out both" }}>
+            <div className="p-4 border-b border-solid border-slate-100 flex items-center gap-3">
+              <Search size={20} className="text-slate-400" />
+              <input 
+                type="text" 
+                autoFocus 
+                placeholder="Cari Pertanyaan atau Angka Rincian..." 
+                value={questionSearchQuery}
+                onChange={e => setQuestionSearchQuery(e.target.value)}
+                className="flex-1 outline-none text-sm font-semibold text-slate-800"
+              />
+              <button onClick={() => { setShowSearchModal(false); setQuestionSearchQuery(""); }} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50 cursor-pointer transition-all"><X size={18}/></button>
+            </div>
+            <div className="overflow-y-auto p-2">
+              {(() => {
+                const query = questionSearchQuery.toLowerCase();
+                const activeBlock = blocks.find(b => String(b.kode) === activeTab);
+                const currentBlockQs = view === 'form' && activeBlock ? getActiveBlockOrderedQuestions(activeBlock) : [];
+                const filtered = currentBlockQs.filter(q => {
+                   if (q.type === 'note') return false;
+                   if (!query) return true;
+                   const qCode = getQuestionCode(q) || "";
+                   const qLabel = q.label ? q.label.toLowerCase() : "";
+                   return qCode.toLowerCase().includes(query) || qLabel.includes(query);
+                });
+                
+                if (filtered.length === 0) {
+                  return <p className="text-center text-slate-400 text-xs py-8 font-medium">Tidak ada pertanyaan yang cocok</p>;
+                }
+                
+                return filtered.map(q => (
+                  <button 
+                    key={q.id}
+                    onClick={() => { 
+                      setShowSearchModal(false); 
+                      setQuestionSearchQuery("");
+                      setTimeout(() => {
+                        const element = document.getElementById(`q-card-${q.id}`);
+                        if (element) {
+                          element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          element.classList.add('ring-2', 'ring-blue-500', 'ring-offset-2', 'transition-all');
+                          setTimeout(() => element.classList.remove('ring-2', 'ring-blue-500', 'ring-offset-2', 'transition-all'), 2000);
+                        }
+                      }, 100);
+                    }}
+                    className="w-full text-left p-3 hover:bg-slate-50 rounded-xl flex gap-3 items-start transition-all cursor-pointer border-0 bg-transparent"
+                  >
+                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded shrink-0">R.{getQuestionCode(q)}</span>
+                    <span className="text-xs text-slate-700 font-medium line-clamp-2">{q.label || "Tanpa Label"}</span>
+                  </button>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Action Buttons */}
       {view === "form" && selectedActivity && !showSummaryModal && !selectedLogItem && !rejectionNoteItem && !confirmDialog.isOpen && !warningMessage && (
         <FloatingActions
           onSave={handleIntermediateSave}
           isReadOnly={isReadOnly}
+          onSearch={() => setShowSearchModal(true)}
         />
       )}
     </PetugasLayout>
@@ -6094,14 +6213,18 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 // -----------------------------------------------------------------------------
 // HELPER COMPONENT: Floating Action Buttons (Scroll to Top & Save)
 // -----------------------------------------------------------------------------
-function FloatingActions({ onSave, isReadOnly }) {
+function FloatingActions({ onSave, isReadOnly, onSearch }) {
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
+      const isAtBottom = window.innerHeight + window.scrollY >= document.body.offsetHeight - 50;
       setShowScrollTop(window.scrollY > 300);
+      setShowScrollBottom(document.body.offsetHeight > window.innerHeight && !isAtBottom);
     };
     window.addEventListener("scroll", handleScroll);
+    handleScroll();
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
@@ -6117,6 +6240,24 @@ function FloatingActions({ onSave, isReadOnly }) {
           <ChevronUp size={20} />
         </button>
       )}
+      {showScrollBottom && (
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })}
+          className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 flex items-center justify-center shadow-lg border border-solid border-slate-200 cursor-pointer animate-fade-in transition-all active:scale-95"
+          title="Ke Paling Bawah"
+        >
+          <ChevronDown size={20} />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={onSearch}
+        className="w-11 h-11 rounded-full bg-white hover:bg-slate-50 text-slate-500 hover:text-slate-700 flex items-center justify-center shadow-lg border border-solid border-slate-200 cursor-pointer transition-all active:scale-95"
+        title="Cari Pertanyaan"
+      >
+        <Search size={18} />
+      </button>
       {!isReadOnly && (
         <button
           type="button"

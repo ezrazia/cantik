@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Upload, Download, CheckCircle, Clock, AlertCircle, RefreshCcw, AlertTriangle } from "lucide-react";
+import { Upload, Download, CheckCircle, Clock, AlertCircle, RefreshCcw, AlertTriangle, Search, X, Filter } from "lucide-react";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
 import { api } from "../../services/api";
 import { offlineDB } from "../../services/offlineStorage";
@@ -101,6 +101,8 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
   const [localRtList, setLocalRtList] = useState([]);
   const [syncingAll, setSyncingAll] = useState(false);
   const [fetchingData, setFetchingData] = useState(false);
+  const [filterSyncStatus, setFilterSyncStatus] = useState("all");
+  const [syncSearchQuery, setSyncSearchQuery] = useState("");
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
 
@@ -1080,7 +1082,25 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
   const ditolak = localRtList.filter(rt => rt.review_status === "rejected");
 
   // Show both in queue: ready to send (tersimpan) and synced (terkirim)
-  const queueItems = localRtList.filter(rt => rt.status === "tersimpan" || rt.status === "terkirim");
+  const queueItems = localRtList.filter(rt => {
+    if (rt.status !== "tersimpan" && rt.status !== "terkirim") return false;
+    
+    if (filterSyncStatus !== "all") {
+      if (filterSyncStatus === "terkirim" && rt.status !== "terkirim") return false;
+      if (filterSyncStatus === "belum_dikirim" && rt.status !== "tersimpan") return false;
+    }
+
+    if (syncSearchQuery) {
+      const query = syncSearchQuery.toLowerCase();
+      const krtName = (rt.krt || "").toLowerCase();
+      const kodeDoc = (rt.kode || "").toLowerCase();
+      if (!krtName.includes(query) && !kodeDoc.includes(query)) {
+        return false;
+      }
+    }
+    
+    return true;
+  });
 
   const validateDocument = async (item) => {
     const sortBlocksNaturally = (blks) => {
@@ -2717,6 +2737,59 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
                   <h3 className="text-sm font-bold text-slate-900">Antrian Dokumen</h3>
                   <span className="text-[10px] font-bold text-blue-600 bg-blue-50 border border-solid border-blue-100/50 px-2.5 py-1 rounded-lg">{queueItems.length} Total</span>
                 </div>
+
+                {/* Filter and Search */}
+                <div className="mb-4 space-y-3 bg-slate-50 p-3 rounded-2xl border border-solid border-slate-100">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setFilterSyncStatus("all")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                        filterSyncStatus === "all" 
+                          ? "bg-blue-600 text-white border-blue-600 shadow-sm" 
+                          : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                      }`}
+                    >
+                      Semua
+                    </button>
+                    <button
+                      onClick={() => setFilterSyncStatus("terkirim")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer flex items-center gap-1.5 ${
+                        filterSyncStatus === "terkirim" 
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-sm" 
+                          : "bg-white text-emerald-600 border-emerald-200 hover:bg-emerald-50"
+                      }`}
+                    >
+                      <CheckCircle size={12} /> Terkirim
+                    </button>
+                    <button
+                      onClick={() => setFilterSyncStatus("belum_dikirim")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer flex items-center gap-1.5 ${
+                        filterSyncStatus === "belum_dikirim" 
+                          ? "bg-amber-600 text-white border-amber-600 shadow-sm" 
+                          : "bg-white text-amber-600 border-amber-200 hover:bg-amber-50"
+                      }`}
+                    >
+                      <Clock size={12} /> Belum Dikirim
+                    </button>
+                  </div>
+                  
+                  <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
+                    <Search size={14} className="text-slate-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      value={syncSearchQuery}
+                      onChange={e => setSyncSearchQuery(e.target.value)}
+                      className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0"
+                      placeholder="Cari berdasarkan Nama Kepala Keluarga atau ID/Kode Dokumen..."
+                    />
+                    {syncSearchQuery && (
+                      <button onClick={() => setSyncSearchQuery("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-655 cursor-pointer flex items-center p-0">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
                 <div className="space-y-3">
                   {queueItems.map(item => (
                     <div key={item.kode} className="bg-white p-4.5 rounded-2xl border border-solid border-slate-100 flex items-center gap-4 hover:border-blue-200 hover:shadow-md hover:shadow-blue-500/5 transition-all group">
