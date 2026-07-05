@@ -356,7 +356,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
 
   // Column Visibility States
   const [visibleColsGlobal, setVisibleColsGlobal] = useState(["Nama", "Username", "ID", "Asal Desa", "Nomor Telepon", "Kegiatan", "Status", "Aksi"]);
-  const [visibleColsLocal, setVisibleColsLocal] = useState(["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"]);
+  const [visibleColsLocal, setVisibleColsLocal] = useState(["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Status", "Aksi"]);
   const colDropdown = useDropdown("Kolom");
 
   // Sorting States
@@ -1650,9 +1650,9 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                 </div>
                               </th>
                             ))
-                        : ["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Sync Terakhir", "Status", "Aksi"]
+                        : ["Nama", "Petugas", "Lokus", "Progress Pencacahan", "Status", "Aksi"]
                             .filter(h => visibleColsLocal.includes(h))
-                            .filter(h => projectStatus !== 'draft' || !["Progress Pencacahan", "Sync Terakhir", "Status"].includes(h))
+                            .filter(h => projectStatus !== 'draft' || !["Progress Pencacahan", "Status"].includes(h))
                             .map(h => (
                               <th 
                                 key={h} 
@@ -1706,12 +1706,8 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                           {((isGlobal && visibleColsGlobal.includes("Nama")) || (!isGlobal && visibleColsLocal.includes("Nama"))) && (
                             <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
                               <div className="flex items-center gap-3 whitespace-nowrap">
-                                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-xs font-bold text-blue-600 flex-shrink-0">
-                                  {p.name.split(' ').map(n=>n[0]).join('')}
-                                </div>
                                 <div className="min-w-0">
                                   <p className="text-sm font-semibold text-slate-800 whitespace-nowrap truncate max-w-[150px]">{p.name}</p>
-                                  <p className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Petugas BPS</p>
                                 </div>
                               </div>
                             </td>
@@ -1778,7 +1774,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                           ) : (
                             <>
                               {visibleColsLocal.includes("Petugas") && (
-                                <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
+                                <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap w-[80px]">
                                   {(projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin ? (
                                     <select
                                       value={p.projectRoles?.[selectedProject] || "PCL"}
@@ -1913,10 +1909,10 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                       );
                                       if ((projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin) {
                                         return (
-                                          <div className="flex flex-wrap items-center gap-1 max-w-[260px] max-h-[68px] overflow-y-auto pr-1 custom-scrollbar">
+                                          <div className="flex flex-nowrap items-center gap-1 max-w-[260px] overflow-hidden pr-1">
                                             {/* Chips for supervised PCLs */}
-                                            {supervisedPcls.map(pcl => (
-                                              <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 rounded-full">
+                                            {supervisedPcls.slice(0, 3).map(pcl => (
+                                              <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 rounded-full flex-shrink-0">
                                                 {pcl.name.split(' ')[0]}
                                                 <button
                                                   onClick={() => handlePmlPclRemove(pcl.id)}
@@ -1927,6 +1923,11 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                                 </button>
                                               </span>
                                             ))}
+                                            {supervisedPcls.length > 3 && (
+                                              <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+                                                + {supervisedPcls.length - 3} lainnya
+                                              </span>
+                                            )}
                                             {/* Add PCL dropdown */}
                                             {availablePcls.length > 0 && (
                                               <select
@@ -1948,12 +1949,21 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         );
                                       } else {
                                         return (
-                                          <div className="flex flex-wrap gap-1 max-w-[260px] max-h-[68px] overflow-y-auto pr-1 custom-scrollbar">
-                                            {supervisedPcls.length > 0 ? supervisedPcls.map(pcl => (
-                                              <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-600 border border-purple-100/40 rounded-full">
-                                                <Users size={9}/> {pcl.name.split(' ')[0]}
-                                              </span>
-                                            )) : (
+                                          <div className="flex flex-nowrap items-center gap-1 max-w-[320px] pr-1">
+                                            {supervisedPcls.length > 0 ? (
+                                              <>
+                                                {supervisedPcls.slice(0, 3).map(pcl => (
+                                                  <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-600 border border-purple-100/40 rounded-full flex-shrink-0">
+                                                    <Users size={9}/> {pcl.name.split(' ')[0]}
+                                                  </span>
+                                                ))}
+                                                {supervisedPcls.length > 3 && (
+                                                  <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full whitespace-nowrap flex-shrink-0">
+                                                    + {supervisedPcls.length - 3} lainnya
+                                                  </span>
+                                                )}
+                                              </>
+                                            ) : (
                                               <span className="text-[10px] text-slate-400">Tidak ada PCL</span>
                                             )}
                                           </div>
@@ -1964,20 +1974,13 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                 </td>
                               )}
                               {visibleColsLocal.includes("Progress Pencacahan") && projectStatus !== "draft" && (
-                                <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
-                                  <div className="flex flex-col gap-0.5 justify-center">
-                                    <span className="text-xs font-semibold text-slate-700">{selesaiVal} Selesai</span>
-                                    {(activityAss.draft || 0) > 0 && (
-                                      <span className="text-[10px] text-slate-400 font-medium">{(activityAss.draft || 0)} Draft</span>
-                                    )}
-                                  </div>
-                                </td>
-                              )}
-                              {visibleColsLocal.includes("Sync Terakhir") && projectStatus !== "draft" && (
-                                <td className="px-6 py-4 border-t border-slate-100 mono text-xs text-slate-500 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                    <Smartphone size={12} className="text-slate-400"/>
-                                    <span>{p.sync}</span>
+                                <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap min-w-[350px]">
+                                  <div className="flex flex-nowrap gap-1.5 items-center w-max">
+                                    <span className="text-[10px] text-slate-600 font-bold bg-slate-100 border border-slate-200/50 px-1.5 py-0.5 rounded">{(activityAss.draft || 0)} Draft</span>
+                                    <span className="text-[10px] text-orange-600 font-bold bg-orange-50 border border-orange-100/50 px-1.5 py-0.5 rounded">{(activityAss.pending || 0)} Review</span>
+                                    <span className="text-[10px] text-red-600 font-bold bg-red-50 border border-red-100/50 px-1.5 py-0.5 rounded">{(activityAss.rejected || 0)} Ditolak</span>
+                                    <span className="text-[10px] text-purple-600 font-bold bg-purple-50 border border-purple-100/50 px-1.5 py-0.5 rounded">{(activityAss.tambahan || 0)} Tambahan</span>
+                                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-100/50 px-1.5 py-0.5 rounded">{selesaiVal} Selesai</span>
                                   </div>
                                 </td>
                               )}

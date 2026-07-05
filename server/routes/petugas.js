@@ -17,7 +17,9 @@ router.get('/', async (req, res) => {
         status: true,
         petugas_id: true,
         assigned_pcls: true,
-        assigned_pmls: true
+        assigned_pmls: true,
+        review_status: true,
+        is_prelist: true
       }
     });
 
@@ -54,8 +56,12 @@ router.get('/', async (req, res) => {
            (Array.isArray(d.assigned_pmls) && (d.assigned_pmls.includes(p.username) || d.assigned_pmls.includes(p.name))))
         );
         const target = docsForKegiatan.length;
-        const selesai = docsForKegiatan.filter(d => ['tersimpan', 'terkirim'].includes(d.status)).length;
-        const draft = docsForKegiatan.filter(d => d.status === 'draft').length;
+        const selesai = docsForKegiatan.filter(d => d.review_status === 'approved').length;
+        const draft = docsForKegiatan.filter(d => d.review_status === 'draft' && (d.status === 'draft' || d.status === 'tersimpan')).length;
+        const pending = docsForKegiatan.filter(d => d.review_status === 'draft' && d.status === 'terkirim').length;
+        const rejected = docsForKegiatan.filter(d => d.review_status === 'rejected').length;
+        const approved = docsForKegiatan.filter(d => d.review_status === 'approved').length;
+        const tambahan = docsForKegiatan.filter(d => d.is_prelist === false).length;
 
         let parsedSls = [];
         if (pk.sls_assignments) {
@@ -76,6 +82,10 @@ router.get('/', async (req, res) => {
           target,
           selesai,
           draft,
+          pending,
+          rejected,
+          approved,
+          tambahan,
         };
       });
 

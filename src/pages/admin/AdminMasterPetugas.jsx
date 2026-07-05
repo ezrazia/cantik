@@ -4,7 +4,7 @@ import { api } from "../../services/api";
 import useDropdown from "../../hooks/useDropdown";
 import { 
   Search, Plus, UserPlus, Users, CheckCircle, Clock, AlertTriangle, 
-  RefreshCw, ChevronDown, Check, X, Edit, Trash2, Smartphone, 
+  RefreshCw, ChevronDown, ChevronLeft, ChevronRight, Check, X, Edit, Trash2, Smartphone, 
   MapPin, Target, Send, Eye, Award, EyeOff, ArrowUpDown, SlidersHorizontal,
   User, Fingerprint, Phone, Briefcase, Lock, KeyRound
 } from "lucide-react";
@@ -57,6 +57,16 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
   const [showPassword, setShowPassword] = useState(false);
   const [showAddConfirm, setShowAddConfirm] = useState(false);
   const [formErrors, setFormErrors] = useState({});
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [viewMode, setViewMode] = useState("petugas"); // "petugas" | "kegiatan"
+  const [selectedActivityDetail, setSelectedActivityDetail] = useState(null);
+  const [showAssignModalKegiatan, setShowAssignModalKegiatan] = useState(false);
+  const [assignRole, setAssignRole] = useState("PML"); // "PML" | "PCL"
+  const [pmlSearch, setPmlSearch] = useState("");
+  const [pclSearch, setPclSearch] = useState("");
+  const [assignKegiatanSearch, setAssignKegiatanSearch] = useState("");
+  const [selectedAssignIds, setSelectedAssignIds] = useState([]);
   
   // State form petugas baru
   const [name, setName] = useState("");
@@ -207,6 +217,10 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
   // Dropdown for village filter (contextual view)
   const villageDropdown = useDropdown("Semua Desa");
   const villages = ["Semua Desa", ...dbDesa.map(d => d.name)];
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, filter, villageDropdown.selected, selectedProject]);
 
   // Dropdown for activities/projects filter (global view)
   const allProjects = activities ? activities.map(a => a.name) : [
@@ -365,6 +379,33 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
         : Number(bVal) - Number(aVal);
     }
   });
+
+  const paginatedData = filteredAndSearched.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+
+  // Data for Kegiatan view
+  const kegiatanDataRaw = (activities || []).map(act => {
+    const actPetugas = petugas.filter(p => p.projects?.includes(act.name));
+    const pmlList = actPetugas.filter(p => p.projectRoles?.[act.name] === "PML");
+    const pclList = actPetugas.filter(p => p.projectRoles?.[act.name] === "PCL" || p.projectRoles?.[act.name] === "PPL");
+    return {
+      ...act,
+      pmlList,
+      pclList
+    };
+  });
+
+  const searchedKegiatan = kegiatanDataRaw.filter(act => 
+    act.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (act.fokus && act.fokus.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
+  const paginatedKegiatan = searchedKegiatan.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
 
   // Menghitung statistik berdasarkan data terfilter desa
 
@@ -1271,34 +1312,33 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-3">
           {/* Kegiatan Dropdown or Status Tabs Filter */}
           {isGlobal ? (
-            <div className="relative">
+            <div className="flex items-center gap-2">
               <button 
-                onClick={projectFilterDropdown.toggle}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-semibold border border-slate-200 bg-white shadow-sm text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-all cursor-pointer whitespace-nowrap"
+                onClick={() => setViewMode("petugas")}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all cursor-pointer ${
+                  viewMode === "petugas" ? "bg-blue-600 text-white shadow-md shadow-blue-600/20 border-0" : "bg-white text-slate-500 hover:bg-slate-50 border border-slate-200"
+                }`}
               >
-                <span>Kegiatan: <span className="text-blue-600 font-bold ml-1">{projectFilterDropdown.selected}</span></span>
-                <ChevronDown size={14} className={`text-slate-400 transition-transform duration-200 flex-shrink-0 ${projectFilterDropdown.isOpen ? 'rotate-180' : ''}`}/>
+                Petugas
+                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                  viewMode === "petugas" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"
+                }`}>
+                  {petugas.length}
+                </span>
               </button>
-              
-              {projectFilterDropdown.isOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={projectFilterDropdown.close}/>
-                  <div className="absolute left-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-20 py-1 border border-slate-100 w-64" style={{ animation: 'scaleIn 0.15s ease' }}>
-                    {availableProjects.map(proj => (
-                      <button
-                        key={proj}
-                        onClick={() => projectFilterDropdown.select(proj)}
-                        className={`w-full px-4 py-2.5 text-left text-xs border-0 cursor-pointer transition-all flex items-center justify-between ${
-                          projectFilterDropdown.selected === proj ? 'bg-blue-50/50 text-blue-600 font-semibold' : 'bg-white text-slate-500 hover:bg-slate-50 font-medium'
-                        }`}
-                      >
-                        <span>{proj}</span>
-                        {projectFilterDropdown.selected === proj && <Check size={12} className="text-blue-600"/>}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
+              <button 
+                onClick={() => setViewMode("kegiatan")}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold transition-all cursor-pointer ${
+                  viewMode === "kegiatan" ? "bg-blue-600 text-white shadow-md shadow-blue-600/20 border-0" : "bg-white text-slate-500 hover:bg-slate-50 border border-slate-200"
+                }`}
+              >
+                Kegiatan
+                <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                  viewMode === "kegiatan" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"
+                }`}>
+                  {activities.length}
+                </span>
+              </button>
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -1405,7 +1445,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 className="text-sm outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium" 
-                placeholder="Cari petugas..."
+                placeholder={viewMode === "petugas" ? "Cari petugas..." : "Cari kegiatan..."}
               />
               {searchQuery && (
                 <button onClick={() => setSearchQuery("")} className="bg-transparent border-0 text-slate-400 hover:text-slate-600 cursor-pointer">
@@ -1421,8 +1461,10 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
           {/* Left / Main Table */}
           <div className={`transition-width w-full ${selectedPetugas ? "lg:max-w-[calc(100%-384px)]" : "lg:max-w-full"}`}>
             <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full border-separate border-spacing-0 min-w-[700px]">
+              {viewMode === "petugas" && (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-separate border-spacing-0 min-w-[700px]">
                   <thead>
                     <tr className="bg-slate-50/50">
                       {isGlobal 
@@ -1497,7 +1539,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredAndSearched.map((p, idx) => {
+                    {paginatedData.map((p, idx) => {
                       const activityAss = p.assignments?.[selectedProject] || {};
                       const targetVal = isGlobal ? p.target : (activityAss.target || 0);
                       const selesaiVal = isGlobal ? p.selesai : (activityAss.selesai || 0);
@@ -1514,15 +1556,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                           {/* Nama Column */}
                           {((isGlobal && visibleColsGlobal.includes("Nama")) || (!isGlobal && visibleColsLocal.includes("Nama"))) && (
                             <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
-                              <div className="flex items-center gap-3 whitespace-nowrap">
-                                <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-xs font-bold text-blue-600 flex-shrink-0">
-                                  {p.name.split(' ').map(n=>n[0]).join('')}
-                                </div>
-                                <div className="min-w-0">
-                                  <p className="text-sm font-semibold text-slate-800 whitespace-nowrap truncate max-w-[150px]">{p.name}</p>
-                                  <p className="text-[10px] text-slate-400 font-medium whitespace-nowrap">Petugas BPS</p>
-                                </div>
-                              </div>
+                              <p className="text-sm font-semibold text-slate-800 whitespace-nowrap truncate max-w-[150px]">{p.name}</p>
                             </td>
                           )}
 
@@ -1799,6 +1833,248 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              {filteredAndSearched.length > 0 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/30">
+                  <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
+                    <span>Tampilkan</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="bg-white border border-slate-200 rounded px-2 py-1 text-slate-700 font-semibold cursor-pointer outline-none focus:border-blue-500"
+                    >
+                      {[25, 50, 100].map(sz => (
+                        <option key={sz} value={sz}>{sz}</option>
+                      ))}
+                    </select>
+                    <span>baris per halaman</span>
+                  </div>
+
+                  <div className="text-xs text-slate-500 font-medium">
+                    Menampilkan <span className="font-semibold text-slate-700">{Math.min(filteredAndSearched.length, (currentPage - 1) * pageSize + 1)}</span> – <span className="font-semibold text-slate-700">{Math.min(filteredAndSearched.length, currentPage * pageSize)}</span> dari <span className="font-semibold text-slate-700">{filteredAndSearched.length}</span> data
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      <ChevronLeft size={15} />
+                    </button>
+                    
+                    {(() => {
+                      const totalPages = Math.ceil(filteredAndSearched.length / pageSize);
+                      const pages = [];
+                      for (let i = 1; i <= totalPages; i++) {
+                        if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                          pages.push(i);
+                        } else if (pages[pages.length - 1] !== '...') {
+                          pages.push('...');
+                        }
+                      }
+                      return pages.map((p, idx) => {
+                        if (p === '...') {
+                          return <span key={`dots-${idx}`} className="px-2 text-slate-400 text-xs font-semibold">...</span>;
+                        }
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCurrentPage(p)}
+                            className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              currentPage === p
+                                ? "bg-blue-600 text-white border-0 shadow-sm"
+                                : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-blue-600"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        );
+                      });
+                    })()}
+
+                    <button
+                      type="button"
+                      disabled={currentPage >= Math.ceil(filteredAndSearched.length / pageSize)}
+                      onClick={() => setCurrentPage(prev => Math.min(Math.ceil(filteredAndSearched.length / pageSize), prev + 1))}
+                      className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                </div>
+              )}
+                </>
+              )}
+              {viewMode === "kegiatan" && (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-separate border-spacing-0 min-w-[700px]">
+                  <thead>
+                    <tr className="bg-slate-50/50">
+                      <th className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-semibold tracking-wider uppercase">Nama Kegiatan</th>
+                      <th className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-semibold tracking-wider uppercase">Fokus</th>
+                      <th className="px-6 py-3.5 text-center text-[11px] text-slate-400 font-semibold tracking-wider uppercase">Jumlah PML</th>
+                      <th className="px-6 py-3.5 text-center text-[11px] text-slate-400 font-semibold tracking-wider uppercase">Jumlah PCL</th>
+                      <th className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-semibold tracking-wider uppercase">PML</th>
+                      <th className="px-6 py-3.5 text-left text-[11px] text-slate-400 font-semibold tracking-wider uppercase">PCL</th>
+                      <th className="px-6 py-3.5 text-center text-[11px] text-slate-400 font-semibold tracking-wider uppercase">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedKegiatan.map((act) => (
+                      <tr key={act.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
+                          <p className="text-sm font-semibold text-slate-800 whitespace-nowrap truncate max-w-[200px]">{act.name}</p>
+                        </td>
+                        <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
+                          <span className="text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-1 rounded-md">{act.fokus || "-"}</span>
+                        </td>
+                        <td className="px-6 py-4 border-t border-slate-100 text-center">
+                          <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2 py-1 rounded-md border border-purple-100/50">{act.pmlList.length}</span>
+                        </td>
+                        <td className="px-6 py-4 border-t border-slate-100 text-center">
+                          <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md border border-blue-100/50">{act.pclList.length}</span>
+                        </td>
+                        <td className="px-6 py-4 border-t border-slate-100">
+                          <div className="flex items-center flex-nowrap overflow-hidden max-w-[220px] gap-1">
+                            {act.pmlList.slice(0, 3).map(p => (
+                              <span key={p.id} className="text-[10px] font-semibold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-100/50 truncate max-w-[80px]">
+                                {p.name}
+                              </span>
+                            ))}
+                            {act.pmlList.length > 3 && (
+                              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
+                                + {act.pmlList.length - 3} lainnya
+                              </span>
+                            )}
+                            {act.pmlList.length === 0 && <span className="text-xs text-slate-400 italic">-</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 border-t border-slate-100">
+                          <div className="flex items-center flex-nowrap overflow-hidden max-w-[220px] gap-1">
+                            {act.pclList.slice(0, 3).map(p => (
+                              <span key={p.id} className="text-[10px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100/50 truncate max-w-[80px]">
+                                {p.name}
+                              </span>
+                            ))}
+                            {act.pclList.length > 3 && (
+                              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0">
+                                + {act.pclList.length - 3} lainnya
+                              </span>
+                            )}
+                            {act.pclList.length === 0 && <span className="text-xs text-slate-400 italic">-</span>}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 border-t border-slate-100 text-center">
+                          <button 
+                            onClick={() => {
+                              setSelectedActivityDetail(act);
+                              setPmlSearch("");
+                              setPclSearch("");
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors border-0 cursor-pointer bg-transparent"
+                            title="Lihat Detail"
+                          >
+                            <Eye size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {paginatedKegiatan.length === 0 && (
+                      <tr>
+                        <td colSpan="7" className="px-6 py-12 text-center text-slate-500 border-t border-slate-100">
+                          Tidak ada kegiatan yang ditemukan
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+                  </div>
+
+              {/* Kegiatan Pagination */}
+              {kegiatanDataRaw.length > 0 && (
+                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-slate-500 font-medium">Tampilkan</span>
+                    <select
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                      className="bg-white border border-slate-200 text-slate-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block px-2.5 py-1.5 outline-none cursor-pointer"
+                    >
+                      <option value="25">25 baris</option>
+                      <option value="50">50 baris</option>
+                      <option value="100">100 baris</option>
+                    </select>
+                  </div>
+
+                  <div className="text-xs text-slate-500 font-medium">
+                    Menampilkan <span className="font-semibold text-slate-700">{Math.min(searchedKegiatan.length, (currentPage - 1) * pageSize + 1)}</span> – <span className="font-semibold text-slate-700">{Math.min(searchedKegiatan.length, currentPage * pageSize)}</span> dari <span className="font-semibold text-slate-700">{searchedKegiatan.length}</span> data
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      <ChevronLeft size={15} />
+                    </button>
+                    
+                    {(() => {
+                      const totalPages = Math.ceil(searchedKegiatan.length / pageSize);
+                      const pages = [];
+                      for (let i = 1; i <= totalPages; i++) {
+                        if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                          pages.push(i);
+                        } else if (pages[pages.length - 1] !== '...') {
+                          pages.push('...');
+                        }
+                      }
+                      return pages.map((p, idx) => {
+                        if (p === '...') {
+                          return <span key={`dots-${idx}`} className="px-2 text-slate-400 text-xs font-semibold">...</span>;
+                        }
+                        return (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setCurrentPage(p)}
+                            className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                              currentPage === p
+                                ? "bg-blue-600 text-white border-0 shadow-sm"
+                                : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-blue-600"
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        );
+                      });
+                    })()}
+
+                    <button
+                      type="button"
+                      disabled={currentPage >= Math.ceil(searchedKegiatan.length / pageSize)}
+                      onClick={() => setCurrentPage(prev => Math.min(Math.ceil(searchedKegiatan.length / pageSize), prev + 1))}
+                      className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 transition-all cursor-pointer"
+                    >
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                </div>
+              )}
+                </>
+              )}
             </div>
           </div>
 
@@ -2768,6 +3044,293 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Detail Kegiatan Modal */}
+      {selectedActivityDetail && !showAssignModalKegiatan && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-50 p-6"
+          style={{ animation: 'fadeIn 0.25s ease' }}
+          onClick={() => setSelectedActivityDetail(null)}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-4xl shadow-lg flex flex-col max-h-[90vh]"
+            style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
+                  <Briefcase size={20} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">{selectedActivityDetail.name}</h3>
+                  <div className="flex items-center gap-3 text-xs mt-1">
+                    <span className="font-medium text-slate-500">Fokus: {selectedActivityDetail.fokus || "-"}</span>
+                    <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                    <span className="font-semibold text-purple-600">{selectedActivityDetail.pmlList.length} PML</span>
+                    <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                    <span className="font-semibold text-blue-600">{selectedActivityDetail.pclList.length} PCL</span>
+                  </div>
+                </div>
+              </div>
+              <button 
+                onClick={() => setSelectedActivityDetail(null)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-500 cursor-pointer border-0 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
+              {/* PML Column */}
+              <div className="flex-1 border-r border-slate-100 flex flex-col min-h-0 bg-slate-50/30">
+                <div className="p-4 border-b border-slate-100 bg-white">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                      Daftar PML
+                    </h4>
+                    <span className="text-[10px] font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                      {selectedActivityDetail.pmlList.length}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                      type="text" 
+                      value={pmlSearch}
+                      onChange={e => setPmlSearch(e.target.value)}
+                      placeholder="Cari nama PML..." 
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-purple-500 transition-all bg-slate-50"
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {selectedActivityDetail.pmlList
+                    .filter(p => p.name.toLowerCase().includes(pmlSearch.toLowerCase()))
+                    .map(p => (
+                    <div key={p.id} className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
+                      <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs">
+                        {p.name.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">Desa {p.desa}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {selectedActivityDetail.pmlList.length === 0 && (
+                    <div className="text-center py-8 text-xs text-slate-400">Belum ada PML.</div>
+                  )}
+                </div>
+                <div className="p-4 border-t border-slate-100 bg-white">
+                  <button 
+                    onClick={() => {
+                      setAssignRole("PML");
+                      setAssignKegiatanSearch("");
+                      setSelectedAssignIds([]);
+                      setShowAssignModalKegiatan(true);
+                    }}
+                    className="w-full py-2.5 text-xs font-bold text-purple-600 bg-purple-50 hover:bg-purple-100 rounded-xl border-0 cursor-pointer transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus size={14} /> Assign PML
+                  </button>
+                </div>
+              </div>
+
+              {/* PCL Column */}
+              <div className="flex-1 flex flex-col min-h-0 bg-slate-50/30">
+                <div className="p-4 border-b border-slate-100 bg-white">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-bold text-slate-700 text-sm flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                      Daftar PCL
+                    </h4>
+                    <span className="text-[10px] font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                      {selectedActivityDetail.pclList.length}
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input 
+                      type="text" 
+                      value={pclSearch}
+                      onChange={e => setPclSearch(e.target.value)}
+                      placeholder="Cari nama PCL..." 
+                      className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-all bg-slate-50"
+                    />
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                  {selectedActivityDetail.pclList
+                    .filter(p => p.name.toLowerCase().includes(pclSearch.toLowerCase()))
+                    .map(p => (
+                    <div key={p.id} className="flex items-center gap-3 p-3 bg-white border border-slate-100 rounded-xl shadow-sm">
+                      <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
+                        {p.name.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
+                        <p className="text-[10px] text-slate-500 mt-0.5 truncate">Desa {p.desa}</p>
+                      </div>
+                    </div>
+                  ))}
+                  {selectedActivityDetail.pclList.length === 0 && (
+                    <div className="text-center py-8 text-xs text-slate-400">Belum ada PCL.</div>
+                  )}
+                </div>
+                <div className="p-4 border-t border-slate-100 bg-white">
+                  <button 
+                    onClick={() => {
+                      setAssignRole("PCL");
+                      setAssignKegiatanSearch("");
+                      setSelectedAssignIds([]);
+                      setShowAssignModalKegiatan(true);
+                    }}
+                    className="w-full py-2.5 text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-xl border-0 cursor-pointer transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus size={14} /> Assign PCL
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Petugas (Kegiatan) Modal */}
+      {showAssignModalKegiatan && selectedActivityDetail && (
+        <div className="fixed inset-0 bg-slate-900/30 backdrop-blur-sm flex items-center justify-center z-[60] p-6"
+          style={{ animation: 'fadeIn 0.25s ease' }}
+          onClick={() => setShowAssignModalKegiatan(false)}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl flex flex-col max-h-[90vh]"
+            style={{ animation: 'slideUp 0.3s cubic-bezier(0.16,1,0.3,1)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">Assign {assignRole}</h3>
+                <p className="text-xs text-slate-500 mt-1">Kegiatan: {selectedActivityDetail.name}</p>
+              </div>
+              <button 
+                onClick={() => setShowAssignModalKegiatan(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-slate-500 cursor-pointer border-0"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-4 border-b border-slate-100 bg-slate-50/50">
+              <div className="relative">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input 
+                  type="text" 
+                  value={assignKegiatanSearch}
+                  onChange={e => setAssignKegiatanSearch(e.target.value)}
+                  placeholder="Cari petugas..." 
+                  className="w-full pl-10 pr-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all bg-white"
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {(() => {
+                const unassignedForActivity = petugas.filter(p => {
+                  return !selectedActivityDetail.pmlList.some(pml => pml.id === p.id) &&
+                         !selectedActivityDetail.pclList.some(pcl => pcl.id === p.id);
+                });
+                const searchedUnassigned = unassignedForActivity.filter(p => 
+                  p.name.toLowerCase().includes(assignKegiatanSearch.toLowerCase()) || 
+                  p.desa.toLowerCase().includes(assignKegiatanSearch.toLowerCase())
+                );
+
+                if (searchedUnassigned.length === 0) {
+                  return <div className="text-center py-8 text-sm text-slate-500">Tidak ada petugas yang tersedia.</div>;
+                }
+
+                return searchedUnassigned.map(p => {
+                  const isChecked = selectedAssignIds.includes(p.id);
+                  return (
+                    <div 
+                      key={p.id} 
+                      onClick={() => {
+                        setSelectedAssignIds(prev => 
+                          prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id]
+                        );
+                      }}
+                      className={`flex items-center justify-between p-4 border rounded-2xl cursor-pointer transition-all ${
+                        isChecked ? (assignRole === "PML" ? "border-purple-500 bg-white shadow-[0_0_0_1px_rgba(168,85,247,1)]" : "border-blue-500 bg-white shadow-[0_0_0_1px_rgba(59,130,246,1)]") : "border-slate-200 hover:bg-slate-50 bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${
+                          isChecked ? (assignRole === "PML" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700") : "bg-slate-100 text-slate-500"
+                        }`}>
+                          {p.name.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-800 text-[15px]">{p.name}</p>
+                          <p className="text-[13px] text-slate-500 uppercase font-medium mt-0.5">Desa {p.desa}</p>
+                        </div>
+                      </div>
+                      <div className={`w-6 h-6 rounded-full border-[1.5px] flex items-center justify-center transition-colors ${
+                        isChecked 
+                          ? (assignRole === "PML" ? "bg-purple-600 border-purple-600" : "bg-blue-600 border-blue-600") 
+                          : "border-slate-300 bg-white"
+                      }`}>
+                        {isChecked && <Check size={14} strokeWidth={3} className="text-white" />}
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            <div className="p-4 border-t border-slate-100 flex items-center justify-between bg-slate-50">
+              <span className="text-xs font-bold text-slate-500">{selectedAssignIds.length} petugas dipilih</span>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => setShowAssignModalKegiatan(false)}
+                  className="px-4 py-2 text-sm font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button 
+                  onClick={async () => {
+                    if (window.confirm(`Apakah Anda yakin ingin mendaftarkan ${selectedAssignIds.length} petugas sebagai ${assignRole}?`)) {
+                      try {
+                        for (const pid of selectedAssignIds) {
+                          await api.petugas.assign({
+                            petugas_id: pid,
+                            kegiatan_id: selectedActivityDetail.id,
+                            role: assignRole,
+                            sls_assignments: [],
+                            pengawas: ""
+                          });
+                        }
+                        await refreshData();
+                        setShowAssignModalKegiatan(false);
+                        setSelectedActivityDetail(null);
+                      } catch (err) {
+                        alert("Gagal assign petugas: " + err.message);
+                      }
+                    }
+                  }}
+                  disabled={selectedAssignIds.length === 0}
+                  className={`px-5 py-2 text-sm font-bold text-white rounded-xl border-0 flex items-center gap-2 cursor-pointer transition-colors ${
+                    selectedAssignIds.length === 0 
+                      ? "bg-slate-300 cursor-not-allowed" 
+                      : (assignRole === "PML" ? "bg-purple-600 hover:bg-purple-700 shadow-sm shadow-purple-200" : "bg-blue-600 hover:bg-blue-700 shadow-sm shadow-blue-200")
+                  }`}
+                >
+                  <Check size={16} /> Assign {selectedAssignIds.length} {assignRole}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

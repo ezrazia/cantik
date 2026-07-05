@@ -20,6 +20,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   const [desaStats, setDesaStats] = useState([]);
   const [dashboardStats, setDashboardStats] = useState(null);
   const [localLoading, setLocalLoading] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
 
   const fetchStats = async () => {
     if (!activeActivity) return;
@@ -53,7 +54,17 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
       await refreshData();
     }
     await fetchStats();
+    setLastUpdated(new Date());
   };
+
+  const formattedDate = new Intl.DateTimeFormat('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(lastUpdated).replace(/\./g, ':');
 
   const isLoading = loading || localLoading;
 
@@ -298,7 +309,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                   </>
                 )}
               </div>
-              <span className="hidden sm:inline text-xs text-slate-300 ml-1">Minggu, 10 Mei 2026</span>
+              <span className="hidden sm:inline text-xs text-slate-400 font-medium ml-1">{formattedDate}</span>
             </div>
           </div>
 
@@ -505,8 +516,11 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
             </div>
             
             {/* Legend */}
-            <div className="px-6 pt-4 pb-2 flex gap-x-3 text-[10px] font-medium text-slate-500">
+            <div className="px-6 pt-4 pb-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] font-medium text-slate-500">
               <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500"/> Selesai</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-orange-400"/> Review</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500"/> Ditolak</span>
+              <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-purple-500"/> Tambahan</span>
               <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-300"/> Draft</span>
             </div>
 
@@ -522,12 +536,21 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                   .map(p => {
                     const assignment = p.assignments?.[selectedProject] || p.assignments?.[p.projects?.[0]];
                     const pSelesai = assignment?.selesai || p.selesai || 0;
+                    const pPending = assignment?.pending || 0;
+                    const pRejected = assignment?.rejected || 0;
+                    const pTambahan = assignment?.tambahan || 0;
                     const pDraft = assignment?.draft || p.draft || 0;
-                    const max = Math.max(pSelesai + pDraft, 1);
+                    
+                    const totalBar = pSelesai + pPending + pRejected + pTambahan + pDraft;
+                    const max = Math.max(totalBar, 1);
+                    
                     const pctSelesai = (pSelesai / max) * 100;
+                    const pctPending = (pPending / max) * 100;
+                    const pctRejected = (pRejected / max) * 100;
+                    const pctTambahan = (pTambahan / max) * 100;
                     const pctDraft = (pDraft / max) * 100;
                     
-                    const tooltipText = `Petugas: ${p.name}\nTotal: ${pSelesai + pDraft}\nSelesai: ${pSelesai}\nDraft: ${pDraft}`;
+                    const tooltipText = `Petugas: ${p.name}\nTotal Bar: ${totalBar}\nSelesai: ${pSelesai}\nReview: ${pPending}\nDitolak: ${pRejected}\nTambahan: ${pTambahan}\nDraft: ${pDraft}`;
 
                     return (
                       <div key={p.name} className="flex flex-col gap-1.5">
@@ -539,10 +562,13 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
                             <span className="text-xs font-semibold text-slate-700 truncate max-w-[120px]" title={p.name}>{p.name}</span>
                             <span className="text-[10px] text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded truncate max-w-[100px]">{p.desa}</span>
                           </div>
-                          <span className="mono text-[10px] font-semibold text-slate-400">{pSelesai + pDraft} Dokumen</span>
+                          <span className="mono text-[10px] font-semibold text-slate-400">{assignment?.target || totalBar} Dokumen</span>
                         </div>
                         <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden flex w-full cursor-help" title={tooltipText}>
                           {pSelesai > 0 && <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pctSelesai}%` }} />}
+                          {pPending > 0 && <div className="h-full bg-orange-400 transition-all" style={{ width: `${pctPending}%` }} />}
+                          {pRejected > 0 && <div className="h-full bg-red-500 transition-all" style={{ width: `${pctRejected}%` }} />}
+                          {pTambahan > 0 && <div className="h-full bg-purple-500 transition-all" style={{ width: `${pctTambahan}%` }} />}
                           {pDraft > 0 && <div className="h-full bg-slate-300 transition-all" style={{ width: `${pctDraft}%` }} />}
                         </div>
                       </div>

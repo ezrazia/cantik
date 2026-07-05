@@ -131,17 +131,32 @@ TRUNCATE TABLE "dokumen_log", "dokumen_jawaban", "dokumen", "form_question", "fo
     }
 
     for (const tInfo of TABLES) {
-      const rows = await prisma[tInfo.model].findMany();
-      if (rows.length > 0) {
-        sqlDump += `-- Data for table: ${tInfo.table}\n`;
-        const columns = tInfo.fields;
+      // First, get total count to see if we even have data
+      const count = await prisma[tInfo.model].count();
+      if (count === 0) continue;
+
+      sqlDump += `-- Data for table: ${tInfo.table}\n`;
+      const columns = tInfo.fields;
+      let offset = 0;
+      const limit = 2000;
+      
+      while (true) {
+        const rows = await prisma[tInfo.model].findMany({
+          skip: offset,
+          take: limit,
+          orderBy: { id: 'asc' } // Ensure deterministic ordering
+        });
+
+        if (rows.length === 0) break;
         
         for (const row of rows) {
           const vals = columns.map(col => formatValue(row[col]));
           sqlDump += `INSERT INTO "${tInfo.table}" (${columns.map(c => `"${c}"`).join(', ')}) VALUES (${vals.join(', ')});\n`;
         }
-        sqlDump += `\n`;
+        
+        offset += limit;
       }
+      sqlDump += `\n`;
     }
 
     sqlDump += `SET session_replication_role = 'origin';\n\n`;

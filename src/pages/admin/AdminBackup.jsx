@@ -278,7 +278,7 @@ export default function AdminBackup({
         </div>
 
         {/* Action Panel Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           
           {/* Create Backup Box */}
           <div className="bg-white rounded-2xl border border-solid border-slate-100 shadow-sm p-6 hover:shadow-md transition-all flex flex-col justify-between">
@@ -361,13 +361,64 @@ export default function AdminBackup({
               </p>
             </div>
           </div>
+
+          {/* Logs panel - Takes 1 col */}
+          <div className="bg-white rounded-2xl border border-solid border-slate-100 shadow-sm flex flex-col">
+            <div className="px-6 py-4.5 border-b border-solid border-slate-50">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <Activity size={16} className="text-blue-500 animate-pulse" />
+                Log Aktivitas Backup
+              </h3>
+            </div>
+            
+            <div className="flex-1 max-h-[350px] overflow-y-auto p-4 space-y-4">
+              {logs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-center py-10">
+                  <FileText size={32} className="text-slate-200 mb-1" />
+                  <p className="text-[11px] font-semibold text-slate-400">Tidak ada log aktivitas</p>
+                </div>
+              ) : (
+                logs.map((log) => (
+                  <div key={log.id} className="text-xs border border-solid border-slate-100 rounded-xl p-3 bg-slate-50/30 hover:bg-slate-50 transition-all space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold border uppercase tracking-wider ${getActionBadgeColor(log.action)}`}>
+                        {log.action}
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-medium flex items-center gap-1">
+                        <Clock size={10} />
+                        {new Date(log.timestamp).toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </span>
+                    </div>
+                    <p className="font-semibold text-slate-800 leading-snug">{log.message}</p>
+                    {log.details && (
+                      <p className="text-[10px] text-slate-400 font-medium break-all whitespace-pre-wrap">{log.details}</p>
+                    )}
+                    <div className="flex items-center gap-1.5">
+                      {log.status === "success" ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600">
+                          <CheckCircle2 size={10} /> BERHASIL
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-rose-600">
+                          <XCircle size={10} /> GAGAL
+                        </span>
+                      )}
+                      <span className="text-[9px] text-slate-350">—</span>
+                      <span className="text-[9px] text-slate-400 font-medium">
+                        {new Date(log.timestamp).toLocaleDateString("id-ID", { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* Lower Grid: History and Logs */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Lower Section: History List Table */}
+        <div className="w-full">
           
-          {/* History List Table - Takes 2 cols on Large screen */}
-          <div className="lg:col-span-2 bg-white rounded-2xl border border-solid border-slate-100 shadow-sm overflow-hidden flex flex-col justify-between">
+          <div className="w-full bg-white rounded-2xl border border-solid border-slate-100 shadow-sm overflow-hidden flex flex-col justify-between">
             <div>
               <div className="px-6 py-4.5 border-b border-solid border-slate-50 flex items-center justify-between">
                 <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
@@ -455,59 +506,6 @@ export default function AdminBackup({
               </span>
             </div>
           </div>
-
-          {/* Logs panel - Takes 1 col */}
-          <div className="bg-white rounded-2xl border border-solid border-slate-100 shadow-sm flex flex-col">
-            <div className="px-6 py-4.5 border-b border-solid border-slate-50">
-              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
-                <Activity size={16} className="text-blue-500 animate-pulse" />
-                Log Aktivitas Backup
-              </h3>
-            </div>
-            
-            <div className="flex-1 max-h-[350px] overflow-y-auto p-4 space-y-4">
-              {logs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-center py-10">
-                  <FileText size={32} className="text-slate-200 mb-1" />
-                  <p className="text-[11px] font-semibold text-slate-400">Tidak ada log aktivitas</p>
-                </div>
-              ) : (
-                logs.map((log) => (
-                  <div key={log.id} className="text-xs border border-solid border-slate-100 rounded-xl p-3 bg-slate-50/30 hover:bg-slate-50 transition-all space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className={`px-2 py-0.5 rounded-md text-[9px] font-bold border uppercase tracking-wider ${getActionBadgeColor(log.action)}`}>
-                        {log.action}
-                      </span>
-                      <span className="text-[9px] text-slate-400 font-medium flex items-center gap-1">
-                        <Clock size={10} />
-                        {new Date(log.timestamp).toLocaleTimeString("id-ID", { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </span>
-                    </div>
-                    <p className="font-semibold text-slate-800 leading-snug">{log.message}</p>
-                    {log.details && (
-                      <p className="text-[10px] text-slate-400 font-medium break-all whitespace-pre-wrap">{log.details}</p>
-                    )}
-                    <div className="flex items-center gap-1.5">
-                      {log.status === "success" ? (
-                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-emerald-600">
-                          <CheckCircle2 size={10} /> BERHASIL
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-[9px] font-bold text-rose-600">
-                          <XCircle size={10} /> GAGAL
-                        </span>
-                      )}
-                      <span className="text-[9px] text-slate-350">—</span>
-                      <span className="text-[9px] text-slate-400 font-medium">
-                        {new Date(log.timestamp).toLocaleDateString("id-ID", { month: 'short', day: 'numeric' })}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
         </div>
       </div>
     </AdminLayout>

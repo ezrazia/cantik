@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { Database, Download, Sliders, CheckCircle, RefreshCw, X, Table, Info, ChevronDown, AlertTriangle } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, ComposedChart } from "recharts";
 import { api, API_BASE } from "../../services/api";
 
 const COLORS = ["#2563eb", "#7c3aed", "#10b981", "#f59e0b", "#e11d48", "#06b6d4"];
@@ -17,6 +17,14 @@ export default function AdminTabulasi({
   const [rowVar, setRowVar] = useState("desa");
   const [colVar, setColVar] = useState("desa");
   const [metric, setMetric] = useState("count");
+  const [chartType, setChartType] = useState("vertical_bar");
+
+  // Prevent box plot when metric is count
+  useEffect(() => {
+    if (metric === "count" && chartType === "box") {
+      setChartType("vertical_bar");
+    }
+  }, [metric, chartType]);
 
   // State to hold data loaded from backend
   const [cleanData, setCleanData] = useState([]);
@@ -29,6 +37,8 @@ export default function AdminTabulasi({
   // Dropdown open states
   const [isRowDropdownOpen, setIsRowDropdownOpen] = useState(false);
   const [isColDropdownOpen, setIsColDropdownOpen] = useState(false);
+  const [rowSearch, setRowSearch] = useState("");
+  const [colSearch, setColSearch] = useState("");
 
   // Real-time notification states
   const [showToast, setShowToast] = useState(false);
@@ -46,17 +56,43 @@ export default function AdminTabulasi({
   const activityStatus = currentActivity ? currentActivity.status : "draft";
 
   // Fetch clean tabulation data when activity changes or a real-time sync updates data
-  useEffect(() => {
+  const fetchTabulationData = async () => {
     if (!currentActivity?.id) {
       setCleanData([]);
       setQuestions([]);
       return;
     }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.tabulasi.getData(currentActivity.id);
+      if (res.success) {
+        setCleanData(res.cleanData || []);
+        setQuestions(res.questions || []);
+      } else {
+        setError(res.message || "Gagal memuat data tabulasi");
+      }
+    } catch (err) {
+      setError(err.message || "Gagal menghubungi server");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     let isMounted = true;
-    const fetchTabulationData = async () => {
-      setLoading(true);
-      setError(null);
+    
+    // We wrap fetch to handle component unmount safely
+    const load = async () => {
+      if (!currentActivity?.id) {
+        if (isMounted) {
+          setCleanData([]);
+          setQuestions([]);
+        }
+        return;
+      }
+      if (isMounted) setLoading(true);
+      if (isMounted) setError(null);
       try {
         const res = await api.tabulasi.getData(currentActivity.id);
         if (isMounted) {
@@ -77,8 +113,8 @@ export default function AdminTabulasi({
         }
       }
     };
-
-    fetchTabulationData();
+    
+    load();
 
     return () => {
       isMounted = false;
@@ -299,6 +335,42 @@ export default function AdminTabulasi({
     return item;
   });
 
+  // Calculate Box Plot Data
+  const getBoxPlotData = () => {
+    if (metric === "count") return [];
+    
+    const qIdKey = metric.replace("avg_", "");
+    
+    return rowValues.map(rVal => {
+      const matches = cleanData.filter(d => String(d[rowVar]) === String(rVal));
+      const rawValues = matches.map(d => Number(d[qIdKey])).filter(v => !isNaN(v)).sort((a, b) => a - b);
+      
+      if (rawValues.length === 0) return { name: rVal, min: 0, q1: 0, median: 0, q3: 0, max: 0 };
+      
+      const getQuantile = (q) => {
+        const pos = (rawValues.length - 1) * q;
+        const base = Math.floor(pos);
+        const rest = pos - base;
+        if (rawValues[base + 1] !== undefined) {
+          return rawValues[base] + rest * (rawValues[base + 1] - rawValues[base]);
+        } else {
+          return rawValues[base];
+        }
+      };
+      
+      return {
+        name: rVal,
+        min: rawValues[0],
+        q1: getQuantile(0.25),
+        median: getQuantile(0.5),
+        q3: getQuantile(0.75),
+        max: rawValues[rawValues.length - 1]
+      };
+    });
+  };
+  
+  const boxPlotData = getBoxPlotData();
+
   // Dynamic presets based on the loaded questions schema
   const getDynamicPresets = () => {
     const presets = [];
@@ -459,7 +531,7 @@ export default function AdminTabulasi({
         )}
 
         {/* Header Section */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-8 gap-4 pb-5 border-b border-solid border-slate-100">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between mb-5 gap-4 pb-4 border-b border-solid border-slate-100">
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
@@ -487,6 +559,14 @@ export default function AdminTabulasi({
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={fetchTabulationData}
+              disabled={loading}
+              title="Refresh Data Tabulasi"
+              className="flex items-center justify-center p-2.5 text-slate-500 hover:text-blue-600 bg-white hover:bg-blue-50 border border-solid border-slate-200 hover:border-blue-200 rounded-xl cursor-pointer shadow-sm hover:shadow transition-all disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            </button>
             <button
               onClick={handleExportExcelRaw}
               disabled={loading || error || cleanData.length === 0}
@@ -584,25 +664,40 @@ export default function AdminTabulasi({
                   {isRowDropdownOpen && (
                     <>
                       <div className="fixed inset-0 z-20" onClick={() => setIsRowDropdownOpen(false)} />
-                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-30 py-1 border border-solid border-slate-100 w-full animate-fade max-h-60 overflow-y-auto"
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-30 py-2 border border-solid border-slate-100 w-full animate-fade max-h-64 flex flex-col"
                         style={{ animation: 'scaleIn 0.15s ease' }}
                       >
-                        {rowOptions.map((opt) => (
-                          <button
-                            key={opt.value}
-                            onClick={() => {
-                              setRowVar(opt.value);
-                              setIsRowDropdownOpen(false);
-                            }}
-                            className={`w-full px-4 py-2 text-left text-xs border-0 cursor-pointer transition-all block ${
-                              rowVar === opt.value
-                                ? "bg-blue-50 text-blue-600 font-semibold"
-                                : "bg-white text-slate-500 hover:bg-slate-50 font-medium"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                        <div className="px-3 pb-2 border-b border-solid border-slate-100">
+                          <input
+                            type="text"
+                            placeholder="Cari rincian..."
+                            value={rowSearch}
+                            onChange={(e) => setRowSearch(e.target.value)}
+                            className="w-full bg-slate-50 border border-solid border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="overflow-y-auto flex-1">
+                          {rowOptions
+                            .filter(opt => opt.label.toLowerCase().includes(rowSearch.toLowerCase()) || opt.value.toLowerCase().includes(rowSearch.toLowerCase()))
+                            .map((opt) => (
+                              <button
+                                key={opt.value}
+                                onClick={() => {
+                                  setRowVar(opt.value);
+                                  setIsRowDropdownOpen(false);
+                                  setRowSearch("");
+                                }}
+                                className={`w-full px-4 py-2 text-left text-xs border-0 cursor-pointer transition-all block ${
+                                  rowVar === opt.value
+                                    ? "bg-blue-50 text-blue-600 font-semibold"
+                                    : "bg-white text-slate-500 hover:bg-slate-50 font-medium"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                          ))}
+                        </div>
                       </div>
                     </>
                   )}
@@ -624,25 +719,40 @@ export default function AdminTabulasi({
                   {isColDropdownOpen && (
                     <>
                       <div className="fixed inset-0 z-20" onClick={() => setIsColDropdownOpen(false)} />
-                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-30 py-1 border border-solid border-slate-100 w-full animate-fade max-h-60 overflow-y-auto"
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-white rounded-xl shadow-lg z-30 py-2 border border-solid border-slate-100 w-full animate-fade max-h-64 flex flex-col"
                         style={{ animation: 'scaleIn 0.15s ease' }}
                       >
-                        {colOptions.map((opt) => (
-                          <button
-                            key={opt.value}
-                            onClick={() => {
-                              setColVar(opt.value);
-                              setIsColDropdownOpen(false);
-                            }}
-                            className={`w-full px-4 py-2 text-left text-xs border-0 cursor-pointer transition-all block ${
-                              colVar === opt.value
-                                ? "bg-blue-50 text-blue-600 font-semibold"
-                                : "bg-white text-slate-500 hover:bg-slate-50 font-medium"
-                            }`}
-                          >
-                            {opt.label}
-                          </button>
-                        ))}
+                        <div className="px-3 pb-2 border-b border-solid border-slate-100">
+                          <input
+                            type="text"
+                            placeholder="Cari rincian..."
+                            value={colSearch}
+                            onChange={(e) => setColSearch(e.target.value)}
+                            className="w-full bg-slate-50 border border-solid border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:border-blue-500"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="overflow-y-auto flex-1">
+                          {colOptions
+                            .filter(opt => opt.label.toLowerCase().includes(colSearch.toLowerCase()) || opt.value.toLowerCase().includes(colSearch.toLowerCase()))
+                            .map((opt) => (
+                              <button
+                                key={opt.value}
+                                onClick={() => {
+                                  setColVar(opt.value);
+                                  setIsColDropdownOpen(false);
+                                  setColSearch("");
+                                }}
+                                className={`w-full px-4 py-2 text-left text-xs border-0 cursor-pointer transition-all block ${
+                                  colVar === opt.value
+                                    ? "bg-blue-50 text-blue-600 font-semibold"
+                                    : "bg-white text-slate-500 hover:bg-slate-50 font-medium"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                          ))}
+                        </div>
                       </div>
                     </>
                   )}
@@ -651,10 +761,10 @@ export default function AdminTabulasi({
                 {/* Metric Selector Toggle */}
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Nilai (Metric)</label>
-                  <div className="flex flex-col gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-solid border-slate-200">
+                  <div className="flex flex-col gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-solid border-slate-200 overflow-y-auto max-h-56 styled-scrollbar">
                     <button
                       onClick={() => setMetric("count")}
-                      className={`w-full py-2 px-3 rounded-lg text-[11px] font-bold border-0 transition-all cursor-pointer text-left ${
+                      className={`w-full py-2 px-3 rounded-lg text-[11px] font-bold border-0 transition-all cursor-pointer text-left shrink-0 ${
                         metric === "count"
                           ? "bg-blue-600 text-white shadow-sm"
                           : "bg-transparent text-slate-500 hover:text-slate-700"
@@ -666,7 +776,7 @@ export default function AdminTabulasi({
                       <button
                         key={q.id}
                         onClick={() => setMetric(`avg_q${q.id}`)}
-                        className={`w-full py-2 px-3 rounded-lg text-[11px] font-bold border-0 transition-all cursor-pointer text-left ${
+                        className={`w-full py-2 px-3 rounded-lg text-[11px] font-bold border-0 transition-all cursor-pointer text-left shrink-0 ${
                           metric === `avg_q${q.id}`
                             ? "bg-blue-600 text-white shadow-sm"
                             : "bg-transparent text-slate-500 hover:text-slate-700"
@@ -686,7 +796,7 @@ export default function AdminTabulasi({
                     <Table size={16} className="text-blue-600" />
                     Template Tabulasi
                   </h3>
-                  <div className="space-y-3">
+                  <div className="space-y-3 overflow-y-auto max-h-[420px] styled-scrollbar pr-2 pb-2">
                     {dynamicPresets.map((preset, idx) => {
                       const isActive = rowVar === preset.row && colVar === preset.col && metric === preset.metric;
                       return (
@@ -796,55 +906,113 @@ export default function AdminTabulasi({
                     <Table size={18} className="text-blue-600" />
                     Visualisasi Distribusi Penduduk
                   </h3>
-                  <span className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase">
-                    Grafik Teragregasi
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={chartType}
+                      onChange={(e) => setChartType(e.target.value)}
+                      className="bg-slate-50 border border-solid border-slate-200 text-slate-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
+                    >
+                      <option value="vertical_bar">Vertical Bar</option>
+                      <option value="horizontal_bar">Horizontal Bar</option>
+                      <option value="stacked_bar">Stacked Bar</option>
+                      <option value="line">Line Chart</option>
+                      <option value="pie">Pie Chart (Total)</option>
+                      {metric !== "count" && <option value="box">Box Plot (Distribusi)</option>}
+                    </select>
+                    <span className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase ml-2 hidden sm:inline-block">
+                      Grafik Teragregasi
+                    </span>
+                  </div>
                 </div>
 
                 {/* Chart container - Explicit height to prevent ResponsiveContainer collapses */}
                 <div className="w-full h-[320px] min-h-[320px] relative">
-                  {isChartMounted && (
-                    <ResponsiveContainer width="100%" height={320}>
-                      <BarChart data={chartData} margin={{ top: 15, right: 10, left: -20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 500 }}
-                          axisLine={{ stroke: "#e2e8f0" }}
-                          tickLine={false}
-                        />
-                        <YAxis
-                          tick={{ fontSize: 11, fill: "#64748b", fontWeight: 500 }}
-                          axisLine={false}
-                          tickLine={false}
-                        />
-                        <Tooltip
-                          contentStyle={{
-                            borderRadius: 12,
-                            border: "1px solid #f1f5f9",
-                            boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.05)",
-                            fontSize: 11,
-                            fontWeight: 500,
-                          }}
-                        />
-                        <Legend
-                          wrapperStyle={{ fontSize: 11, fontWeight: 500, paddingTop: 12 }}
-                          iconType="circle"
-                          iconSize={8}
-                        />
-                        {colValues.map((cVal, index) => (
-                          <Bar
-                            key={cVal}
-                            dataKey={cVal}
-                            fill={COLORS[index % COLORS.length]}
-                            radius={[4, 4, 0, 0]}
-                            name={cVal}
-                            maxBarSize={48}
-                          />
-                        ))}
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
+                  {isChartMounted && (() => {
+                    if (chartType === "pie") {
+                       const pieData = rowValues.map(rVal => ({ name: rVal, value: rowTotals[rVal] ?? 0 }));
+                       return (
+                         <ResponsiveContainer width="100%" height={320}>
+                           <PieChart margin={{ top: 15, right: 10, left: 10, bottom: 5 }}>
+                             <Pie data={pieData} cx="50%" cy="50%" outerRadius={110} label dataKey="value">
+                               {pieData.map((entry, index) => (
+                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                               ))}
+                             </Pie>
+                             <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #f1f5f9", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.05)", fontSize: 11 }} />
+                             <Legend wrapperStyle={{ fontSize: 11, fontWeight: 500, paddingTop: 12 }} iconType="circle" />
+                           </PieChart>
+                         </ResponsiveContainer>
+                       );
+                    }
+                    
+                    if (chartType === "box") {
+                      return (
+                        <ResponsiveContainer width="100%" height={320}>
+                          <ComposedChart data={boxPlotData} margin={{ top: 15, right: 10, left: -20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                            <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #f1f5f9", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.05)", fontSize: 11 }} />
+                            <Legend wrapperStyle={{ fontSize: 11, fontWeight: 500, paddingTop: 12 }} iconType="circle" iconSize={8} />
+                            
+                            {/* Whisker Line (Min to Max) */}
+                            <Bar dataKey={["min", "max"]} barSize={2} fill="#94a3b8" name="Min-Max Range" />
+                            
+                            {/* IQR Box (Q1 to Q3) */}
+                            <Bar dataKey={["q1", "q3"]} barSize={32} fill={COLORS[0]} name="Interquartile Range (Q1-Q3)" />
+                            
+                            {/* Median Line */}
+                            <Bar dataKey={["median", "median"]} barSize={32} fill="#000" stroke="#fff" strokeWidth={2} name="Median" />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      );
+                    }
+                    
+                    if (chartType === "line") {
+                      return (
+                        <ResponsiveContainer width="100%" height={320}>
+                          <LineChart data={chartData} margin={{ top: 15, right: 10, left: -20, bottom: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                            <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                            <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #f1f5f9", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.05)", fontSize: 11 }} />
+                            <Legend wrapperStyle={{ fontSize: 11, fontWeight: 500, paddingTop: 12 }} iconType="circle" iconSize={8} />
+                            {colValues.map((cVal, index) => (
+                              <Line key={cVal} type="monotone" dataKey={cVal} stroke={COLORS[index % COLORS.length]} strokeWidth={2} name={cVal} activeDot={{ r: 6 }} />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      );
+                    }
+                    
+                    // Default: Bar Chart (Vertical, Horizontal, Stacked)
+                    const isHorizontal = chartType === "horizontal_bar";
+                    const isStacked = chartType === "stacked_bar";
+                    
+                    return (
+                      <ResponsiveContainer width="100%" height={320}>
+                        <BarChart data={chartData} layout={isHorizontal ? "vertical" : "horizontal"} margin={{ top: 15, right: 10, left: isHorizontal ? 0 : -20, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={!isHorizontal} horizontal={isHorizontal} />
+                          {isHorizontal ? (
+                            <>
+                              <XAxis type="number" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                              <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} width={100} />
+                            </>
+                          ) : (
+                            <>
+                              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                              <YAxis tick={{ fontSize: 11, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                            </>
+                          )}
+                          <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #f1f5f9", boxShadow: "0 10px 15px -3px rgba(0,0,0,0.05)", fontSize: 11 }} cursor={{fill: '#f8fafc'}} />
+                          <Legend wrapperStyle={{ fontSize: 11, fontWeight: 500, paddingTop: 12 }} iconType="circle" iconSize={8} />
+                          {colValues.map((cVal, index) => (
+                            <Bar key={cVal} dataKey={cVal} stackId={isStacked ? "a" : undefined} fill={COLORS[index % COLORS.length]} radius={isStacked ? 0 : [4, 4, 0, 0]} name={cVal} maxBarSize={48} />
+                          ))}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
