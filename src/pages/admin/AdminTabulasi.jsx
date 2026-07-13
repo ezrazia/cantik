@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { Database, Download, Sliders, CheckCircle, RefreshCw, X, Table, Info, ChevronDown, AlertTriangle } from "lucide-react";
@@ -907,7 +908,7 @@ export default function AdminTabulasi({
                     Visualisasi Distribusi Penduduk
                   </h3>
                   <div className="flex items-center gap-2">
-                    <select
+                    <SelectDropdown variant="form"
                       value={chartType}
                       onChange={(e) => setChartType(e.target.value)}
                       className="bg-slate-50 border border-solid border-slate-200 text-slate-700 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2"
@@ -918,7 +919,7 @@ export default function AdminTabulasi({
                       <option value="line">Line Chart</option>
                       <option value="pie">Pie Chart (Total)</option>
                       {metric !== "count" && <option value="box">Box Plot (Distribusi)</option>}
-                    </select>
+                    </SelectDropdown>
                     <span className="text-[10px] text-slate-400 font-semibold tracking-wide uppercase ml-2 hidden sm:inline-block">
                       Grafik Teragregasi
                     </span>

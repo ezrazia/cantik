@@ -8,6 +8,7 @@ import SearchableSelect from "../../components/ui/SearchableSelect";
 import { offlineDB } from "../../services/offlineStorage";
 import SignaturePad from "../../components/ui/SignaturePad";
 import { useNotification } from "../../components/ui/NotificationContext";
+import SelectDropdown from "../../components/ui/SelectDropdown";
 
 // Debounce helper
 const useDebounce = (callback, delay) => {
@@ -2428,7 +2429,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
   const fetchDocuments = async () => {
     if (selectedActivity?.role === "PML") {
-      return await api.dokumen.getForReview(selectedActivity.id);
+      return await api.dokumen.getForReview(selectedActivity.id, currentUser?.id);
     } else {
       return await api.dokumen.getByPetugas(currentUser.id);
     }
@@ -4564,57 +4565,57 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     {/* Dropdown Filter SLS */}
                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
                       <Filter size={14} className="text-slate-400 flex-shrink-0" />
-                      <select
+                      <SelectDropdown variant="bare"
                         value={filterSls}
                         onChange={e => setFilterSls(e.target.value)}
                         className="text-xs outline-none text-slate-700 w-full bg-transparent font-medium border-0 p-0 cursor-pointer"
-                      >
-                        <option value="">Semua SLS / RT</option>
-                        {uniqueSlsList.map(sls => (
-                          <option key={sls} value={sls}>
-                            {sls.startsWith('RT') || !isNaN(parseInt(sls)) ? `SLS: ${sls}` : sls}
-                          </option>
-                        ))}
-                      </select>
+                        options={[
+                          { value: "", label: "Semua SLS / RT" },
+                          ...uniqueSlsList.map(sls => ({
+                            value: sls,
+                            label: sls.startsWith('RT') || !isNaN(parseInt(sls)) ? `SLS: ${sls}` : sls
+                          }))
+                        ]}
+                      />
                     </div>
 
                     {/* Dropdown Filter Status */}
                     <div className="flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
                       <Filter size={14} className="text-slate-400 flex-shrink-0" />
-                      <select
+                      <SelectDropdown variant="bare"
                         value={filterStatus}
                         onChange={e => setFilterStatus(e.target.value)}
                         className="text-xs outline-none text-slate-700 w-full bg-transparent font-medium border-0 p-0 cursor-pointer"
-                      >
-                        <option value="">Semua Status</option>
-                        <option value="approved">Approved (Disetujui)</option>
-                        <option value="rejected">Rejected (Ditolak)</option>
-                        <option value="terkirim">Terkirim</option>
-                        <option value="tersimpan">Tersimpan</option>
-                        {!isPml && (
-                          <>
-                            <option value="tersimpan_sementara">Simpan Sementara</option>
-                            <option value="draft">Draft / Baru</option>
-                          </>
-                        )}
-                      </select>
+                        options={[
+                          { value: "", label: "Semua Status" },
+                          { value: "approved", label: "Approved (Disetujui)" },
+                          { value: "rejected", label: "Rejected (Ditolak)" },
+                          { value: "terkirim", label: "Terkirim" },
+                          { value: "tersimpan", label: "Tersimpan" },
+                          ...(isPml ? [] : [
+                            { value: "tersimpan_sementara", label: "Simpan Sementara" },
+                            { value: "draft", label: "Draft / Baru" }
+                          ])
+                        ]}
+                      />
                     </div>
 
                     {/* Dropdown Sort */}
                     <div className="col-span-2 sm:col-span-1 flex items-center gap-2 bg-white px-3 py-2 rounded-xl border border-solid border-slate-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/10 transition-all shadow-sm">
                       <ArrowUpDown size={14} className="text-slate-400 flex-shrink-0" />
-                      <select
+                      <SelectDropdown variant="bare"
                         value={sortOption}
                         onChange={e => setSortOption(e.target.value)}
                         className="text-xs outline-none text-slate-700 w-full bg-transparent font-medium border-0 p-0 cursor-pointer"
-                      >
-                        <option value="waktu-desc">Waktu Kirim (Terbaru)</option>
-                        <option value="waktu-asc">Waktu Kirim (Terlama)</option>
-                        <option value="nama-asc">Nama KRT (A-Z)</option>
-                        <option value="nama-desc">Nama KRT (Z-A)</option>
-                        <option value="kode-asc">Kode (A-Z)</option>
-                        <option value="kode-desc">Kode (Z-A)</option>
-                      </select>
+                        options={[
+                          { value: "waktu-desc", label: "Waktu Kirim (Terbaru)" },
+                          { value: "waktu-asc", label: "Waktu Kirim (Terlama)" },
+                          { value: "nama-asc", label: "Nama KRT (A-Z)" },
+                          { value: "nama-desc", label: "Nama KRT (Z-A)" },
+                          { value: "kode-asc", label: "Kode (A-Z)" },
+                          { value: "kode-desc", label: "Kode (Z-A)" }
+                        ]}
+                      />
                     </div>
                   </div>
                 )}

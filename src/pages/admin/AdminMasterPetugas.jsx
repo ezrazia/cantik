@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { api } from "../../services/api";
@@ -1623,7 +1624,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                               {visibleColsLocal.includes("Petugas") && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
                                   {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
-                                    <select
+                                    <SelectDropdown variant="form"
                                       value={p.projectRoles?.[selectedProject] || "PCL"}
                                       onChange={async (e) => {
                                         const newRole = e.target.value;
@@ -1648,7 +1649,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                     >
                                       <option value="PCL">PCL</option>
                                       <option value="PML">PML</option>
-                                    </select>
+                                    </SelectDropdown>
                                   ) : (
                                     <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg inline-block whitespace-nowrap ${
                                       (p.projectRoles?.[selectedProject] || "PCL") === "PML" 
@@ -1671,7 +1672,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                         return (
                                           <div className="flex flex-col sm:flex-row gap-1">
                                             {/* Desa Dropdown */}
-                                            <select
+                                            <SelectDropdown variant="form"
                                               value={selections.desa || ""}
                                               onChange={e => handleRowDesaChange(p.id, e.target.value)}
                                               className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer max-w-[120px]"
@@ -1680,10 +1681,10 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                               {(activeActivity?.lokus?.desa || []).map(desaName => (
                                                 <option key={desaName} value={desaName}>{desaName}</option>
                                               ))}
-                                            </select>
+                                            </SelectDropdown>
 
                                             {/* SLS Dropdown */}
-                                            <select
+                                            <SelectDropdown variant="form"
                                               value={selections.sls || ""}
                                               onChange={e => handleRowSlsChange(p.id, e.target.value)}
                                               disabled={!selections.desa}
@@ -1698,10 +1699,10 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                                 .map(slsName => (
                                                   <option key={slsName} value={slsName}>{slsName.replace(` ${selections.desa}`, "")}</option>
                                                 ))}
-                                            </select>
+                                            </SelectDropdown>
 
                                             {/* Sub SLS Dropdown */}
-                                            <select
+                                            <SelectDropdown variant="form"
                                               value={selections.subSls || ""}
                                               onChange={e => handleRowSubSlsChange(p.id, e.target.value)}
                                               disabled={!selections.sls}
@@ -1723,7 +1724,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                                 }
                                                 return null;
                                               })()}
-                                            </select>
+                                            </SelectDropdown>
                                           </div>
                                         );
                                       } else {
@@ -1738,7 +1739,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                       // Role is PML
                                       if (projectStatus === "draft" || projectStatus === "uji_coba") {
                                         return (
-                                          <select
+                                          <SelectDropdown variant="form"
                                             value={getSupervisedPcl(p.name)?.id || ""}
                                             onChange={e => handlePmlSupervisionChange(p.id, p.name, e.target.value)}
                                             className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer max-w-[180px]"
@@ -1749,7 +1750,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                               .map(x => (
                                                 <option key={x.id} value={x.id}>{x.name}</option>
                                               ))}
-                                          </select>
+                                          </SelectDropdown>
                                         );
                                       } else {
                                         return (
@@ -1839,7 +1840,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/30">
                   <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                     <span>Tampilkan</span>
-                    <select
+                    <SelectDropdown variant="form"
                       value={pageSize}
                       onChange={(e) => {
                         setPageSize(Number(e.target.value));
@@ -1850,7 +1851,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                       {[25, 50, 100].map(sz => (
                         <option key={sz} value={sz}>{sz}</option>
                       ))}
-                    </select>
+                    </SelectDropdown>
                     <span>baris per halaman</span>
                   </div>
 
@@ -2003,7 +2004,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                 <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="text-xs text-slate-500 font-medium">Tampilkan</span>
-                    <select
+                    <SelectDropdown variant="form"
                       value={pageSize}
                       onChange={(e) => {
                         setPageSize(Number(e.target.value));
@@ -2014,7 +2015,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                       <option value="25">25 baris</option>
                       <option value="50">50 baris</option>
                       <option value="100">100 baris</option>
-                    </select>
+                    </SelectDropdown>
                   </div>
 
                   <div className="text-xs text-slate-500 font-medium">
@@ -2230,14 +2231,14 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                             {/* Peran Petugas */}
                             <div>
                               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Peran Petugas</label>
-                              <select
+                              <SelectDropdown variant="form"
                                 value={selectedPetugas.projectRoles?.[selectedProject] || "PCL"}
                                 onChange={e => handleRoleChange(e.target.value)}
                                 className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
                               >
                                 <option value="PCL">PCL (Pendata)</option>
                                 <option value="PML">PML (Pengawas/Pemeriksa)</option>
-                              </select>
+                              </SelectDropdown>
                             </div>
 
                             {/* If role is PCL: Desa, SLS, Sub-SLS dropdowns, plus PML dropdown */}
@@ -2246,7 +2247,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                 {/* Pengawas (PML) Dropdown */}
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Pengawas (PML)</label>
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={selectedPetugas.assignments?.[selectedProject]?.pengawas || ""}
                                     onChange={e => handleAssignmentChange("pengawas", e.target.value)}
                                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
@@ -2258,13 +2259,13 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                         <option key={p.id} value={p.name}>{p.name} (@{p.username})</option>
                                       ))
                                     }
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
 
                                 {/* Desa Dropdown */}
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Desa Tugas</label>
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={selectedDesaCode}
                                     onChange={e => handleLocationDropdownChange(e.target.value, "", "")}
                                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
@@ -2273,13 +2274,13 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                     {(activeActivity?.lokus?.desa || []).map(desaName => (
                                       <option key={desaName} value={desaName}>{desaName}</option>
                                     ))}
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
 
                                 {/* SLS Dropdown */}
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">SLS Tugas</label>
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={selectedSlsCode}
                                     onChange={e => handleLocationDropdownChange(selectedDesaCode, e.target.value, "")}
                                     disabled={!selectedDesaCode}
@@ -2294,13 +2295,13 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                       .map(slsName => (
                                         <option key={slsName} value={slsName}>{slsName.replace(` ${selectedDesaCode}`, "")}</option>
                                       ))}
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
 
                                 {/* Sub-SLS Dropdown */}
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Sub SLS Tugas</label>
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={selectedSubSlsCode}
                                     onChange={e => handleLocationDropdownChange(selectedDesaCode, selectedSlsCode, e.target.value)}
                                     disabled={!selectedSlsCode}
@@ -2315,7 +2316,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                       .map(subName => (
                                         <option key={subName} value={subName}>{subName}</option>
                                       ))}
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
                               </>
                             )}
@@ -2324,7 +2325,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                             {(selectedPetugas.projectRoles?.[selectedProject] || "PCL") === "PML" && (
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">PCL yang Diawasi</label>
-                                <select
+                                <SelectDropdown variant="form"
                                   value={
                                     petugas.find(
                                       p => p.projects?.includes(selectedProject) && 
@@ -2340,7 +2341,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                     .map(p => (
                                       <option key={p.id} value={p.id}>{p.name}</option>
                                     ))}
-                                </select>
+                                </SelectDropdown>
                               </div>
                             )}
                           </>
@@ -2501,7 +2502,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Asal Desa</label>
-                  <select 
+                  <SelectDropdown variant="form" 
                     value={assignedDesa} 
                     onChange={e => setAssignedDesa(e.target.value)}
                     className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer"
@@ -2514,7 +2515,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                          </option>
                        );
                     })}
-                  </select>
+                  </SelectDropdown>
                 </div>
               </div>
 
@@ -2642,7 +2643,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                         </div>
                         
                         <div>
-                          <select
+                          <SelectDropdown variant="form"
                             value={role}
                             onChange={e => {
                               const newRole = e.target.value;
@@ -2652,7 +2653,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                           >
                             <option value="PCL">PCL</option>
                             <option value="PML">PML</option>
-                          </select>
+                          </SelectDropdown>
                         </div>
                       </div>
                     );
@@ -3014,7 +3015,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
 
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-2">Asal Desa</label>
-                <select 
+                <SelectDropdown variant="form" 
                   value={assignedDesa}
                   onChange={(e) => setAssignedDesa(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all font-medium text-slate-700 cursor-pointer"
@@ -3025,7 +3026,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                   {dbDesa.length === 0 && (
                     <option value="Tideng Pale">Desa Tideng Pale</option>
                   )}
-                </select>
+                </SelectDropdown>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100 mt-6">

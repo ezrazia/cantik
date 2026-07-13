@@ -8,7 +8,7 @@ const router = Router();
  * Mengambil ringkasan statistik untuk dashboard admin.
  */
 router.get('/stats', async (req, res) => {
-  const { kegiatan_id, desa } = req.query;
+  const { kegiatan_id, desa, range } = req.query;
   try {
     // 1. Total petugas
     const totalPetugas = await prisma.petugas.count();
@@ -51,7 +51,11 @@ router.get('/stats', async (req, res) => {
         kecamatan: true,
         desa: true,
         sls: true,
-        sub_sls: true
+        sub_sls: true,
+        dokumen_jawaban: {
+          where: { form_question: { label: 'RT' } },
+          select: { value: true }
+        }
       }
     });
 
@@ -165,10 +169,14 @@ router.get('/stats', async (req, res) => {
 
       // Normalize desa name using kegiatan lokus
       const normalizedDesa = normalizeDesa(d.desa);
+      
+      const rtAnswer = d.dokumen_jawaban?.[0]?.value;
+      const isSlsEmpty = !d.sls || d.sls === '-' || d.sls === '00' || d.sls === 0 || d.sls === '0000';
+      const effectiveSls = isSlsEmpty && (d.sub_sls || rtAnswer) ? (d.sub_sls || rtAnswer) : d.sls;
 
       let lokusKey;
-      if (lokusLevel === 'sls' && d.sls) {
-        const code = cleanSlsCode(d.sls);
+      if (lokusLevel === 'sls' && effectiveSls) {
+        const code = cleanSlsCode(effectiveSls);
         if (code && isValidSls(code)) {
           lokusKey = `${normalizedDesa} - SLS ${code}`;
         } else {
@@ -176,7 +184,7 @@ router.get('/stats', async (req, res) => {
           lokusKey = normalizedDesa;
         }
       } else if (lokusLevel === 'sub_sls' && d.sub_sls) {
-        const slsCode = cleanSlsCode(d.sls);
+        const slsCode = cleanSlsCode(effectiveSls);
         lokusKey = `${normalizedDesa} - SLS ${slsCode || '??'} - Sub ${d.sub_sls}`;
       } else {
         lokusKey = normalizedDesa || 'Unknown';
@@ -197,14 +205,25 @@ router.get('/stats', async (req, res) => {
     const totalAssignment = totalDokumen;
     const lokusProgress = Object.values(lokusMap).sort((a, b) => a.name.localeCompare(b.name));
 
-    // 5. Data Chart Harian (7 hari terakhir)
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
+    // 5. Data Chart Harian
+    let dateFilter = {};
+    if (range === '7' || range === '30') {
+      const days = parseInt(range, 10);
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
+      dateFilter = { created_at: { gte: startDate } };
+    } else if (!range || range !== 'all') {
+      // Default to 7 days if not provided
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7);
+      startDate.setHours(0, 0, 0, 0);
+      dateFilter = { created_at: { gte: startDate } };
+    }
 
     const documents = await prisma.dokumen.findMany({
       where: {
-        created_at: { gte: sevenDaysAgo },
+        ...dateFilter,
         NOT: {
           AND: [
             { is_prelist: true },
@@ -217,7 +236,8 @@ router.get('/stats', async (req, res) => {
         created_at: true,
         updated_at: true,
         review_status: true,
-        is_prelist: true
+        is_prelist: true,
+        desa: true
       },
       orderBy: {
         created_at: 'asc'
@@ -234,32 +254,58 @@ router.get('/stats', async (req, res) => {
       });
     }
 
+    // Determine start date for generating continuous dates
+    let startDateForChart = new Date();
+    startDateForChart.setHours(0, 0, 0, 0);
+
+    if (range === '7' || range === '30') {
+      const days = parseInt(range, 10);
+      startDateForChart.setDate(startDateForChart.getDate() - days + 1); // include today
+    } else {
+      // Find the earliest date in filteredDailyDocs
+      if (filteredDailyDocs.length > 0) {
+        let earliest = filteredDailyDocs.reduce((min, doc) => {
+          const dDate = doc.is_prelist ? doc.updated_at : doc.created_at;
+          return dDate < min ? dDate : min;
+        }, new Date());
+        startDateForChart = new Date(earliest);
+        startDateForChart.setHours(0, 0, 0, 0);
+      } else {
+        startDateForChart.setDate(startDateForChart.getDate() - 6); // default to 7 days if no docs
+      }
+    }
+
+    const endDateForChart = new Date();
+    endDateForChart.setHours(0, 0, 0, 0);
+
     // Group documents by date in memory (database-agnostic)
     const groups = {};
+    
+    // Pre-fill all dates with 0
+    for (let d = new Date(startDateForChart); d <= endDateForChart; d.setDate(d.getDate() + 1)) {
+      const dStr = d.toISOString().split('T')[0];
+      groups[dStr] = { date: dStr, count: 0, rejected: 0 };
+    }
+
     filteredDailyDocs.forEach(doc => {
       // Use updated_at for prelist documents to reflect when they were actually submitted, 
       // otherwise use created_at (for new tambahan)
       const targetDate = doc.is_prelist ? doc.updated_at : doc.created_at;
       const dateStr = targetDate.toISOString().split('T')[0];
-      if (!groups[dateStr]) {
-        groups[dateStr] = { date: dateStr, count: 0, rejected: 0 };
-      }
-      groups[dateStr].count++;
-      if (doc.review_status === 'rejected') {
-        groups[dateStr].rejected++;
+      if (groups[dateStr]) {
+        groups[dateStr].count++;
+        if (doc.review_status === 'rejected') {
+          groups[dateStr].rejected++;
+        }
       }
     });
 
     const chartRows = Object.values(groups).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Format chart rows to match frontend day abbreviations
-    const daysName = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
     const formattedChartData = chartRows.map(row => {
-      const d = new Date(row.date);
       return {
-        h: daysName[d.getDay()],
-        k: row.count,
-        t: row.rejected || 0
+        date: row.date,
+        k: row.count
       };
     });
 

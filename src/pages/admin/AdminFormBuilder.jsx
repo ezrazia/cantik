@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import React from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { api } from "../../services/api";
@@ -414,7 +415,7 @@ function RuleBuilder({ ruleVal, onChange, label, questions, blocks, currentQuest
           return (
             <div key={cIdx} className="space-y-2 p-2.5 bg-white border border-slate-200 rounded-lg relative group">
               <div className="flex items-center justify-between gap-1">
-                <select
+                <SelectDropdown variant="form"
                   value={cond.question_id || ""}
                   onChange={e => {
                     const newConds = [...parsed.conditions];
@@ -427,7 +428,7 @@ function RuleBuilder({ ruleVal, onChange, label, questions, blocks, currentQuest
                   {possibleTriggerQs.map(q => (
                     <option key={q.id} value={q.id}>R.{getQuestionCode(q, questions, blocks)}: {q.label.substring(0, 30)}...</option>
                   ))}
-                </select>
+                </SelectDropdown>
                 <button
                   type="button"
                   onClick={() => {
@@ -444,7 +445,7 @@ function RuleBuilder({ ruleVal, onChange, label, questions, blocks, currentQuest
                 <div>
                   {targetQ?.type === 'number' ? (
                     <div className="flex gap-2">
-                      <select
+                      <SelectDropdown variant="form"
                         value={cond.operator || "="}
                         onChange={e => {
                           const newConds = [...parsed.conditions];
@@ -458,7 +459,7 @@ function RuleBuilder({ ruleVal, onChange, label, questions, blocks, currentQuest
                         <option value=">=">Lebih dari sama dengan (&gt;=)</option>
                         <option value="<">Kurang dari (&lt;)</option>
                         <option value="<=">Kurang dari sama dengan (&lt;=)</option>
-                      </select>
+                      </SelectDropdown>
                       <input
                         type="number"
                         placeholder="Nilai angka"
@@ -3539,7 +3540,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
                   <div>
                     <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Posisi Blok</label>
-                    <select
+                    <SelectDropdown variant="form"
                       value={newBlockPosition}
                       onChange={e => setNewBlockPosition(e.target.value)}
                       className="w-full px-2 py-1 text-xs bg-white border border-slate-200 rounded outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer"
@@ -3547,7 +3548,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       <option value="after">Setelah {activeBlok || "Blok Aktif"}</option>
                       <option value="start">Di Paling Awal</option>
                       <option value="end">Di Paling Akhir</option>
-                    </select>
+                    </SelectDropdown>
                   </div>
 
                   <div>
@@ -4114,7 +4115,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <div className="grid grid-cols-2 gap-3 mb-3">
                                 <div>
                                   <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tipe</label>
-                                  <select value={newQ.type} onChange={e => setNewQ({ ...newQ, type: e.target.value })}
+                                  <SelectDropdown variant="form" value={newQ.type} onChange={e => setNewQ({ ...newQ, type: e.target.value })}
                                     className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer">
                                     <option value="text">Text</option>
                                     <option value="number">Number</option>
@@ -4125,7 +4126,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                     <option value="date">Tanggal/Waktu</option>
                                     <option value="pcl">PCL (Daftar Petugas)</option>
                                     <option value="pml">PML (Daftar Pengawas)</option>
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
                                 <div className="flex items-end mb-1">
                                   <label className="flex items-center gap-2 text-xs font-medium text-slate-500 cursor-pointer w-full px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
@@ -4196,7 +4197,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           </div>
                           <div>
                             <label className="block text-[11px] font-medium text-slate-400 mb-1.5">Tipe</label>
-                            <select value={newQ.type} onChange={e => setNewQ({ ...newQ, type: e.target.value })}
+                            <SelectDropdown variant="form" value={newQ.type} onChange={e => setNewQ({ ...newQ, type: e.target.value })}
                               className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer">
                               <option value="text">Text</option>
                               <option value="number">Number</option>
@@ -4207,7 +4208,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <option value="date">Tanggal/Waktu</option>
                               <option value="pcl">PCL (Daftar Petugas)</option>
                               <option value="pml">PML (Daftar Pengawas)</option>
-                            </select>
+                            </SelectDropdown>
                           </div>
                         </div>
                         <div className="mb-3">
@@ -4452,7 +4453,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Mode Rincian Induk</label>
                           {canEdit ? (
-                            <select
+                            <SelectDropdown variant="form"
                               value={parsedVal.parent_mode || "label"}
                               onChange={e => updateValObj({ parent_mode: e.target.value })}
                               className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
@@ -4460,7 +4461,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <option value="label">Pertanyaan Label (Tanpa Input Petugas)</option>
                               <option value="original">Pertanyaan Asli (Butuh Input Petugas)</option>
                               <option value="empty">Kosong (Langsung Skip/Tampilkan Sub-pertanyaan)</option>
-                            </select>
+                            </SelectDropdown>
                           ) : (
                             <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold">
                               {parsedVal.parent_mode === "original" ? "Pertanyaan Asli (Butuh Input Petugas)" : parsedVal.parent_mode === "empty" ? "Kosong (Langsung Skip/Tampilkan Sub-pertanyaan)" : "Pertanyaan Label (Tanpa Input Petugas)"}
@@ -4473,7 +4474,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Tipe Input</label>
                           {canEdit ? (
-                            <select
+                            <SelectDropdown variant="form"
                               value={selected.type}
                               onChange={e => handleUpdateQuestion("type", e.target.value)}
                               className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
@@ -4488,7 +4489,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <option value="pcl">PCL (Daftar Petugas)</option>
                               <option value="pml">PML (Daftar Pengawas)</option>
                               <option value="signature">Tanda Tangan</option>
-                            </select>
+                            </SelectDropdown>
                           ) : (
                             <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-semibold capitalize">{selected.type === "search" ? "Searchable Dropdown" : selected.type}</div>
                           )}
@@ -4496,14 +4497,14 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Wajib diisi</label>
                           {canEdit ? (
-                            <select
+                            <SelectDropdown variant="form"
                               value={selected.req ? "Ya" : "Tidak"}
                               onChange={e => handleUpdateQuestion("req", e.target.value === "Ya")}
                               className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-700 outline-none cursor-pointer focus:border-blue-500"
                             >
                               <option value="Ya">Ya</option>
                               <option value="Tidak">Tidak</option>
-                            </select>
+                            </SelectDropdown>
                           ) : (
                             <div className={`px-3 py-2.5 text-xs border border-slate-100 rounded-lg font-semibold ${selected.req ? "bg-blue-50 text-blue-600" : "bg-slate-50 text-slate-400"}`}>{selected.req ? "Ya" : "Tidak"}</div>
                           )}
@@ -4526,7 +4527,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Batasan Angka</label>
                           <div>
-                            <select
+                            <SelectDropdown variant="form"
                               value={parsedVal.type}
                               disabled={!canEdit}
                               onChange={e => updateValObj({ type: e.target.value })}
@@ -4538,7 +4539,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <option value="gt">Lebih Dari (&gt;)</option>
                               <option value="max">Kurang Dari / Sama Dengan (&lt;=)</option>
                               <option value="lt">Kurang Dari (&lt;)</option>
-                            </select>
+                            </SelectDropdown>
                           </div>
                           {parsedVal.type === "range" && (
                             <div className="grid grid-cols-2 gap-2">
@@ -4571,7 +4572,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase">Tipe Bilangan</label>
                           <div>
-                            <select
+                            <SelectDropdown variant="form"
                               value={parsedVal.number_type || "decimal"}
                               disabled={!canEdit}
                               onChange={e => updateValObj({ number_type: e.target.value })}
@@ -4579,7 +4580,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             >
                               <option value="decimal">Bilangan Desimal (Bisa Koma)</option>
                               <option value="integer">Bilangan Bulat (Tidak Bisa Koma)</option>
-                            </select>
+                            </SelectDropdown>
                           </div>
                         </div>
                       )}
@@ -4634,7 +4635,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 space-y-3">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase">Validasi Isian Teks</label>
                           <div>
-                            <select
+                            <SelectDropdown variant="form"
                               value={parsedVal.text_validation_type || "none"}
                               disabled={!canEdit}
                               onChange={e => updateValObj({
@@ -4650,7 +4651,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <option value="alphanumeric">Huruf & Angka</option>
                               <option value="email">Format E-mail</option>
                               <option value="length">Panjang Karakter (Min/Max)</option>
-                            </select>
+                            </SelectDropdown>
                           </div>
                           {parsedVal.text_validation_type !== "none" && parsedVal.text_validation_type !== "email" && (
                             <div className="space-y-2">
@@ -4697,7 +4698,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           <label className="block text-[10px] font-bold text-slate-500 uppercase">Pengaturan Tanggal/Waktu</label>
                           <div>
                             <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Format</label>
-                            <select
+                            <SelectDropdown variant="form"
                               value={parsedVal.date_type || "date"}
                               disabled={!canEdit}
                               onChange={e => updateValObj({ date_type: e.target.value })}
@@ -4706,7 +4707,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <option value="date">Tanggal Saja (YYYY-MM-DD)</option>
                               <option value="datetime-local">Tanggal & Waktu (Local)</option>
                               <option value="time">Waktu Saja (HH:MM)</option>
-                            </select>
+                            </SelectDropdown>
                           </div>
                           <div className="flex items-center justify-between pt-1">
                             <label className="text-xs font-semibold text-slate-500 cursor-pointer">
@@ -4731,7 +4732,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                           <div>
                             <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Sumber Opsi Dinamis (Ambil dari Looping):</label>
                             {canEdit ? (
-                              <select
+                              <SelectDropdown variant="form"
                                 value={parsedVal.options_source_question_id || ""}
                                 onChange={e => updateValObj({ options_source_question_id: e.target.value ? parseInt(e.target.value, 10) : null })}
                                 className="w-full px-3 py-2 text-xs bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 font-medium text-slate-700 cursor-pointer"
@@ -4743,7 +4744,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                     <option key={q.id} value={q.id}>R.{getQuestionCode(q, questions, blocks)}: {q.label.substring(0, 40)}...</option>
                                   ))
                                 }
-                              </select>
+                              </SelectDropdown>
                             ) : (
                               <div className="text-xs font-semibold text-slate-500">
                                 {parsedVal.options_source_question_id
@@ -4976,7 +4977,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             <div>
                               <label className="block text-[9px] font-semibold text-slate-400 uppercase mb-1">Tipe Pengulangan:</label>
                               {canEdit ? (
-                                <select
+                                <SelectDropdown variant="form"
                                   value={parsedVal.loop_type || "question"}
                                   onChange={e => updateValObj({
                                     loop_type: e.target.value,
@@ -4986,7 +4987,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                 >
                                   <option value="question">Berdasarkan Rincian Lain</option>
                                   <option value="manual">Dinamis oleh Petugas (Tombol Tambah/Kurang)</option>
-                                </select>
+                                </SelectDropdown>
                               ) : (
                                 <div className="text-xs font-semibold text-slate-600">
                                   {parsedVal.loop_type === "manual" ? "Dinamis oleh Petugas" : "Berdasarkan Rincian Lain"}
@@ -5014,7 +5015,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                               <div className="space-y-2">
                                 <label className="block text-[9px] font-semibold text-slate-400 uppercase">Ulangi berdasarkan jumlah pada:</label>
                                 {canEdit ? (
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={parsedVal.loop_by_question_id || ""}
                                     onChange={e => updateValObj({ loop_by_question_id: e.target.value ? parseInt(e.target.value, 10) : null })}
                                     className="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-slate-755 outline-none cursor-pointer focus:border-blue-500"
@@ -5033,7 +5034,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                         </option>
                                       ));
                                     })()}
-                                  </select>
+                                  </SelectDropdown>
                                 ) : (
                                   <div className="px-3 py-2 text-xs bg-white border border-slate-100 rounded-lg text-slate-600 font-semibold">
                                     {parsedVal.loop_by_question_id
@@ -5079,7 +5080,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                         <div>
                           <label className="block text-[11px] font-semibold text-slate-400 uppercase mb-1.5">Lompat ke Rincian (Skip Logic Target)</label>
                           {canEdit ? (
-                            <select
+                            <SelectDropdown variant="form"
                               value={selected.skipTarget || ""}
                               onChange={e => handleUpdateQuestion("skipTarget", e.target.value ? parseInt(e.target.value, 10) : null)}
                               className="w-full px-3 py-2.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold text-blue-600 outline-none cursor-pointer focus:border-blue-500"
@@ -5108,7 +5109,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                                   );
                                 });
                               })()}
-                            </select>
+                            </SelectDropdown>
                           ) : (
                             <div className="px-3 py-2.5 text-xs bg-slate-50 border border-slate-100 rounded-lg text-slate-600 font-medium">
                               {selected.skipTarget ? `Lompat ke R.${getQuestionCode(questions.find(t => t.id === selected.skipTarget), questions, blocks)}` : "Tidak ada"}
@@ -5373,7 +5374,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
               <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Pilih Kegiatan Asal</label>
-                <select
+                <SelectDropdown variant="form"
                   value={sourceActivityId}
                   onChange={e => {
                     setSourceActivityId(e.target.value);
@@ -5390,7 +5391,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                       </option>
                     ))
                   }
-                </select>
+                </SelectDropdown>
               </div>
 
               {copyError && (

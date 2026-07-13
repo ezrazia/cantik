@@ -247,7 +247,26 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
     } else {
       setLocalLoading(true);
       try {
-        const docs = await api.dokumen.getByPetugas(currentUser.id);
+        let docs = await api.dokumen.getByPetugas(currentUser.id);
+        
+        // Also fetch PML review docs for activities where user is PML
+        const activitiesForPml = (currentPetugas?.projects || []).map(projName => {
+          const act = activities?.find(a => a.name === projName);
+          return act ? { ...act, role: currentPetugas.projectRoles?.[projName] || "PCL" } : null;
+        }).filter(act => act && act.status !== "draft" && act.status !== "selesai" && act.role === "PML");
+
+        for (const act of activitiesForPml) {
+          const reviewDocs = await api.dokumen.getForReview(act.id, currentUser.id);
+          // merge without duplicates
+          const existingIds = new Set(docs.map(d => d.id));
+          const existingKodes = new Set(docs.map(d => d.kode));
+          
+          reviewDocs.forEach(rd => {
+            if (!existingIds.has(rd.id) && !existingKodes.has(rd.kode)) {
+              docs.push(rd);
+            }
+          });
+        }
 
         // Merge with local unsynced docs to prevent data loss
         const storageKey = `offline_docs_${currentUser.id}`;

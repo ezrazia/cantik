@@ -4,6 +4,7 @@ import { api } from '../../services/api';
 import { BarChart, Bar, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, PlusCircle, Target } from "lucide-react";
 import useDropdown from '../../hooks/useDropdown';
+import SelectDropdown from '../../components/ui/SelectDropdown';
 
 /**
  * Dashboard Admin — minimalis dengan data visualisasi clean.
@@ -21,6 +22,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   const [dashboardStats, setDashboardStats] = useState(null);
   const [localLoading, setLocalLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(new Date());
+  const [chartRange, setChartRange] = useState("7");
 
   const fetchStats = async () => {
     if (!activeActivity) return;
@@ -28,7 +30,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
     try {
       const [desaData, dashData] = await Promise.all([
         api.desa.getStats(activeActivity.id),
-        api.dashboard.getStats(activeActivity.id, villageDropdown.selected)
+        api.dashboard.getStats(activeActivity.id, villageDropdown.selected, chartRange)
       ]);
       setDesaStats(desaData);
       setDashboardStats(dashData);
@@ -47,7 +49,7 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
       return;
     }
     fetchStats();
-  }, [selectedProject, activeActivity, villageDropdown.selected]);
+  }, [selectedProject, activeActivity, villageDropdown.selected, chartRange]);
 
   const handleRefresh = async () => {
     if (refreshData) {
@@ -171,15 +173,14 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
   ];
 
   const CHART_DATA = dashboardStats?.chartData?.length > 0
-    ? dashboardStats.chartData
-    : [
-        { h: "Sen", k: Math.round(selesaiTotal * 0.15), t: Math.round(ditolak * 0.15) },
-        { h: "Sel", k: Math.round(selesaiTotal * 0.2),  t: Math.round(ditolak * 0.2) },
-        { h: "Rab", k: Math.round(selesaiTotal * 0.25), t: Math.round(ditolak * 0.15) },
-        { h: "Kam", k: Math.round(selesaiTotal * 0.15), t: Math.round(ditolak * 0.2) },
-        { h: "Jum", k: Math.round(selesaiTotal * 0.2),  t: Math.round(ditolak * 0.1) },
-        { h: "Sab", k: Math.round(selesaiTotal * 0.05), t: Math.round(ditolak * 0.2) },
-      ];
+    ? dashboardStats.chartData.map(d => {
+        const dateObj = new Date(d.date);
+        return {
+          h: new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(dateObj),
+          k: d.k
+        };
+      })
+    : [];
 
   if (isLoading) {
     return (
@@ -432,21 +433,34 @@ function AdminDashboard({ onNavigate, selectedProject, onProjectChange, activiti
 
           {/* Bar chart */}
           <div className="bg-white rounded-xl p-6 border border-slate-100 lg:col-span-2">
-            <h3 className="text-sm font-bold text-slate-900 mb-5 flex items-center gap-2">
-              <div className="w-1 h-5 bg-blue-600 rounded-full"/>
-              Kiriman Harian
-            </h3>
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <div className="w-1 h-5 bg-blue-600 rounded-full"/>
+                Kiriman Harian
+              </h3>
+              <SelectDropdown 
+                value={chartRange}
+                onChange={(e) => setChartRange(e.target.value)}
+                align="right"
+                options={[
+                  { value: '7', label: '7 Hari Terakhir' },
+                  { value: '30', label: '1 Bulan Terakhir' },
+                  { value: 'all', label: 'Semua Waktu' }
+                ]}
+              />
+            </div>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={CHART_DATA} barGap={4} margin={{ top: 10, right: 10, bottom: 0, left: -25 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="h" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} tickMargin={8} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
-                <Tooltip contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.06)', fontSize: 12 }} cursor={{ fill: '#f8fafc' }} />
-                <Bar dataKey="k" radius={[4,4,0,0]} name="Kirim" maxBarSize={40}>
+                <XAxis dataKey="h" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} tickMargin={12} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} tickCount={5} />
+                <Tooltip 
+                  cursor={{ fill: '#f8fafc' }}
+                  contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12, padding: '12px' }}
+                  labelStyle={{ fontWeight: 600, color: '#334155', marginBottom: '8px' }}
+                />
+                <Bar dataKey="k" radius={[6,6,0,0]} name="Dokumen Terkirim" maxBarSize={48}>
                   {CHART_DATA.map((_, i) => <Cell key={i} fill="#2563eb"/>)}
-                </Bar>
-                <Bar dataKey="t" radius={[4,4,0,0]} name="Tolak" maxBarSize={40}>
-                  {CHART_DATA.map((_, i) => <Cell key={i} fill="#fbbf24"/>)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

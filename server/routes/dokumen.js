@@ -207,10 +207,19 @@ router.get('/petugas/:petugasId', async (req, res) => {
     }
 
     const petugas = await prisma.petugas.findUnique({
-      where: { id: pId }
+      where: { id: pId },
+      include: {
+        petugas_kegiatan: true
+      }
     });
-    const petugasName = petugas ? petugas.name : '';
-    const petugasUsername = petugas ? petugas.username : '';
+
+    if (!petugas) {
+      return res.status(404).json({ success: false, message: 'Petugas tidak ditemukan' });
+    }
+
+    const petugasName = petugas.name || '';
+    const petugasUsername = petugas.username || '';
+    const kegiatanIds = petugas.petugas_kegiatan.map(pk => pk.kegiatan_id);
 
     const rows = await prisma.dokumen.findMany({
       where: {
@@ -223,33 +232,120 @@ router.get('/petugas/:petugasId', async (req, res) => {
           ...(petugasUsername ? [
             { assigned_pcls: { array_contains: petugasUsername } },
             { assigned_pmls: { array_contains: petugasUsername } }
-          ] : [])
+          ] : []),
+          {
+            kegiatan_id: { in: kegiatanIds }
+          }
         ]
       },
       include: {
-        kegiatan: {
-          select: { name: true },
-        },
-        petugas: {
-          select: { name: true },
-        },
-        dokumen_log: {
-          orderBy: { created_at: 'asc' },
-        },
+        kegiatan: { select: { name: true, lokus: true } },
+        petugas: { select: { name: true } },
+        dokumen_log: { orderBy: { created_at: 'asc' } },
+        dokumen_jawaban: {
+          where: { form_question: { label: 'RT' } },
+          select: { value: true }
+        }
       },
-      orderBy: {
-        updated_at: 'desc',
-      },
+      orderBy: { updated_at: 'desc' },
     });
 
-    const formatted = rows.map(doc => ({
-      ...doc,
-      activity_name: doc.kegiatan?.name || '',
-      petugas_name: doc.petugas?.name || '',
-      logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
-      sync: !!doc.sync,
-      is_prelist: !!doc.is_prelist,
-    }));
+    const formatted = [];
+    
+    for (const doc of rows) {
+      const isSlsEmpty = !doc.sls || doc.sls === '-' || doc.sls === '00' || doc.sls === 0 || doc.sls === '0000';
+      const rtAnswer = doc.dokumen_jawaban?.[0]?.value;
+      const effectiveSls = isSlsEmpty && (doc.sub_sls || rtAnswer) ? (doc.sub_sls || rtAnswer) : doc.sls;
+
+      let cleanSls = effectiveSls;
+      if (cleanSls) {
+        let slsStr = String(cleanSls).trim();
+        if (slsStr.startsWith('[')) {
+          try {
+            const arr = JSON.parse(slsStr);
+            slsStr = Array.isArray(arr) && arr.length > 0 ? String(arr[0]) : slsStr;
+          } catch (e) { }
+        }
+        const stripped = slsStr.replace(/^(RT|SLS)\s+/i, '').replace(/\s*\[.*\]$/, '').replace(/\s+.*$/, '').trim();
+        const digits = stripped.replace(/[^0-9]/g, '');
+        cleanSls = digits ? digits.padStart(2, '0') : null;
+      }
+
+      let isAllowed = false;
+      const pk = petugas.petugas_kegiatan.find(x => x.kegiatan_id === doc.kegiatan_id);
+      
+      if (pk && pk.sls_assignments && Array.isArray(pk.sls_assignments)) {
+        const allowedSls = pk.sls_assignments;
+        const slsStr = (cleanSls || '').padStart(2, '0');
+        const docDesa = String(doc.desa || '').trim().toLowerCase();
+
+        isAllowed = allowedSls.some(allowed => {
+          const match = allowed.match(/(?:RT|SLS)\s*0*(\d+)/i);
+          let allowedSlsNum = null;
+          if (match) {
+            allowedSlsNum = match[1].padStart(2, '0');
+          } else if (allowed.includes(cleanSls)) {
+            allowedSlsNum = slsStr;
+          }
+
+          let allowedDesa = null;
+          const assignmentLower = allowed.toLowerCase();
+          if (assignmentLower.includes('[')) {
+            const suffix = assignmentLower.split('[')[1].replace(']', '');
+            if (suffix.includes(' - ')) {
+              allowedDesa = suffix.split(' - ')[1].trim();
+            } else {
+              allowedDesa = suffix.trim();
+            }
+          } else {
+            allowedDesa = assignmentLower.trim();
+          }
+
+          if (allowedSlsNum) {
+            if (allowedSlsNum === slsStr) {
+              if (allowedDesa && docDesa && docDesa !== 'unknown') {
+                return allowedDesa === docDesa;
+              }
+              return true;
+            }
+          } else if (allowedDesa === docDesa) {
+            return true;
+          }
+          return false;
+        });
+      }
+
+      // Allow if document was explicitly assigned by ID or name
+      let isExplicitlyAssigned = false;
+      if (doc.petugas_id === pId) isExplicitlyAssigned = true;
+      if (petugas.name && (
+        (doc.assigned_pcls && doc.assigned_pcls.includes(petugas.name)) ||
+        (doc.assigned_pmls && doc.assigned_pmls.includes(petugas.name))
+      )) {
+        isExplicitlyAssigned = true;
+      }
+      if (petugas.username && (
+        (doc.assigned_pcls && doc.assigned_pcls.includes(petugas.username)) ||
+        (doc.assigned_pmls && doc.assigned_pmls.includes(petugas.username))
+      )) {
+        isExplicitlyAssigned = true;
+      }
+
+      if (isExplicitlyAssigned) {
+        isAllowed = true;
+      }
+      if (isAllowed) {
+        formatted.push({
+          ...doc,
+          sls: cleanSls || doc.sls, // Return cleaned SLS for consistent display
+          activity_name: doc.kegiatan?.name || '',
+          petugas_name: doc.petugas?.name || '',
+          logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
+          sync: !!doc.sync,
+          is_prelist: !!doc.is_prelist,
+        });
+      }
+    }
 
     return res.json(formatted);
   } catch (error) {
@@ -286,13 +382,17 @@ router.get('/review/:kegiatanId', async (req, res) => {
         dokumen_log: {
           orderBy: { created_at: 'asc' },
         },
+        dokumen_jawaban: {
+          where: { form_question: { label: 'RT' } },
+          select: { value: true }
+        }
       },
       orderBy: {
         updated_at: 'desc',
       },
     });
 
-    const formatted = rows.map(doc => {
+    let formatted = rows.map(doc => {
       let lObj = doc.kegiatan?.lokus;
       if (typeof lObj === 'string') {
         try { lObj = JSON.parse(lObj); } catch(e) { lObj = {}; }
@@ -333,10 +433,13 @@ router.get('/review/:kegiatanId', async (req, res) => {
       const pmlsVal = doc.assigned_pmls;
       const fallbackPcls = doc.petugas?.name && doc.petugas.name !== "Belum Ditugaskan" ? [doc.petugas.name] : [];
       const fallbackPmls = doc.petugas?.petugas_kegiatan?.[0]?.pengawas ? [doc.petugas.petugas_kegiatan[0].pengawas] : [];
+      const rtAnswer = doc.dokumen_jawaban?.[0]?.value;
+      const isSlsEmpty = !doc.sls || doc.sls === '-' || doc.sls === '00' || doc.sls === 0 || doc.sls === '0000';
+      const effectiveSls = isSlsEmpty && (doc.sub_sls || rtAnswer) ? (doc.sub_sls || rtAnswer) : doc.sls;
       return {
         ...doc,
         desa: normalizeDesa(doc.desa),
-        sls: cleanSlsCode(doc.sls),
+        sls: cleanSlsCode(effectiveSls),
         activity_name: doc.kegiatan?.name || '',
         petugas_name: doc.petugas?.name || '',
         pengawas: doc.petugas?.petugas_kegiatan?.[0]?.pengawas || null,
@@ -347,6 +450,41 @@ router.get('/review/:kegiatanId', async (req, res) => {
         is_prelist: !!doc.is_prelist,
       };
     });
+
+    const { petugasId } = req.query;
+    if (petugasId) {
+      const pml = await prisma.petugasKegiatan.findFirst({
+        where: { kegiatan_id: parseInt(kegiatanId, 10), petugas_id: parseInt(petugasId, 10), role: 'PML' },
+        include: { petugas: true }
+      });
+      if (pml) {
+        const allowedSls = pml.sls_assignments || [];
+        const pmlName = pml.petugas.name;
+        
+        const pcls = await prisma.petugasKegiatan.findMany({
+          where: { kegiatan_id: parseInt(kegiatanId, 10), role: 'PCL', pengawas: pmlName },
+          include: { petugas: true }
+        });
+        const pclNames = pcls.map(p => p.petugas.name);
+
+        formatted = formatted.filter(doc => {
+          const slsStr = (doc.sls || '').padStart(2, '0');
+          const isSlsAllowed = allowedSls.some(allowed => {
+            const match = allowed.match(/(?:RT|SLS)\s*0*(\d+)/i);
+            if (match && match[1].padStart(2, '0') === slsStr) return true;
+            if (allowed.includes(doc.sls)) return true;
+            return false;
+          });
+
+          if (isSlsAllowed) return true;
+          
+          if (doc.assigned_pcls && doc.assigned_pcls.some(pcl => pclNames.includes(pcl))) return true;
+          if (doc.petugas_name && pclNames.includes(doc.petugas_name)) return true;
+          
+          return false;
+        });
+      }
+    }
 
     return res.json(formatted);
   } catch (error) {
@@ -1537,8 +1675,9 @@ router.post('/assign-multiple', async (req, res) => {
     }
 
     // fallback/update petugas_id utama ke PCL pertama (jika ada) untuk kompabilitas offline sync
+    // HANYA update jika dokumen masih draft dan belum ditugaskan untuk mencegah overwrite submitter asli
     let primaryPetugasId = doc.petugas_id;
-    if (assigned_pcls && assigned_pcls.length > 0) {
+    if ((!doc.petugas_id || doc.status === 'draft') && assigned_pcls && assigned_pcls.length > 0) {
       const firstName = assigned_pcls[0];
       const p = await prisma.petugas.findFirst({
         where: {
@@ -1551,7 +1690,7 @@ router.post('/assign-multiple', async (req, res) => {
       if (p) {
         primaryPetugasId = p.id;
       }
-    } else {
+    } else if (!doc.petugas_id && (!assigned_pcls || assigned_pcls.length === 0)) {
       primaryPetugasId = null; // Belum ditugaskan
     }
 
@@ -1627,17 +1766,33 @@ router.post('/assign-sls', async (req, res) => {
       }
     }
 
-    const result = await prisma.dokumen.updateMany({
+    const docsInSls = await prisma.dokumen.findMany({
       where: {
         kegiatan_id: kegId,
         sls: sls,
       },
-      data: {
-        assigned_pcls: assigned_pcls || [],
-        assigned_pmls: assigned_pmls || [],
-        petugas_id: primaryPetugasId
-      }
+      select: { id: true, petugas_id: true, status: true }
     });
+
+    let updatedCount = 0;
+    for (const doc of docsInSls) {
+      let finalPetugasId = doc.petugas_id;
+      if (!doc.petugas_id || doc.status === 'draft') {
+        finalPetugasId = primaryPetugasId;
+      }
+      
+      await prisma.dokumen.update({
+        where: { id: doc.id },
+        data: {
+          assigned_pcls: assigned_pcls || [],
+          assigned_pmls: assigned_pmls || [],
+          petugas_id: finalPetugasId
+        }
+      });
+      updatedCount++;
+    }
+
+    const result = { count: updatedCount };
 
     // Sync changes to PetugasKegiatan
     await syncPetugasKegiatanFromDokumen(kegId);

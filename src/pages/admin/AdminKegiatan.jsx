@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { 
@@ -940,7 +941,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-2">Fokus Pendataan</label>
                 <div className="relative">
-                  <select 
+                  <SelectDropdown variant="form" 
                     value={newActivity.fokus} 
                     onChange={e => setNewActivity({ ...newActivity, fokus: e.target.value })}
                     required
@@ -952,7 +953,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                     <option value="Tim">Tim</option>
                     <option value="Individu">Individu</option>
                     <option value="Perusahaan">Perusahaan</option>
-                  </select>
+                  </SelectDropdown>
                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
                     <ChevronDown size={16} />
                   </div>
@@ -974,7 +975,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Status Publikasi</label>
                   <div className="relative">
-                    <select 
+                    <SelectDropdown variant="form" 
                       value={newActivity.status} 
                       onChange={e => setNewActivity({ ...newActivity, status: e.target.value })}
                       className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer appearance-none pr-10"
@@ -983,7 +984,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                       <option value="uji_coba">Uji Coba (Sandbox)</option>
                       <option value="published">Published (Visible)</option>
                       <option value="selesai">Selesai (Finished)</option>
-                    </select>
+                    </SelectDropdown>
                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
                       <ChevronDown size={16} />
                     </div>
@@ -1061,7 +1062,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-2">Fokus Pendataan</label>
                 <div className="relative">
-                  <select 
+                  <SelectDropdown variant="form" 
                     value={editForm.fokus} 
                     onChange={e => setEditForm({ ...editForm, fokus: e.target.value })}
                     required
@@ -1073,7 +1074,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                     <option value="Tim">Tim</option>
                     <option value="Individu">Individu</option>
                     <option value="Perusahaan">Perusahaan</option>
-                  </select>
+                  </SelectDropdown>
                   <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
                     <ChevronDown size={16} />
                   </div>
@@ -1095,7 +1096,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Status Publikasi</label>
                   <div className="relative">
-                    <select 
+                    <SelectDropdown variant="form" 
                       value={editForm.status} 
                       onChange={e => setEditForm({ ...editForm, status: e.target.value })}
                       className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer appearance-none pr-10"
@@ -1104,7 +1105,7 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                       <option value="uji_coba">Uji Coba (Sandbox)</option>
                       <option value="published">Published (Visible)</option>
                       <option value="selesai">Selesai (Finished)</option>
-                    </select>
+                    </SelectDropdown>
                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
                       <ChevronDown size={16} />
                     </div>
@@ -1206,14 +1207,14 @@ function AdminKegiatan({ onNavigate, selectedProject, onProjectChange, activitie
                         <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
                           <span className="text-[10px] text-slate-400 font-bold">Peran:</span>
                           <div className="relative">
-                            <select
+                            <SelectDropdown variant="form"
                               value={activeRole}
                               onChange={(e) => handleOfficerRoleChangeInModal(p.name, e.target.value)}
                               className="appearance-none text-[10px] font-bold pl-3 pr-7 py-1.5 bg-white border border-slate-200 hover:border-slate-350 hover:bg-slate-50/50 rounded-xl text-slate-750 cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all font-semibold"
                             >
                               <option value="PCL">PCL (Pendata)</option>
                               <option value="PML">PML (Pengawas)</option>
-                            </select>
+                            </SelectDropdown>
                             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-2.5 text-slate-400">
                               <ChevronDown size={11} />
                             </div>

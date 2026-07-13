@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
 import { Plus, Sliders, AlertTriangle, List, Search, Edit, Trash2, ChevronDown, CheckSquare, X, Command } from "lucide-react";
@@ -214,7 +215,7 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
               <div className="flex-1 max-w-md">
                 <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Pilih Kegiatan (Master)</label>
                 <div className="relative">
-                  <select
+                  <SelectDropdown variant="form"
                     className="w-full pl-3 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white font-medium text-slate-700"
                     value={selectedActivityId}
                     onChange={(e) => setSelectedActivityId(e.target.value)}
@@ -223,7 +224,7 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
                     {activities?.map(a => (
                       <option key={a.id} value={a.id}>{a.name}</option>
                     ))}
-                  </select>
+                  </SelectDropdown>
                 </div>
               </div>
               

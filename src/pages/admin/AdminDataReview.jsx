@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, Fragment, useEffect, useRef, startTransition, useMemo } from "react";
 import * as XLSX from 'xlsx';
 import AdminLayout from "../../components/layouts/AdminLayout";
@@ -148,12 +149,12 @@ const FastSelect = ({ value, onChange, options, className, disabled, placeholder
   };
 
   return (
-    <select value={localValue} onChange={handleChange} className={className} disabled={disabled}>
+    <SelectDropdown variant="form" value={localValue} onChange={handleChange} className={className} disabled={disabled}>
       <option value="">{placeholder}</option>
       {options ? options.map(opt => (
         <option key={opt.value} value={opt.value}>{opt.label}</option>
       )) : children}
-    </select>
+    </SelectDropdown>
   );
 };
 
@@ -1812,7 +1813,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                             <div key={iIdx} className="space-y-1">
                               {instances.length > 1 && <label className="text-[10px] font-bold text-slate-455 block">Isian Ke-{iIdx + 1}</label>}
                               {q.type === 'pcl' ? (
-                                <select
+                                <SelectDropdown variant="form"
                                   value={currentVal}
                                   onChange={e => handleChange(e.target.value)}
                                   className={baseClasses + " cursor-pointer"}
@@ -1825,9 +1826,9 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   {pclList.length === 0 && (petugas || []).map(p => (
                                     <option key={p.id} value={p.name}>{p.name}</option>
                                   ))}
-                                </select>
+                                </SelectDropdown>
                               ) : q.type === 'pml' ? (
-                                <select
+                                <SelectDropdown variant="form"
                                   value={currentVal}
                                   onChange={e => handleChange(e.target.value)}
                                   className={baseClasses + " cursor-pointer"}
@@ -1840,7 +1841,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                                   {pmlList.length === 0 && (petugas || []).map(p => (
                                     <option key={p.id} value={p.name}>{p.name}</option>
                                   ))}
-                                </select>
+                                </SelectDropdown>
                               ) : q.type === 'search' ? (
                                 <SearchableSelect
                                   value={currentVal}
@@ -2721,7 +2722,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-slate-100 bg-slate-50/30">
                 <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                   <span>Tampilkan</span>
-                  <select
+                  <SelectDropdown variant="form"
                     value={pageSize}
                     onChange={(e) => {
                       setPageSize(Number(e.target.value));
@@ -2732,7 +2733,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                     {[25, 50, 100].map(sz => (
                       <option key={sz} value={sz}>{sz}</option>
                     ))}
-                  </select>
+                  </SelectDropdown>
                   <span>baris per halaman</span>
                 </div>
 
@@ -3072,7 +3073,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
               {/* Select SLS */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-2">Pilih Satuan Lingkungan Setempat (SLS)</label>
-                <select
+                <SelectDropdown variant="form"
                   value={selectedSls}
                   onChange={e => setSelectedSls(e.target.value)}
                   className="w-full text-sm bg-slate-50 border border-slate-200 focus:border-blue-500 rounded-xl px-3 py-2.5 font-semibold text-slate-700 cursor-pointer outline-none transition-all"
@@ -3081,7 +3082,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   {uniqueSlsList.map(sls => (
                     <option key={sls} value={sls}>{sls}</option>
                   ))}
-                </select>
+                </SelectDropdown>
                 {uniqueSlsList.length === 0 && (
                   <p className="text-[10px] text-amber-500 font-semibold mt-1">
                     * Tidak ada SLS terdeteksi di dokumen kegiatan saat ini. Unggah prelist terlebih dahulu.

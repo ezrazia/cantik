@@ -104,6 +104,7 @@ router.get('/:kegiatanId', async (req, res) => {
       select: {
         id: true,
         kode: true,
+        no_kk: true,
         krt: true,
         alamat: true,
         kecamatan: true,
@@ -124,17 +125,21 @@ router.get('/:kegiatanId', async (req, res) => {
 
     const docIds = documents.map(d => d.id);
 
-    // 3. Ambil semua jawaban untuk dokumen approved/selesai tersebut
-    const answers = await prisma.dokumenJawaban.findMany({
-      where: {
-        dokumen_id: { in: docIds },
-      },
-      select: {
-        dokumen_id: true,
-        question_id: true,
-        value: true,
-      },
-    });
+    // 3. Ambil semua jawaban secara bertahap (chunk) untuk menghindari limit payload 5MB Prisma Accelerate
+    let answers = [];
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < docIds.length; i += CHUNK_SIZE) {
+      const chunkIds = docIds.slice(i, i + CHUNK_SIZE);
+      const chunkAnswers = await prisma.dokumenJawaban.findMany({
+        where: { dokumen_id: { in: chunkIds } },
+        select: {
+          dokumen_id: true,
+          question_id: true,
+          value: true,
+        },
+      });
+      answers = answers.concat(chunkAnswers);
+    }
 
     // Map jawaban by dokumen_id and question_id
     const answersMap = {};
@@ -370,9 +375,17 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
     }
 
     const docIds = documents.map(d => d.id);
-    const answers = await prisma.dokumenJawaban.findMany({
-      where: { dokumen_id: { in: docIds } },
-    });
+    
+    let answers = [];
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < docIds.length; i += CHUNK_SIZE) {
+      const chunkIds = docIds.slice(i, i + CHUNK_SIZE);
+      const chunkAnswers = await prisma.dokumenJawaban.findMany({
+        where: { dokumen_id: { in: chunkIds } },
+        select: { dokumen_id: true, question_id: true, value: true }
+      });
+      answers = answers.concat(chunkAnswers);
+    }
 
     const answersMap = {};
     answers.forEach(ans => {
@@ -382,21 +395,31 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
 
     const getParsedValue = (q, val) => {
       if (val === undefined || val === null || val === '') return '';
-      if (typeof val === 'string' && val.trim().startsWith('{')) {
-        try {
-          const parsed = JSON.parse(val);
-          return parsed.text || parsed.value || val;
-        } catch (e) {}
+      
+      let rawVal = val;
+
+      if (Array.isArray(rawVal)) {
+          return rawVal.join(', ');
       }
-      let options = q.options;
-      if (typeof options === 'string') {
-        try { options = JSON.parse(options); } catch (e) { options = null; }
+
+      if (typeof rawVal === 'string') {
+        const trimmed = rawVal.trim();
+        if (trimmed.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            rawVal = parsed.value !== undefined ? parsed.value : rawVal;
+          } catch (e) {}
+        } else if (trimmed.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) {
+              rawVal = parsed.join(', ');
+            }
+          } catch (e) {}
+        }
       }
-      if (options && Array.isArray(options)) {
-        const matched = options.find(o => String(o.value) === String(val));
-        if (matched) return matched.label;
-      }
-      return val;
+      
+      return rawVal;
     };
 
     const getOrderedQuestionsInBlock = (blockId, allQuestions) => {
@@ -438,10 +461,24 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
          if (valObj.isLoop) isLoop = true;
       } catch(e) {}
 
+      // Data-driven detection: if any doc has an array value for this question (and it's not a checkbox)
+      if (!isLoop && q.type !== 'checkbox') {
+          for (const doc of documents) {
+              const rawVal = answersMap[doc.id]?.[q.id];
+              if (rawVal && typeof rawVal === 'string' && rawVal.trim().startsWith('[')) {
+                  try {
+                      const arr = JSON.parse(rawVal);
+                      if (Array.isArray(arr) && arr.length > 1) {
+                          isLoop = true;
+                          break;
+                      }
+                  } catch(e) {}
+              }
+          }
+      }
+
       if (isLoop) {
-        // Safe sheet name (max 31 chars, no invalid chars)
-        let blockName = `${q.form_blok.kode} - ${q.form_blok.title}`.replace(/[\\\/\?\*\[\]]/g, '').trim();
-        if (blockName.length > 31) blockName = blockName.substring(0, 31).trim();
+        let blockName = 'Data_Perulangan';
         if (!loopQuestionsByBlock[blockName]) loopQuestionsByBlock[blockName] = [];
         loopQuestionsByBlock[blockName].push(q);
       } else {
@@ -457,11 +494,12 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
       const masterRow = {
         'No': idx + 1,
         'ID_Dokumen': doc.kode || doc.id,
+        'No_KK': doc.no_kk,
+        'Nama_KRT': doc.krt,
         'Kecamatan': doc.kecamatan,
         'Desa': doc.desa,
         'SLS': doc.sls,
         'Sub_SLS': doc.sub_sls,
-        'Nama_KRT': doc.krt,
       };
 
       masterQuestions.forEach(q => {
@@ -496,6 +534,8 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
          for (let i = 0; i < maxIter; i++) {
             const loopRow = {
               'ID_Dokumen': doc.kode || doc.id,
+              'No_KK': doc.no_kk,
+              'Nama_KRT': doc.krt,
               'Isian_Ke': i + 1,
             };
             lQuestions.forEach(q => {
@@ -511,7 +551,7 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
     const wb = xlsx.utils.book_new();
 
     const metadata = [
-      { Parameter: 'Kegiatan', Value: kegiatan.nama },
+      { Parameter: 'Kegiatan', Value: kegiatan.name },
       { Parameter: 'Tahun', Value: kegiatan.tahun },
       { Parameter: 'Status', Value: kegiatan.status },
       { Parameter: 'Total Dokumen Bersih', Value: documents.length },

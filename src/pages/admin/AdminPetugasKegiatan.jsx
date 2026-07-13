@@ -1,3 +1,4 @@
+import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import AdminLayout from "../../components/layouts/AdminLayout";
@@ -1150,7 +1151,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
 
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-2">Asal Desa</label>
-                <select 
+                <SelectDropdown variant="form" 
                   value={assignedDesa}
                   onChange={(e) => setAssignedDesa(e.target.value)}
                   className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all font-medium text-slate-700 cursor-pointer"
@@ -1161,7 +1162,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                   {dbDesa.length === 0 && (
                     <option value="Tideng Pale">Desa Tideng Pale</option>
                   )}
-                </select>
+                </SelectDropdown>
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100 mt-6">
@@ -1776,7 +1777,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                               {visibleColsLocal.includes("Petugas") && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap w-[80px]">
                                   {(projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin ? (
-                                    <select
+                                    <SelectDropdown variant="form"
                                       value={p.projectRoles?.[selectedProject] || "PCL"}
                                       onChange={async (e) => {
                                         const newRole = e.target.value;
@@ -1801,7 +1802,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                     >
                                       <option value="PCL">PCL</option>
                                       <option value="PML">PML</option>
-                                    </select>
+                                    </SelectDropdown>
                                   ) : (
                                     <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg inline-block whitespace-nowrap ${
                                       (p.projectRoles?.[selectedProject] || "PCL") === "PML" 
@@ -1824,7 +1825,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         return (
                                           <div className="flex flex-col sm:flex-row gap-1">
                                             {/* Desa Dropdown */}
-                                            <select
+                                            <SelectDropdown variant="form"
                                               value={selections.desa || ""}
                                               onChange={e => handleRowDesaChange(p.id, e.target.value)}
                                               className="px-2 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 font-medium cursor-pointer max-w-[120px]"
@@ -1833,7 +1834,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                               {(activeActivity?.lokus?.desa || []).map(desaName => (
                                                 <option key={desaName} value={desaName}>{desaName}</option>
                                               ))}
-                                            </select>
+                                            </SelectDropdown>
 
                                             {/* SLS Dropdown */}
                                             {(activeActivity?.lokus?.sls || []).length > 0 && (
@@ -1930,7 +1931,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                             )}
                                             {/* Add PCL dropdown */}
                                             {availablePcls.length > 0 && (
-                                              <select
+                                              <SelectDropdown variant="form"
                                                 value=""
                                                 onChange={e => { if (e.target.value) handlePmlPclAdd(p.name, e.target.value); }}
                                                 className="px-1.5 py-0.5 text-[10px] border border-dashed border-slate-300 rounded-full bg-white text-slate-500 font-semibold cursor-pointer hover:border-purple-400 hover:text-purple-600 transition-colors"
@@ -1940,7 +1941,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                                 {availablePcls.map(x => (
                                                   <option key={x.id} value={x.id}>{x.name}</option>
                                                 ))}
-                                              </select>
+                                              </SelectDropdown>
                                             )}
                                             {supervisedPcls.length === 0 && availablePcls.length === 0 && (
                                               <span className="text-[10px] text-slate-400 italic">Belum ada PCL</span>
@@ -2183,14 +2184,14 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                             {/* Peran Petugas */}
                             <div>
                               <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Peran Petugas</label>
-                              <select
+                              <SelectDropdown variant="form"
                                 value={selectedPetugas.projectRoles?.[selectedProject] || "PCL"}
                                 onChange={e => handleRoleChange(e.target.value)}
                                 className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
                               >
                                 <option value="PCL">PCL (Pendata)</option>
                                 <option value="PML">PML (Pengawas/Pemeriksa)</option>
-                              </select>
+                              </SelectDropdown>
                             </div>
 
                             {/* If role is PCL: Desa, SLS, Sub-SLS dropdowns, plus PML dropdown */}
@@ -2199,7 +2200,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                 {/* Pengawas (PML) Dropdown */}
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Pengawas (PML)</label>
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={selectedPetugas.assignments?.[selectedProject]?.pengawas || ""}
                                     onChange={e => handleAssignmentChange("pengawas", e.target.value)}
                                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
@@ -2211,13 +2212,13 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         <option key={p.id || p.name} value={p.name}>{p.name}</option>
                                       ))
                                     }
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
 
                                 {/* Desa Dropdown */}
                                 <div>
                                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Desa Tugas</label>
-                                  <select
+                                  <SelectDropdown variant="form"
                                     value={selectedDesaCode}
                                     onChange={e => handleLocationDropdownChange(e.target.value, "", "")}
                                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-semibold cursor-pointer"
@@ -2226,7 +2227,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                     {(activeActivity?.lokus?.desa || []).map(desaName => (
                                       <option key={desaName} value={desaName}>{desaName}</option>
                                     ))}
-                                  </select>
+                                  </SelectDropdown>
                                 </div>
 
                                 {/* SLS Dropdown */}
@@ -2315,7 +2316,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                     x.projectRoles?.[selectedProject] === "PCL" &&
                                     x.assignments?.[selectedProject]?.pengawas !== selectedPetugas.name
                                   ).length > 0 && (
-                                    <select
+                                    <SelectDropdown variant="form"
                                       value=""
                                       onChange={e => { if (e.target.value) handlePmlPclAdd(selectedPetugas.name, e.target.value); }}
                                       className="px-2 py-0.5 text-[10px] border border-dashed border-slate-300 rounded-full bg-white text-slate-500 font-semibold cursor-pointer hover:border-purple-400 hover:text-purple-600 transition-colors"
@@ -2330,7 +2331,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         .map(x => (
                                           <option key={x.id} value={x.id}>{x.name}</option>
                                         ))}
-                                    </select>
+                                    </SelectDropdown>
                                   )}
                                   {getSupervisedPcls(selectedPetugas.name).length === 0 && (
                                     <span className="text-[10px] text-slate-400 italic self-center">Belum ada PCL — pilih dari dropdown</span>
@@ -2488,7 +2489,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Asal Desa</label>
-                  <select 
+                  <SelectDropdown variant="form" 
                     value={assignedDesa} 
                     onChange={e => setAssignedDesa(e.target.value)}
                     className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer"
@@ -2501,7 +2502,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                          </option>
                        );
                     })}
-                  </select>
+                  </SelectDropdown>
                 </div>
               </div>
 
@@ -2569,7 +2570,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                   )}
                 </div>
                 {/* Filter by Desa */}
-                <select
+                <SelectDropdown variant="form"
                   value={modalDesaFilter}
                   onChange={e => setModalDesaFilter(e.target.value)}
                   className="px-2 py-2 text-[11px] border border-slate-200 rounded-xl bg-slate-50 text-slate-700 font-semibold cursor-pointer focus:border-blue-500 outline-none max-w-[130px] truncate"
@@ -2578,7 +2579,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                   {Array.from(new Set(unassignedOfficers.map(p => p.desa).filter(Boolean))).sort().map(d => (
                     <option key={d} value={d}>Desa {d}</option>
                   ))}
-                </select>
+                </SelectDropdown>
               </div>
 
               {/* Select All Row */}
@@ -2677,7 +2678,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                         </div>
                         
                         <div>
-                          <select
+                          <SelectDropdown variant="form"
                             value={role}
                             onChange={e => {
                               const newRole = e.target.value;
@@ -2687,7 +2688,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                           >
                             <option value="PCL">PCL</option>
                             <option value="PML">PML</option>
-                          </select>
+                          </SelectDropdown>
                         </div>
                       </div>
                     );

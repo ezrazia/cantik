@@ -121,8 +121,9 @@ export const api = {
       }
       return res;
     },
-    getForReview: async (kegiatanId) => {
-      const res = await request(`/dokumen/review/${kegiatanId}`);
+    getForReview: async (kegiatanId, petugasId) => {
+      const url = petugasId ? `/dokumen/review/${kegiatanId}?petugasId=${petugasId}` : `/dokumen/review/${kegiatanId}`;
+      const res = await request(url);
       if (Array.isArray(res)) {
         return res.map(doc => {
           if (doc.review_status === 'approved') {
@@ -160,10 +161,11 @@ export const api = {
 
   // ─── DASHBOARD STATS ──────────────────────────────────
   dashboard: {
-    getStats: (kegiatanId = '', desa = '') => {
+    getStats: (kegiatanId = '', desa = '', range = '') => {
       const params = new URLSearchParams();
       if (kegiatanId) params.append("kegiatan_id", kegiatanId);
       if (desa) params.append("desa", desa);
+      if (range) params.append("range", range);
       const q = params.toString() ? `?${params.toString()}` : '';
       return request(`/dashboard/stats${q}`);
     },
