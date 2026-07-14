@@ -169,7 +169,11 @@ router.get('/stats', async (req, res) => {
       });
     };
 
-    let totalDokumen = 0, approved = 0, rejected = 0, pending = 0, draft = 0, tambahan = 0;
+    let totalDokumen = 0, approved = 0, rejected = 0, pending = 0, draft = 0, tambahan = 0, prelist = 0;
+    let approvedPrelist = 0, approvedTambahan = 0;
+    let rejectedPrelist = 0, rejectedTambahan = 0;
+    let reviewPrelist = 0, reviewTambahan = 0;
+    let draftPrelist = 0, draftTambahan = 0;
     const lokusMap = {};
     const kegiatanProgressMap = {};
 
@@ -179,13 +183,35 @@ router.get('/stats', async (req, res) => {
       const isDraft = d.review_status === 'draft' && (d.status === 'draft' || d.status === 'tersimpan');
       const isTambahan = !d.is_prelist;
 
-      if (d.review_status === 'approved') approved++;
-      if (!isTambahan) {
-          if (d.review_status === 'rejected') rejected++;
-          if (isPending) pending++;
-          if (isDraft) draft++;
+      if (d.review_status === 'approved') {
+        approved++;
+        if (d.is_prelist) {
+          approvedPrelist++;
+        } else {
+          approvedTambahan++;
+        }
       }
-      if (isTambahan) tambahan++;
+      if (!isTambahan) {
+          prelist++;
+          if (d.review_status === 'rejected') {
+            rejected++;
+            rejectedPrelist++;
+          }
+          if (isPending) {
+            pending++;
+            reviewPrelist++;
+          }
+          if (isDraft) {
+            draft++;
+            draftPrelist++;
+          }
+      }
+      if (isTambahan) {
+          tambahan++;
+          if (d.review_status === 'rejected') rejectedTambahan++;
+          if (isPending) reviewTambahan++;
+          if (isDraft) draftTambahan++;
+      }
 
       // Normalize desa name using kegiatan lokus
       const normalizedDesa = normalizeDesa(d.desa);
@@ -428,6 +454,15 @@ router.get('/stats', async (req, res) => {
         pending,
         draft,
         tambahan,
+        prelist,
+        approvedPrelist,
+        approvedTambahan,
+        rejectedPrelist,
+        rejectedTambahan,
+        reviewPrelist,
+        reviewTambahan,
+        draftPrelist,
+        draftTambahan,
         lokusProgress,
         kegiatanProgress,
         totalAssignment

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../services/api';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Cell, Tooltip, PieChart, Pie, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
-import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, PlusCircle, Target, Maximize2, X } from "lucide-react";
+import { FileText, CheckCircle, Clock, XCircle, RefreshCw, ChevronDown, PlusCircle, Target, Maximize2, X, ClipboardList } from "lucide-react";
 import useDropdown from '../../hooks/useDropdown';
 import SelectDropdown from '../ui/SelectDropdown';
 
@@ -158,18 +158,34 @@ export default function DashboardContent({
   const selesaiTotal = dashboardStats?.summary?.approved ?? 0;
   const tambahan = dashboardStats?.summary?.tambahan ?? 0;
   const totalAssignment = dashboardStats?.summary?.totalAssignment ?? 0;
+  const prelist = dashboardStats?.summary?.prelist ?? (totalAssignment - tambahan);
+
+  // Breakdowns from server
+  const approvedPrelist = dashboardStats?.summary?.approvedPrelist ?? Math.max(0, prelist - draft - review - ditolak);
+  const approvedTambahan = dashboardStats?.summary?.approvedTambahan ?? Math.max(0, selesaiTotal - approvedPrelist);
+  const reviewPrelist = dashboardStats?.summary?.reviewPrelist ?? review;
+  const reviewTambahan = dashboardStats?.summary?.reviewTambahan ?? 0;
+  const rejectedPrelist = dashboardStats?.summary?.rejectedPrelist ?? ditolak;
+  const rejectedTambahan = dashboardStats?.summary?.rejectedTambahan ?? 0;
+  const draftPrelist = dashboardStats?.summary?.draftPrelist ?? draft;
+  const draftTambahan = dashboardStats?.summary?.draftTambahan ?? 0;
+
+  // Dalam Proses Tambahan (Draft + Review/Pending + Rejected)
+  const prosesTambahan = Math.max(0, tambahan - approvedTambahan);
   const total = totalAssignment;
 
   const completionPercent = totalAssignment > 0 ? Math.round((selesaiTotal / totalAssignment) * 100) : 0;
   const lokusProgress = dashboardStats?.summary?.lokusProgress || [];
 
-  const stats = [
-    { icon: Target, l: "Total Assignment", v: totalAssignment, color: "text-indigo-600", bg: "bg-indigo-50", ic: "text-indigo-500" },
-    { icon: FileText, l: "Draft", v: draft, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500" },
-    { icon: Clock, l: "Review", v: review, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500" },
-    { icon: XCircle, l: "Ditolak", v: ditolak, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500" },
-    { icon: CheckCircle, l: "Selesai", v: selesaiTotal, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500" },
-    { icon: PlusCircle, l: "Tambahan", v: tambahan, color: "text-purple-600", bg: "bg-purple-50", ic: "text-purple-500" },
+  const workloadStats = [
+    { icon: Target, l: "Total Assignment", v: totalAssignment, color: "text-indigo-600", bg: "bg-indigo-50", ic: "text-indigo-500", sub: `${prelist} Prelist · ${tambahan} Tambahan` },
+  ];
+
+  const statusStats = [
+    { icon: FileText, l: "Draft / Dalam Proses", v: draft + prosesTambahan, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500", sub: `${draft} Prelist · ${prosesTambahan} Tambahan (Proses)` },
+    { icon: Clock, l: "Review", v: review + reviewTambahan, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500", sub: `${review} Prelist · ${reviewTambahan} Tambahan` },
+    { icon: XCircle, l: "Ditolak", v: ditolak + rejectedTambahan, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500", sub: `${ditolak} Prelist · ${rejectedTambahan} Tambahan` },
+    { icon: CheckCircle, l: "Selesai", v: selesaiTotal, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500", sub: `${approvedPrelist} Prelist · ${approvedTambahan} Tambahan` },
   ];
 
   const PIE_DATA = [
@@ -202,16 +218,36 @@ export default function DashboardContent({
             </div>
             <div className="h-10 w-24 bg-slate-200 rounded-xl"></div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-8">
-            {[1, 2, 3, 4, 5, 6].map((n) => (
-              <div key={n} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0"></div>
-                <div className="space-y-1.5 flex-1">
-                  <div className="h-3.5 w-16 bg-slate-100 rounded"></div>
-                  <div className="h-5 w-10 bg-slate-200 rounded"></div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+            {/* Workload Group Skeleton */}
+            <div className="lg:col-span-3 bg-white/50 rounded-2xl p-5 border border-slate-100/80">
+              <div className="h-3 w-32 bg-slate-200 rounded mb-4 animate-pulse"></div>
+              <div className="grid grid-cols-1">
+                <div className="bg-white rounded-xl p-4 border border-slate-100 flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0"></div>
+                  <div className="space-y-1.5 flex-1">
+                    <div className="h-3 w-16 bg-slate-100 rounded"></div>
+                    <div className="h-5 w-10 bg-slate-200 rounded"></div>
+                  </div>
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* Status Progress Group Skeleton */}
+            <div className="lg:col-span-9 bg-white/50 rounded-2xl p-5 border border-slate-100/80">
+              <div className="h-3 w-36 bg-slate-200 rounded mb-4 animate-pulse"></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} className="bg-white rounded-xl p-4 border border-slate-100 flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-slate-100 flex-shrink-0"></div>
+                    <div className="space-y-1.5 flex-1">
+                      <div className="h-3 w-16 bg-slate-100 rounded"></div>
+                      <div className="h-5 w-10 bg-slate-200 rounded"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
             <div className="bg-white rounded-xl p-6 border border-slate-100 space-y-4">
@@ -352,18 +388,58 @@ export default function DashboardContent({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-8">
-            {stats.map(c => (
-              <div key={c.l} className="bg-white rounded-xl p-5 border border-slate-100 flex items-center gap-4">
-                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${c.bg}`}>
-                  <c.icon size={18} className={c.ic}/>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-400 font-medium">{c.l}</p>
-                  <p className={`mono text-xl font-bold ${c.color}`}>{c.v}</p>
-                </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+            {/* Workload Group */}
+            <div className="lg:col-span-3 bg-white/50 backdrop-blur-sm rounded-2xl p-5 border border-slate-100/80">
+              <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                Ringkasan Beban Kerja
+              </h4>
+              <div className="grid grid-cols-1">
+                {workloadStats.map(c => (
+                  <div key={c.l} className="bg-white rounded-xl p-4 border border-slate-100/50 flex items-center gap-4 shadow-sm hover:shadow transition-shadow">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${c.bg}`}>
+                      <c.icon size={18} className={c.ic}/>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">{c.l}</p>
+                      <p className={`mono text-2xl font-bold ${c.color} mt-0.5`}>{c.v}</p>
+                      {c.sub && (
+                        <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-normal">
+                          {c.sub}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
+            </div>
+
+            {/* Status Progress Group */}
+            <div className="lg:col-span-9 bg-white/50 backdrop-blur-sm rounded-2xl p-5 border border-slate-100/80">
+              <h4 className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                Progress Status Dokumen
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {statusStats.map(c => (
+                  <div key={c.l} className="bg-white rounded-xl p-4 border border-slate-100/50 flex items-center gap-4 shadow-sm hover:shadow transition-shadow">
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${c.bg}`}>
+                      <c.icon size={18} className={c.ic}/>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">{c.l}</p>
+                      <p className={`mono text-xl font-bold ${c.color} mt-0.5`}>{c.v}</p>
+                      {c.sub && (
+                        <p className="text-[10px] text-slate-400 mt-1.5 font-medium leading-normal">
+                          {c.sub}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">

@@ -388,7 +388,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
     .filter(act => act && act.status !== "draft" && act.status !== "selesai");
 
   // Calculate live statistics
-  const targetCount = documents.length;
+  const targetCount = documents.filter(d => d.is_prelist === true).length;
   const selesaiCount = documents.filter(d => d.review_status === 'approved').length;
   const kirimCount = documents.filter(d => d.status === 'terkirim' && d.review_status !== 'approved' && d.review_status !== 'rejected').length;
   const ditolakCount = documents.filter(d => d.review_status === 'rejected').length;
