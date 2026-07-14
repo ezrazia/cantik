@@ -249,15 +249,19 @@ router.get('/stats', async (req, res) => {
         }
         
         lokusMap[lokusKey].Total++;
-        if (d.review_status === 'approved') lokusMap[lokusKey].Selesai++;
-        if (!isTambahan) {
-            if (d.review_status === 'rejected') lokusMap[lokusKey].Ditolak++;
-            if (isPending) lokusMap[lokusKey].Review++;
-            if (isDraft) lokusMap[lokusKey].Draft++;
-        }
-        if (isTambahan) {
+        if (d.review_status === 'approved') {
+          lokusMap[lokusKey].Selesai++;
+          if (isTambahan) lokusMap[lokusKey].TambahanApproved++;
+        } else if (d.review_status === 'rejected') {
+          lokusMap[lokusKey].Ditolak++;
+        } else if (isPending) {
+          lokusMap[lokusKey].Review++;
+        } else if (isDraft) {
+          if (!isTambahan) {
+            lokusMap[lokusKey].Draft++;
+          } else {
             lokusMap[lokusKey].Tambahan++;
-            if (d.review_status === 'approved') lokusMap[lokusKey].TambahanApproved++;
+          }
         }
       }
 
@@ -266,23 +270,27 @@ router.get('/stats', async (req, res) => {
         kegiatanProgressMap[kegName] = { name: kegName, Selesai: 0, Review: 0, Ditolak: 0, Draft: 0, Tambahan: 0, TambahanApproved: 0, Total: 0 };
       }
       kegiatanProgressMap[kegName].Total++;
-      if (d.review_status === 'approved') kegiatanProgressMap[kegName].Selesai++;
-      if (!isTambahan) {
-          if (d.review_status === 'rejected') kegiatanProgressMap[kegName].Ditolak++;
-          if (isPending) kegiatanProgressMap[kegName].Review++;
-          if (isDraft) kegiatanProgressMap[kegName].Draft++;
-      }
-      if (isTambahan) {
+      if (d.review_status === 'approved') {
+        kegiatanProgressMap[kegName].Selesai++;
+        if (isTambahan) kegiatanProgressMap[kegName].TambahanApproved++;
+      } else if (d.review_status === 'rejected') {
+        kegiatanProgressMap[kegName].Ditolak++;
+      } else if (isPending) {
+        kegiatanProgressMap[kegName].Review++;
+      } else if (isDraft) {
+        if (!isTambahan) {
+          kegiatanProgressMap[kegName].Draft++;
+        } else {
           kegiatanProgressMap[kegName].Tambahan++;
-          if (d.review_status === 'approved') kegiatanProgressMap[kegName].TambahanApproved++;
+        }
       }
     });
 
     const totalAssignment = totalDokumen;
     const lokusProgress = Object.values(lokusMap).sort((a, b) => a.name.localeCompare(b.name));
     const kegiatanProgress = Object.values(kegiatanProgressMap).sort((a, b) => {
-      const aPct = a.Total > 0 ? (a.Total - a.Draft) / a.Total : 0;
-      const bPct = b.Total > 0 ? (b.Total - b.Draft) / b.Total : 0;
+      const aPct = a.Total > 0 ? (a.Total - a.Draft - a.Tambahan) / a.Total : 0;
+      const bPct = b.Total > 0 ? (b.Total - b.Draft - b.Tambahan) / b.Total : 0;
       if (bPct !== aPct) return bPct - aPct;
       return a.name.localeCompare(b.name);
     });

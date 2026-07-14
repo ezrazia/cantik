@@ -170,8 +170,6 @@ export default function DashboardContent({
   const draftPrelist = dashboardStats?.summary?.draftPrelist ?? draft;
   const draftTambahan = dashboardStats?.summary?.draftTambahan ?? 0;
 
-  // Dalam Proses Tambahan (Draft + Review/Pending + Rejected)
-  const prosesTambahan = Math.max(0, tambahan - approvedTambahan);
   const total = totalAssignment;
 
   const completionPercent = totalAssignment > 0 ? Math.round((selesaiTotal / totalAssignment) * 100) : 0;
@@ -182,9 +180,9 @@ export default function DashboardContent({
   ];
 
   const statusStats = [
-    { icon: FileText, l: "Draft / Dalam Proses", v: draft + prosesTambahan, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500", sub: `${draft} Prelist · ${prosesTambahan} Tambahan (Proses)` },
-    { icon: Clock, l: "Review", v: review + reviewTambahan, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500", sub: `${review} Prelist · ${reviewTambahan} Tambahan` },
-    { icon: XCircle, l: "Ditolak", v: ditolak + rejectedTambahan, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500", sub: `${ditolak} Prelist · ${rejectedTambahan} Tambahan` },
+    { icon: FileText, l: "Draft / Dalam Proses", v: draftPrelist + draftTambahan, color: "text-slate-900", bg: "bg-slate-50", ic: "text-slate-500", sub: `${draftPrelist} Prelist · ${draftTambahan} Tambahan` },
+    { icon: Clock, l: "Review", v: reviewPrelist + reviewTambahan, color: "text-amber-600", bg: "bg-amber-50", ic: "text-amber-500", sub: `${reviewPrelist} Prelist · ${reviewTambahan} Tambahan` },
+    { icon: XCircle, l: "Ditolak", v: rejectedPrelist + rejectedTambahan, color: "text-red-600", bg: "bg-red-50", ic: "text-red-500", sub: `${rejectedPrelist} Prelist · ${rejectedTambahan} Tambahan` },
     { icon: CheckCircle, l: "Selesai", v: selesaiTotal, color: "text-emerald-600", bg: "bg-emerald-50", ic: "text-emerald-500", sub: `${approvedPrelist} Prelist · ${approvedTambahan} Tambahan` },
   ];
 
@@ -472,8 +470,7 @@ export default function DashboardContent({
                     const pctSelesai = (d.Selesai / max) * 100;
                     const pctReview = (d.Review / max) * 100;
                     const pctDitolak = (d.Ditolak / max) * 100;
-                    const unapprovedTambahan = Math.max(0, (d.Tambahan || 0) - (d.TambahanApproved || 0));
-                    const pctTambahan = (unapprovedTambahan / max) * 100;
+                    const pctTambahan = ((d.Tambahan || 0) / max) * 100;
                     const pctDraft = (d.Draft / max) * 100;
 
                     const tooltipText = `Total: ${d.Total}\nSelesai: ${d.Selesai}\nReview: ${d.Review}\nDitolak: ${d.Ditolak}\nTambahan: ${d.Tambahan}\nDraft: ${d.Draft}`;
@@ -844,8 +841,7 @@ export default function DashboardContent({
                         const pctSelesai = (d.Selesai / max) * 100;
                         const pctReview = (d.Review / max) * 100;
                         const pctDitolak = (d.Ditolak / max) * 100;
-                        const unapprovedTambahan = Math.max(0, (d.Tambahan || 0) - (d.TambahanApproved || 0));
-                        const pctTambahan = (unapprovedTambahan / max) * 100;
+                        const pctTambahan = ((d.Tambahan || 0) / max) * 100;
                         const pctDraft = (d.Draft / max) * 100;
 
                         const tooltipText = `Total: ${d.Total}\nSelesai: ${d.Selesai}\nReview: ${d.Review}\nDitolak: ${d.Ditolak}\nTambahan: ${d.Tambahan}\nDraft: ${d.Draft}`;
@@ -952,8 +948,8 @@ export default function DashboardContent({
                         ?.sort((a, b) => {
                            const maxA = Math.max(a.Total, 1);
                            const maxB = Math.max(b.Total, 1);
-                           const pctDraftA = (a.Draft / maxA) * 100;
-                           const pctDraftB = (b.Draft / maxB) * 100;
+                           const pctDraftA = ((a.Draft + (a.Tambahan || 0)) / maxA) * 100;
+                           const pctDraftB = ((b.Draft + (b.Tambahan || 0)) / maxB) * 100;
                            return pctDraftA - pctDraftB;
                         })
                         ?.map(d => {
@@ -961,10 +957,9 @@ export default function DashboardContent({
                         const pctSelesai = (d.Selesai / max) * 100;
                         const pctReview = (d.Review / max) * 100;
                         const pctDitolak = (d.Ditolak / max) * 100;
-                        const unapprovedTambahan = Math.max(0, (d.Tambahan || 0) - (d.TambahanApproved || 0));
-                        const pctTambahan = (unapprovedTambahan / max) * 100;
+                        const pctTambahan = ((d.Tambahan || 0) / max) * 100;
                         const pctDraft = (d.Draft / max) * 100;
-                        const progressVal = (100 - pctDraft).toFixed(1);
+                        const progressVal = (100 - (pctDraft + pctTambahan)).toFixed(1);
 
                         const tooltipText = `Kegiatan: ${d.name}\nTotal Assignment: ${d.Total}\nPersentase Progress: ${progressVal}%\nSelesai: ${d.Selesai}\nReview: ${d.Review}\nDitolak: ${d.Ditolak}\nTambahan: ${d.Tambahan}\nDraft: ${d.Draft}`;
 
