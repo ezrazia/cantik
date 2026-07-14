@@ -57,11 +57,12 @@ router.get('/', async (req, res) => {
         );
         const target = docsForKegiatan.length;
         const selesai = docsForKegiatan.filter(d => d.review_status === 'approved').length;
-        const draft = docsForKegiatan.filter(d => d.review_status === 'draft' && (d.status === 'draft' || d.status === 'tersimpan')).length;
-        const pending = docsForKegiatan.filter(d => d.review_status === 'draft' && d.status === 'terkirim').length;
-        const rejected = docsForKegiatan.filter(d => d.review_status === 'rejected').length;
+        const draft = docsForKegiatan.filter(d => d.is_prelist !== false && d.review_status === 'draft' && (d.status === 'draft' || d.status === 'tersimpan')).length;
+        const pending = docsForKegiatan.filter(d => d.is_prelist !== false && d.review_status === 'draft' && d.status === 'terkirim').length;
+        const rejected = docsForKegiatan.filter(d => d.is_prelist !== false && d.review_status === 'rejected').length;
         const approved = docsForKegiatan.filter(d => d.review_status === 'approved').length;
         const tambahan = docsForKegiatan.filter(d => d.is_prelist === false).length;
+        const tambahan_approved = docsForKegiatan.filter(d => d.is_prelist === false && d.review_status === 'approved').length;
 
         let parsedSls = [];
         if (pk.sls_assignments) {
@@ -86,6 +87,7 @@ router.get('/', async (req, res) => {
           rejected,
           approved,
           tambahan,
+          tambahan_approved,
         };
       });
 

@@ -200,6 +200,12 @@ router.get('/:kegiatanId', async (req, res) => {
             const matchedOpt = q.options.find(opt => String(opt.value) === String(val));
             if (matchedOpt) {
               labelVal = matchedOpt.label;
+            } else {
+              const matchedLabel = q.options.find(opt => String(opt.label) === String(val));
+              if (matchedLabel) {
+                 realVal = matchedLabel.value;
+                 labelVal = matchedLabel.label;
+              }
             }
           }
 
@@ -399,7 +405,21 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
       let rawVal = val;
 
       if (Array.isArray(rawVal)) {
-          return rawVal.join(', ');
+          rawVal = rawVal.map(v => {
+            if (typeof v === 'object' && v !== null && v.value !== undefined) return v.value;
+            if (typeof v === 'string' && v.trim().startsWith('{')) {
+               try {
+                 const p = JSON.parse(v.trim());
+                 if (p.value !== undefined) return p.value;
+               } catch(e) {}
+            }
+            return v;
+          }).join(', ');
+      }
+
+      if (typeof rawVal === 'object' && rawVal !== null) {
+          if (rawVal.value !== undefined) rawVal = rawVal.value;
+          else rawVal = JSON.stringify(rawVal);
       }
 
       if (typeof rawVal === 'string') {
@@ -413,10 +433,40 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
           try {
             const parsed = JSON.parse(trimmed);
             if (Array.isArray(parsed)) {
-              rawVal = parsed.join(', ');
+              rawVal = parsed.map(p => {
+                 if (typeof p === 'object' && p !== null && p.value !== undefined) return p.value;
+                 return p;
+              }).join(', ');
             }
           } catch (e) {}
         }
+      }
+      
+      // Fallback: If rawVal matches a label but NOT a value in q.options, map to value
+      let parsedOptions = q.options;
+      if (typeof parsedOptions === 'string') {
+          try {
+              parsedOptions = JSON.parse(parsedOptions);
+          } catch(e) { parsedOptions = null; }
+      }
+      
+      if (parsedOptions && Array.isArray(parsedOptions)) {
+          if (typeof rawVal === 'string' && rawVal.includes(',') && !parsedOptions.find(o => String(o.value) === String(rawVal))) {
+              const parts = rawVal.split(',').map(p => p.trim());
+              const newParts = parts.map(part => {
+                 const matchAsLabel = parsedOptions.find(opt => String(opt.label) === part);
+                 const matchAsValue = parsedOptions.find(opt => String(opt.value) === part);
+                 if (matchAsLabel && !matchAsValue) return matchAsLabel.value;
+                 return part;
+              });
+              rawVal = newParts.join(', ');
+          } else {
+              const matchAsLabel = parsedOptions.find(opt => String(opt.label) === String(rawVal));
+              const matchAsValue = parsedOptions.find(opt => String(opt.value) === String(rawVal));
+              if (matchAsLabel && !matchAsValue) {
+                  rawVal = matchAsLabel.value;
+              }
+          }
       }
       
       return rawVal;
@@ -551,23 +601,35 @@ router.get('/:kegiatanId/export-excel', async (req, res) => {
     const wb = xlsx.utils.book_new();
 
     const metadata = [
-      { Parameter: 'Kegiatan', Value: kegiatan.name },
-      { Parameter: 'Tahun', Value: kegiatan.tahun },
-      { Parameter: 'Status', Value: kegiatan.status },
-      { Parameter: 'Total Dokumen Bersih', Value: documents.length },
-      { Parameter: 'Tanggal Export', Value: new Date().toLocaleString('id-ID') },
-      { Parameter: '', Value: '' },
-      { Parameter: '--- DAFTAR RINCIAN ---', Value: '--- PERTANYAAN ---' }
+      { Parameter: 'Kegiatan', Value: kegiatan.name, Options: '' },
+      { Parameter: 'Tahun', Value: kegiatan.tahun, Options: '' },
+      { Parameter: 'Status', Value: kegiatan.status, Options: '' },
+      { Parameter: 'Total Dokumen Bersih', Value: documents.length, Options: '' },
+      { Parameter: 'Tanggal Export', Value: new Date().toLocaleString('id-ID'), Options: '' },
+      { Parameter: '', Value: '', Options: '' },
+      { Parameter: '--- DAFTAR RINCIAN ---', Value: '--- PERTANYAAN ---', Options: '--- OPSI/PILIHAN (VALUE = LABEL) ---' }
     ];
 
     allOrderedQs.forEach(q => {
       if (q.type === 'note') return;
       const qCode = getQuestionCode(q, questions, allBlocks);
-      metadata.push({ Parameter: qCode, Value: q.label });
+      
+      let optionsStr = '';
+      if (q.options) {
+          let parsedOptions = q.options;
+          if (typeof parsedOptions === 'string') {
+              try { parsedOptions = JSON.parse(parsedOptions); } catch(e) {}
+          }
+          if (Array.isArray(parsedOptions)) {
+              optionsStr = parsedOptions.map(o => `${o.value} = ${o.label}`).join(' | ');
+          }
+      }
+
+      metadata.push({ Parameter: qCode, Value: q.label, Options: optionsStr });
     });
     const wsMeta = xlsx.utils.json_to_sheet(metadata);
     // Custom column width for metadata
-    wsMeta['!cols'] = [{ wch: 25 }, { wch: 50 }];
+    wsMeta['!cols'] = [{ wch: 25 }, { wch: 50 }, { wch: 60 }];
     xlsx.utils.book_append_sheet(wb, wsMeta, 'Metadata');
 
     const wsMaster = xlsx.utils.json_to_sheet(masterData);

@@ -8,7 +8,7 @@ const router = Router();
  * Mengambil ringkasan statistik untuk dashboard admin.
  */
 router.get('/stats', async (req, res) => {
-  const { kegiatan_id, desa, range } = req.query;
+  const { kegiatan_id, desa, range, groupBy } = req.query;
   try {
     // 1. Total petugas
     const totalPetugas = await prisma.petugas.count();
@@ -23,13 +23,20 @@ router.get('/stats', async (req, res) => {
     const totalDesa = distinctDesa.length;
 
     // 4. Hitung dokumen per status review & Progress per Lokus
-    const whereClause = kegiatan_id ? { kegiatan_id: parseInt(kegiatan_id, 10) } : {};
+    let whereClause = {};
+    let kegiatanIds = [];
+    if (kegiatan_id) {
+      kegiatanIds = kegiatan_id.split(',').map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      if (kegiatanIds.length > 0) {
+        whereClause = { kegiatan_id: { in: kegiatanIds } };
+      }
+    }
     
-    // Cari level lokus terdalam dari kegiatan
+    // Cari level lokus terdalam dari kegiatan (hanya relevan jika groupBy != 'kegiatan' dan single kegiatan)
     let lokusLevel = 'desa';
     let lObj = null;
-    if (kegiatan_id) {
-      const kegiatanObj = await prisma.kegiatan.findUnique({ where: { id: parseInt(kegiatan_id, 10) } });
+    if (kegiatanIds.length === 1 && groupBy !== 'kegiatan') {
+      const kegiatanObj = await prisma.kegiatan.findUnique({ where: { id: kegiatanIds[0] } });
       if (kegiatanObj && kegiatanObj.lokus) {
         lObj = kegiatanObj.lokus;
         if (typeof lObj === 'string') {
@@ -42,9 +49,14 @@ router.get('/stats', async (req, res) => {
       }
     }
 
+    const kegiatanMap = {};
+    const allKegiatan = await prisma.kegiatan.findMany();
+    allKegiatan.forEach(k => kegiatanMap[k.id] = k.name);
+
     const allDocs = await prisma.dokumen.findMany({
       where: whereClause,
       select: {
+        kegiatan_id: true,
         review_status: true,
         status: true,
         is_prelist: true,
@@ -73,6 +85,11 @@ router.get('/stats', async (req, res) => {
      * If not and there's only one known desa, assume it belongs there.
      * Otherwise fallback to the raw value or 'Unknown'.
      */
+    const toTitleCase = (str) => {
+      if (!str) return '';
+      return str.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+    };
+
     const normalizeDesa = (rawDesa) => {
       if (!rawDesa) return knownDesas.length === 1 ? (lObj.desa[0]) : 'Unknown';
       const upper = rawDesa.toUpperCase();
@@ -80,7 +97,7 @@ router.get('/stats', async (req, res) => {
       if (matchIdx >= 0) return lObj.desa[matchIdx];
       // Single desa in lokus: all documents belong to it
       if (knownDesas.length === 1) return lObj.desa[0];
-      return rawDesa;
+      return toTitleCase(rawDesa);
     };
 
     // Filter docs in-memory if a specific village is requested
@@ -154,6 +171,7 @@ router.get('/stats', async (req, res) => {
 
     let totalDokumen = 0, approved = 0, rejected = 0, pending = 0, draft = 0, tambahan = 0;
     const lokusMap = {};
+    const kegiatanProgressMap = {};
 
     filteredDocs.forEach(d => {
       totalDokumen++;
@@ -162,9 +180,11 @@ router.get('/stats', async (req, res) => {
       const isTambahan = !d.is_prelist;
 
       if (d.review_status === 'approved') approved++;
-      if (d.review_status === 'rejected') rejected++;
-      if (isPending) pending++;
-      if (isDraft) draft++;
+      if (!isTambahan) {
+          if (d.review_status === 'rejected') rejected++;
+          if (isPending) pending++;
+          if (isDraft) draft++;
+      }
       if (isTambahan) tambahan++;
 
       // Normalize desa name using kegiatan lokus
@@ -175,35 +195,71 @@ router.get('/stats', async (req, res) => {
       const effectiveSls = isSlsEmpty && (d.sub_sls || rtAnswer) ? (d.sub_sls || rtAnswer) : d.sls;
 
       let lokusKey;
-      if (lokusLevel === 'sls' && effectiveSls) {
-        const code = cleanSlsCode(effectiveSls);
-        if (code && isValidSls(code)) {
-          lokusKey = `${normalizedDesa} - SLS ${code}`;
-        } else {
-          // Invalid SLS code — group under desa only
-          lokusKey = normalizedDesa;
-        }
-      } else if (lokusLevel === 'sub_sls' && d.sub_sls) {
-        const slsCode = cleanSlsCode(effectiveSls);
-        lokusKey = `${normalizedDesa} - SLS ${slsCode || '??'} - Sub ${d.sub_sls}`;
+      if (groupBy === 'kegiatan') {
+        lokusKey = kegiatanMap[d.kegiatan_id] || 'Unknown Kegiatan';
       } else {
-        lokusKey = normalizedDesa || 'Unknown';
+        if (effectiveSls) {
+          const code = cleanSlsCode(effectiveSls);
+          if (code && (knownSlsList.length === 0 || isValidSls(code))) {
+            lokusKey = `${normalizedDesa} - SLS ${code}`;
+          } else {
+            lokusKey = normalizedDesa || 'Unknown';
+          }
+        } else {
+          lokusKey = normalizedDesa || 'Unknown';
+        }
       }
 
-      if (!lokusMap[lokusKey]) {
-        lokusMap[lokusKey] = { name: lokusKey, Selesai: 0, Review: 0, Ditolak: 0, Draft: 0, Tambahan: 0, Total: 0 };
+      const isUnknownOrTidak = groupBy !== 'kegiatan' && lokusKey && (
+        lokusKey.toUpperCase().includes('UNKNOWN') || 
+        lokusKey.toUpperCase().includes('TIDAK') ||
+        lokusKey.toUpperCase() === 'DESA' ||
+        lokusKey.toUpperCase().startsWith('DESA -')
+      );
+
+      if (!isUnknownOrTidak) {
+        if (!lokusMap[lokusKey]) {
+          lokusMap[lokusKey] = { name: lokusKey, Selesai: 0, Review: 0, Ditolak: 0, Draft: 0, Tambahan: 0, TambahanApproved: 0, Total: 0 };
+        }
+        
+        lokusMap[lokusKey].Total++;
+        if (d.review_status === 'approved') lokusMap[lokusKey].Selesai++;
+        if (!isTambahan) {
+            if (d.review_status === 'rejected') lokusMap[lokusKey].Ditolak++;
+            if (isPending) lokusMap[lokusKey].Review++;
+            if (isDraft) lokusMap[lokusKey].Draft++;
+        }
+        if (isTambahan) {
+            lokusMap[lokusKey].Tambahan++;
+            if (d.review_status === 'approved') lokusMap[lokusKey].TambahanApproved++;
+        }
       }
-      
-      lokusMap[lokusKey].Total++;
-      if (d.review_status === 'approved') lokusMap[lokusKey].Selesai++;
-      if (d.review_status === 'rejected') lokusMap[lokusKey].Ditolak++;
-      if (isPending) lokusMap[lokusKey].Review++;
-      if (isDraft) lokusMap[lokusKey].Draft++;
-      if (isTambahan) lokusMap[lokusKey].Tambahan++;
+
+      const kegName = kegiatanMap[d.kegiatan_id] || 'Unknown Kegiatan';
+      if (!kegiatanProgressMap[kegName]) {
+        kegiatanProgressMap[kegName] = { name: kegName, Selesai: 0, Review: 0, Ditolak: 0, Draft: 0, Tambahan: 0, TambahanApproved: 0, Total: 0 };
+      }
+      kegiatanProgressMap[kegName].Total++;
+      if (d.review_status === 'approved') kegiatanProgressMap[kegName].Selesai++;
+      if (!isTambahan) {
+          if (d.review_status === 'rejected') kegiatanProgressMap[kegName].Ditolak++;
+          if (isPending) kegiatanProgressMap[kegName].Review++;
+          if (isDraft) kegiatanProgressMap[kegName].Draft++;
+      }
+      if (isTambahan) {
+          kegiatanProgressMap[kegName].Tambahan++;
+          if (d.review_status === 'approved') kegiatanProgressMap[kegName].TambahanApproved++;
+      }
     });
 
     const totalAssignment = totalDokumen;
     const lokusProgress = Object.values(lokusMap).sort((a, b) => a.name.localeCompare(b.name));
+    const kegiatanProgress = Object.values(kegiatanProgressMap).sort((a, b) => {
+      const aPct = a.Total > 0 ? (a.Total - a.Draft) / a.Total : 0;
+      const bPct = b.Total > 0 ? (b.Total - b.Draft) / b.Total : 0;
+      if (bPct !== aPct) return bPct - aPct;
+      return a.name.localeCompare(b.name);
+    });
 
     // 5. Data Chart Harian
     let dateFilter = {};
@@ -212,13 +268,23 @@ router.get('/stats', async (req, res) => {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
       startDate.setHours(0, 0, 0, 0);
-      dateFilter = { created_at: { gte: startDate } };
+      dateFilter = {
+        OR: [
+          { created_at: { gte: startDate } },
+          { updated_at: { gte: startDate } }
+        ]
+      };
     } else if (!range || range !== 'all') {
       // Default to 7 days if not provided
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - 7);
       startDate.setHours(0, 0, 0, 0);
-      dateFilter = { created_at: { gte: startDate } };
+      dateFilter = {
+        OR: [
+          { created_at: { gte: startDate } },
+          { updated_at: { gte: startDate } }
+        ]
+      };
     }
 
     const documents = await prisma.dokumen.findMany({
@@ -237,7 +303,8 @@ router.get('/stats', async (req, res) => {
         updated_at: true,
         review_status: true,
         is_prelist: true,
-        desa: true
+        desa: true,
+        kegiatan_id: true
       },
       orderBy: {
         created_at: 'asc'
@@ -284,7 +351,12 @@ router.get('/stats', async (req, res) => {
     // Pre-fill all dates with 0
     for (let d = new Date(startDateForChart); d <= endDateForChart; d.setDate(d.getDate() + 1)) {
       const dStr = d.toISOString().split('T')[0];
-      groups[dStr] = { date: dStr, count: 0, rejected: 0 };
+      groups[dStr] = { date: dStr, totalCount: 0, rejected: 0, byKegiatan: {} };
+      
+      // Initialize all activities with 0
+      Object.keys(kegiatanMap).forEach(k => {
+        groups[dStr].byKegiatan[kegiatanMap[k]] = 0;
+      });
     }
 
     filteredDailyDocs.forEach(doc => {
@@ -293,26 +365,29 @@ router.get('/stats', async (req, res) => {
       const targetDate = doc.is_prelist ? doc.updated_at : doc.created_at;
       const dateStr = targetDate.toISOString().split('T')[0];
       if (groups[dateStr]) {
-        groups[dateStr].count++;
+        groups[dateStr].totalCount++;
         if (doc.review_status === 'rejected') {
           groups[dateStr].rejected++;
         }
+        const kName = kegiatanMap[doc.kegiatan_id] || 'Unknown Kegiatan';
+        groups[dateStr].byKegiatan[kName] = (groups[dateStr].byKegiatan[kName] || 0) + 1;
       }
     });
 
     const chartRows = Object.values(groups).sort((a, b) => a.date.localeCompare(b.date));
 
     const formattedChartData = chartRows.map(row => {
-      return {
-        date: row.date,
-        k: row.count
-      };
+      const entry = { date: row.date, k: row.totalCount };
+      Object.keys(row.byKegiatan).forEach(keg => {
+        entry[keg] = row.byKegiatan[keg];
+      });
+      return entry;
     });
 
     // 6. Log aktivitas terbaru
     const recentLogs = await prisma.dokumenLog.findMany({
-      where: kegiatan_id ? {
-        dokumen: { kegiatan_id: parseInt(kegiatan_id, 10) }
+      where: whereClause.kegiatan_id ? {
+        dokumen: { kegiatan_id: whereClause.kegiatan_id }
       } : {},
       include: {
         dokumen: {
@@ -353,8 +428,9 @@ router.get('/stats', async (req, res) => {
         pending,
         draft,
         tambahan,
-        totalAssignment,
-        lokusProgress
+        lokusProgress,
+        kegiatanProgress,
+        totalAssignment
       },
       chartData: formattedChartData,
       recentLogs: finalLogs.map(l => ({

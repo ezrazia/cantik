@@ -1,6 +1,7 @@
 import SelectDropdown from '../../components/ui/SelectDropdown';
 import { useState, useEffect } from "react";
 import AdminLayout from "../../components/layouts/AdminLayout";
+import DashboardContent from "../../components/dashboard/DashboardContent";
 import { Plus, Sliders, AlertTriangle, List, Search, Edit, Trash2, ChevronDown, CheckSquare, X, Command } from "lucide-react";
 import { api } from "../../services/api";
 
@@ -8,8 +9,11 @@ import { api } from "../../services/api";
  * Halaman Freeform (Sementara/Mockup)
  * Mengelola aturan anomali dan daftar isian dinamis (dropdown, radio, dll).
  */
-export default function AdminFreeform({ onNavigate, selectedProject, onProjectChange, activities, currentUser }) {
-  const activeTab = "dinamis";
+export default function AdminFreeform({ onNavigate, selectedProject, onProjectChange, activities, currentUser, petugas }) {
+  const [activeTab, setActiveTab] = useState("dinamis");
+  const [gabungMode, setGabungMode] = useState("semua"); // "semua" | "per_kegiatan"
+  const [selectedGabungIds, setSelectedGabungIds] = useState([]);
+  const [showGabungDashboard, setShowGabungDashboard] = useState(false);
   const [selectedActivityId, setSelectedActivityId] = useState("");
   const [formVariables, setFormVariables] = useState([]);
   
@@ -206,7 +210,44 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
 
 
 
+        
+        <div className="flex gap-4 border-b border-slate-200">
+          <button 
+            onClick={() => { setActiveTab('dinamis'); setShowGabungDashboard(false); }} 
+            className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'dinamis' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 cursor-pointer'}`}
+          >
+            Pilihan Dinamis
+          </button>
+          <button 
+            onClick={() => setActiveTab('gabung')} 
+            className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors ${activeTab === 'gabung' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700 cursor-pointer'}`}
+          >
+            Gabung Kegiatan
+          </button>
+        </div>
+
+
         {/* Content Area */}
+        {activeTab === "gabung" && showGabungDashboard ? (
+          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden p-6">
+            <div className="flex justify-end mb-4">
+              <button 
+                onClick={() => setShowGabungDashboard(false)}
+                className="px-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200 transition cursor-pointer"
+              >
+                Kembali ke Pengaturan
+              </button>
+            </div>
+            <DashboardContent
+              activities={activities}
+              petugas={petugas}
+              kegiatanId={gabungMode === "semua" ? "" : selectedGabungIds.join(",")}
+              groupBy="desa"
+              isGabungan={true}
+              title={gabungMode === "semua" ? "Monitoring Gabungan (Semua Kegiatan)" : "Monitoring Gabungan (Kegiatan Pilihan)"}
+            />
+          </div>
+        ) : (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
           
           {/* Anomaly Project Selector Toolbar */}
@@ -400,6 +441,75 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
             </div>
           )}
           
+          
+          {/* Gabung Kegiatan Tab */}
+          {activeTab === "gabung" && (
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4">Pengaturan Dashboard Gabungan</h3>
+              <div className="space-y-4 max-w-2xl">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Mode Penggabungan</label>
+                  <SelectDropdown
+                    variant="form"
+                    value={gabungMode}
+                    onChange={(e) => {
+                      setGabungMode(e.target.value);
+                      setShowGabungDashboard(false);
+                    }}
+                  >
+                    <option value="semua">Semua Kegiatan</option>
+                    <option value="per_kegiatan">Per Kegiatan (Pilih Manual)</option>
+                  </SelectDropdown>
+                </div>
+                
+                {gabungMode === "per_kegiatan" && (
+                  <div className="mt-4">
+                    <label className="block text-sm font-semibold text-slate-700 mb-2">Pilih Kegiatan untuk Digabung</label>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 max-h-64 overflow-y-auto space-y-2">
+                      {activities?.map(a => (
+                        <label key={a.id} className="flex items-center gap-3 p-2 hover:bg-white rounded-lg cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                            checked={selectedGabungIds.includes(a.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedGabungIds([...selectedGabungIds, a.id]);
+                              } else {
+                                setSelectedGabungIds(selectedGabungIds.filter(id => id !== a.id));
+                              }
+                            }}
+                          />
+                          <div>
+                            <div className="text-sm font-semibold text-slate-700">{a.name}</div>
+                          </div>
+                        </label>
+                      ))}
+                      {(!activities || activities.length === 0) && (
+                        <div className="text-sm text-slate-500 text-center py-4">Belum ada kegiatan.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                <div className="pt-4">
+                  <button
+                    onClick={() => {
+                      if (gabungMode === "per_kegiatan" && selectedGabungIds.length === 0) {
+                        alert("Silakan pilih minimal satu kegiatan terlebih dahulu.");
+                        return;
+                      }
+                      setShowGabungDashboard(true);
+                    }}
+                    className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm transition-colors cursor-pointer"
+                  >
+                    Tampilkan Dashboard Gabungan
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Empty State / Pagination (Dummy) */}
           {((activeTab === "anomali" && selectedActivityId) || activeTab === "dinamis") && (
             <div className="p-4 border-t border-slate-100 flex justify-between items-center text-slate-500 text-xs font-medium bg-slate-50">
@@ -407,7 +517,7 @@ export default function AdminFreeform({ onNavigate, selectedProject, onProjectCh
             </div>
           )}
         </div>
-        
+        )}
       </div>
 
       {/* MODAL TAMBAH/EDIT ANOMALI */}
