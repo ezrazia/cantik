@@ -4,6 +4,54 @@ import { syncPetugasKegiatanFromDokumen, syncDokumenFromPetugasKegiatan } from '
 
 const router = Router();
 
+// Helper function to extract SLS from values or answers if it is empty/invalid
+async function extractSlsFromValues(tx, kegiatanId, values, answers) {
+  if (!kegiatanId) return null;
+  const kegiatanIdInt = parseInt(kegiatanId, 10);
+  if (isNaN(kegiatanIdInt)) return null;
+
+  try {
+    const questions = await tx.formQuestion.findMany({
+      where: {
+        form_blok: { kegiatan_id: kegiatanIdInt }
+      },
+      select: { id: true, label: true }
+    });
+    
+    const rtQ = questions.find(q => {
+      const l = (q.label || '').trim().toUpperCase();
+      return l === 'RT' || l === 'SLS';
+    }) || questions.find(q => {
+      const l = (q.label || '').toUpperCase();
+      return l.includes('RT') || l.includes('SLS');
+    });
+
+    if (rtQ) {
+      let val = null;
+      if (values && typeof values === 'object' && values[rtQ.id] !== undefined) {
+        val = values[rtQ.id];
+      } else if (Array.isArray(answers)) {
+        const found = answers.find(a => parseInt(a.question_id, 10) === rtQ.id);
+        if (found) val = found.value;
+      }
+
+      if (val !== undefined && val !== null) {
+        let valStr = String(val).trim();
+        if (valStr.startsWith('[')) {
+          try {
+            const parsed = JSON.parse(valStr);
+            if (Array.isArray(parsed) && parsed.length > 0) valStr = String(parsed[0]);
+          } catch (e) {}
+        }
+        return valStr;
+      }
+    }
+  } catch (e) {
+    console.error('[extractSlsFromValues] Error:', e);
+  }
+  return null;
+}
+
 // Helper to generate formatted document code: (kodeprov,kab,kec)-kegiatan(initials)-pcl(initials)-urutanPrelist
 async function getFormattedKode(tx, docData) {
   const { kode, kegiatan_id, petugas_id, kecamatan, desa, sls, values, answers, status } = docData;
@@ -30,7 +78,13 @@ async function getFormattedKode(tx, docData) {
 
   const cleanKec = cleanStr(kecamatan);
   const cleanDesa = cleanStr(desa);
-  const cleanSls = cleanStr(sls);
+  let cleanSls = cleanStr(sls);
+  if ((!cleanSls || cleanSls === '-' || cleanSls === '00' || cleanSls === '0000') && (values || answers)) {
+    const extracted = await extractSlsFromValues(tx, kegiatan_id, values, answers);
+    if (extracted) {
+      cleanSls = cleanStr(extracted);
+    }
+  }
 
   if (cleanKec || cleanDesa || cleanSls) {
     const wilayah = await tx.wilayah.findFirst({
@@ -243,8 +297,26 @@ router.get('/petugas/:petugasId', async (req, res) => {
         petugas: { select: { name: true } },
         dokumen_log: { orderBy: { created_at: 'asc' } },
         dokumen_jawaban: {
-          where: { form_question: { label: 'RT' } },
-          select: { value: true }
+          where: {
+            form_question: {
+              OR: [
+                { label: 'RT' },
+                { label: 'rt' },
+                { label: 'SLS' },
+                { label: 'sls' },
+                { label: { contains: 'RT' } },
+                { label: { contains: 'rt' } },
+                { label: { contains: 'SLS' } },
+                { label: { contains: 'sls' } }
+              ]
+            }
+          },
+          select: {
+            value: true,
+            form_question: {
+              select: { label: true }
+            }
+          }
         }
       },
       orderBy: { updated_at: 'desc' },
@@ -254,7 +326,22 @@ router.get('/petugas/:petugasId', async (req, res) => {
     
     for (const doc of rows) {
       const isSlsEmpty = !doc.sls || doc.sls === '-' || doc.sls === '00' || doc.sls === 0 || doc.sls === '0000';
-      const rtAnswer = doc.dokumen_jawaban?.[0]?.value;
+      let rtAnswer = null;
+      if (doc.dokumen_jawaban && doc.dokumen_jawaban.length > 0) {
+        const exactMatch = doc.dokumen_jawaban.find(ans => {
+          const l = (ans.form_question?.label || '').trim().toUpperCase();
+          return l === 'RT' || l === 'SLS';
+        });
+        if (exactMatch) {
+          rtAnswer = exactMatch.value;
+        } else {
+          const partialMatch = doc.dokumen_jawaban.find(ans => {
+            const l = (ans.form_question?.label || '').toUpperCase();
+            return l.includes('RT') || l.includes('SLS');
+          });
+          rtAnswer = partialMatch ? partialMatch.value : doc.dokumen_jawaban[0].value;
+        }
+      }
       const effectiveSls = isSlsEmpty && (doc.sub_sls || rtAnswer) ? (doc.sub_sls || rtAnswer) : doc.sls;
 
       let cleanSls = effectiveSls;
@@ -298,7 +385,10 @@ router.get('/petugas/:petugasId', async (req, res) => {
               allowedDesa = suffix.trim();
             }
           } else {
-            allowedDesa = assignmentLower.trim();
+            const isSlsPure = /^(rt|sls)\s*\d+/i.test(assignmentLower) || /^\d+$/.test(assignmentLower.replace(/\s+/g, ''));
+            if (!isSlsPure) {
+              allowedDesa = assignmentLower.trim();
+            }
           }
 
           if (allowedSlsNum) {
@@ -383,8 +473,26 @@ router.get('/review/:kegiatanId', async (req, res) => {
           orderBy: { created_at: 'asc' },
         },
         dokumen_jawaban: {
-          where: { form_question: { label: 'RT' } },
-          select: { value: true }
+          where: {
+            form_question: {
+              OR: [
+                { label: 'RT' },
+                { label: 'rt' },
+                { label: 'SLS' },
+                { label: 'sls' },
+                { label: { contains: 'RT' } },
+                { label: { contains: 'rt' } },
+                { label: { contains: 'SLS' } },
+                { label: { contains: 'sls' } }
+              ]
+            }
+          },
+          select: {
+            value: true,
+            form_question: {
+              select: { label: true }
+            }
+          }
         }
       },
       orderBy: {
@@ -433,7 +541,22 @@ router.get('/review/:kegiatanId', async (req, res) => {
       const pmlsVal = doc.assigned_pmls;
       const fallbackPcls = doc.petugas?.name && doc.petugas.name !== "Belum Ditugaskan" ? [doc.petugas.name] : [];
       const fallbackPmls = doc.petugas?.petugas_kegiatan?.[0]?.pengawas ? [doc.petugas.petugas_kegiatan[0].pengawas] : [];
-      const rtAnswer = doc.dokumen_jawaban?.[0]?.value;
+      let rtAnswer = null;
+      if (doc.dokumen_jawaban && doc.dokumen_jawaban.length > 0) {
+        const exactMatch = doc.dokumen_jawaban.find(ans => {
+          const l = (ans.form_question?.label || '').trim().toUpperCase();
+          return l === 'RT' || l === 'SLS';
+        });
+        if (exactMatch) {
+          rtAnswer = exactMatch.value;
+        } else {
+          const partialMatch = doc.dokumen_jawaban.find(ans => {
+            const l = (ans.form_question?.label || '').toUpperCase();
+            return l.includes('RT') || l.includes('SLS');
+          });
+          rtAnswer = partialMatch ? partialMatch.value : doc.dokumen_jawaban[0].value;
+        }
+      }
       const isSlsEmpty = !doc.sls || doc.sls === '-' || doc.sls === '00' || doc.sls === 0 || doc.sls === '0000';
       const effectiveSls = isSlsEmpty && (doc.sub_sls || rtAnswer) ? (doc.sub_sls || rtAnswer) : doc.sls;
       return {
@@ -587,13 +710,21 @@ router.post('/', async (req, res) => {
 
   try {
     const docId = await prisma.$transaction(async (tx) => {
+      let finalSls = sls;
+      if (!finalSls || finalSls === '-' || finalSls === '00' || finalSls === '0000') {
+        const extracted = await extractSlsFromValues(tx, kegiatanIdInt, values, null);
+        if (extracted) {
+          finalSls = extracted;
+        }
+      }
+
       const finalKode = await getFormattedKode(tx, {
         kode,
-        kegiatan_id,
-        petugas_id,
+        kegiatan_id: kegiatanIdInt,
+        petugas_id: petugasIdInt,
         kecamatan,
         desa,
-        sls,
+        sls: finalSls,
         values,
         status
       });
@@ -611,7 +742,7 @@ router.post('/', async (req, res) => {
         alamat: alamat || null,
         kecamatan: kecamatan || null,
         desa: desa || null,
-        sls: sls || null,
+        sls: finalSls || null,
         sub_sls: sub_sls || null,
         status: status || 'draft',
         is_prelist: isPrelistVal,
@@ -662,7 +793,7 @@ router.post('/', async (req, res) => {
               alamat: alamat || null,
               kecamatan: kecamatan || null,
               desa: desa || null,
-              sls: sls || null,
+              sls: finalSls || null,
               sub_sls: sub_sls || null,
               status: status || 'draft',
               is_prelist: isPrelistVal,

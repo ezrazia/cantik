@@ -65,8 +65,26 @@ router.get('/stats', async (req, res) => {
         sls: true,
         sub_sls: true,
         dokumen_jawaban: {
-          where: { form_question: { label: 'RT' } },
-          select: { value: true }
+          where: {
+            form_question: {
+              OR: [
+                { label: 'RT' },
+                { label: 'rt' },
+                { label: 'SLS' },
+                { label: 'sls' },
+                { label: { contains: 'RT' } },
+                { label: { contains: 'rt' } },
+                { label: { contains: 'SLS' } },
+                { label: { contains: 'sls' } }
+              ]
+            }
+          },
+          select: {
+            value: true,
+            form_question: {
+              select: { label: true }
+            }
+          }
         }
       }
     });
@@ -216,7 +234,22 @@ router.get('/stats', async (req, res) => {
       // Normalize desa name using kegiatan lokus
       const normalizedDesa = normalizeDesa(d.desa);
       
-      const rtAnswer = d.dokumen_jawaban?.[0]?.value;
+      let rtAnswer = null;
+      if (d.dokumen_jawaban && d.dokumen_jawaban.length > 0) {
+        const exactMatch = d.dokumen_jawaban.find(ans => {
+          const l = (ans.form_question?.label || '').trim().toUpperCase();
+          return l === 'RT' || l === 'SLS';
+        });
+        if (exactMatch) {
+          rtAnswer = exactMatch.value;
+        } else {
+          const partialMatch = d.dokumen_jawaban.find(ans => {
+            const l = (ans.form_question?.label || '').toUpperCase();
+            return l.includes('RT') || l.includes('SLS');
+          });
+          rtAnswer = partialMatch ? partialMatch.value : d.dokumen_jawaban[0].value;
+        }
+      }
       const isSlsEmpty = !d.sls || d.sls === '-' || d.sls === '00' || d.sls === 0 || d.sls === '0000';
       const effectiveSls = isSlsEmpty && (d.sub_sls || rtAnswer) ? (d.sub_sls || rtAnswer) : d.sls;
 

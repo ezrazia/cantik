@@ -1776,7 +1776,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                             <>
                               {visibleColsLocal.includes("Petugas") && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap w-[80px]">
-                                  {(projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin ? (
+                                  {(projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") && !isKegiatanAdmin ? (
                                     <SelectDropdown variant="form"
                                       value={p.projectRoles?.[selectedProject] || "PCL"}
                                       onChange={async (e) => {
@@ -1820,7 +1820,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                   {(() => {
                                     const role = p.projectRoles?.[selectedProject] || "PCL";
                                     if (role === "PCL") {
-                                      if ((projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin) {
+                                      if ((projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") && !isKegiatanAdmin) {
                                         const selections = rowSelections[p.id] || { desa: "", sls: "", subSls: "" };
                                         return (
                                           <div className="flex flex-col sm:flex-row gap-1">
@@ -1896,7 +1896,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         return (
                                           <div className="flex items-center gap-1 text-slate-600 text-xs font-medium">
                                             <MapPin size={12} className="text-slate-400" />
-                                            <span>{p.assignments?.[selectedProject]?.sls?.[0] || "Belum ditentukan"}</span>
+                                            <span>{p.assignments?.[selectedProject]?.sls?.join(', ') || "Belum ditentukan"}</span>
                                           </div>
                                         );
                                       }
@@ -1908,7 +1908,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         x.projectRoles?.[selectedProject] === "PCL" &&
                                         !(x.assignments?.[selectedProject]?.pengawas === p.name)
                                       );
-                                      if ((projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin) {
+                                      if ((projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") && !isKegiatanAdmin) {
                                         return (
                                           <div className="flex flex-nowrap items-center gap-1 max-w-[260px] overflow-hidden pr-1">
                                             {/* Chips for supervised PCLs */}
@@ -2179,7 +2179,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                       <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
                         <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Konfigurasi Penugasan ({selectedProject})</p>
                         
-                        {(projectStatus === "draft" || projectStatus === "uji_coba") && !isKegiatanAdmin ? (
+                        {(projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") && !isKegiatanAdmin ? (
                           <>
                             {/* Peran Petugas */}
                             <div>
@@ -2354,7 +2354,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                   <div>
                                     <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Wilayah Tugas</p>
                                     <span className="font-semibold text-slate-700">
-                                      {selectedPetugas.assignments?.[selectedProject]?.sls?.[0] || "-"}
+                                      {selectedPetugas.assignments?.[selectedProject]?.sls?.join(', ') || "-"}
                                     </span>
                                   </div>
                                   <div>

@@ -1260,7 +1260,7 @@ function AdminDetailKegiatan({ onNavigate, selectedProject, onProjectChange, act
                         {isPublishedOrSelesai && role === "PCL" && (
                           <div className="mt-2.5 pt-2 border-t border-slate-50 w-full">
                             <div className="flex justify-between items-center text-[10px] text-slate-400 font-medium mb-1.5">
-                              <span className="text-slate-500 truncate max-w-[150px]">Lokus: {p.assignments?.[selectedActivity.name]?.sls?.[0] || "-"}</span>
+                              <span className="text-slate-500 truncate max-w-[150px]">Lokus: {p.assignments?.[selectedActivity.name]?.sls?.join(', ') || "-"}</span>
                               <span className="mono font-bold text-slate-600">
                                 {p.assignments?.[selectedActivity.name]?.selesai || 0}/{p.assignments?.[selectedActivity.name]?.target || 0}
                               </span>

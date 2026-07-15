@@ -342,8 +342,8 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
       aVal = (a.projects || []).join(", ");
       bVal = (b.projects || []).join(", ");
     } else if (sortField === "Wilayah Tugas" || sortField === "Lokus") {
-      aVal = a.assignments?.[selectedProject]?.sls?.[0] || a.desa || "";
-      bVal = b.assignments?.[selectedProject]?.sls?.[0] || b.desa || "";
+      aVal = a.assignments?.[selectedProject]?.sls?.join(', ') || a.desa || "";
+      bVal = b.assignments?.[selectedProject]?.sls?.join(', ') || b.desa || "";
     } else if (sortField === "Petugas") {
       aVal = a.projectRoles?.[selectedProject] || "PCL";
       bVal = b.projectRoles?.[selectedProject] || "PCL";
@@ -1623,7 +1623,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                             <>
                               {visibleColsLocal.includes("Petugas") && (
                                 <td className="px-6 py-4 border-t border-slate-100 whitespace-nowrap">
-                                  {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
+                                  {(projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") ? (
                                     <SelectDropdown variant="form"
                                       value={p.projectRoles?.[selectedProject] || "PCL"}
                                       onChange={async (e) => {
@@ -1667,7 +1667,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                   {(() => {
                                     const role = p.projectRoles?.[selectedProject] || "PCL";
                                     if (role === "PCL") {
-                                      if (projectStatus === "draft" || projectStatus === "uji_coba") {
+                                      if (projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") {
                                         const selections = rowSelections[p.id] || { desa: "", sls: "", subSls: "" };
                                         return (
                                           <div className="flex flex-col sm:flex-row gap-1">
@@ -1731,13 +1731,13 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                         return (
                                           <div className="flex items-center gap-1 text-slate-600 text-xs font-medium">
                                             <MapPin size={12} className="text-slate-400" />
-                                            <span>{p.assignments?.[selectedProject]?.sls?.[0] || "Belum ditentukan"}</span>
+                                            <span>{p.assignments?.[selectedProject]?.sls?.join(', ') || "Belum ditentukan"}</span>
                                           </div>
                                         );
                                       }
                                     } else {
                                       // Role is PML
-                                      if (projectStatus === "draft" || projectStatus === "uji_coba") {
+                                      if (projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") {
                                         return (
                                           <SelectDropdown variant="form"
                                             value={getSupervisedPcl(p.name)?.id || ""}
@@ -2226,7 +2226,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                       <div className="border-t border-slate-100 pt-4 mt-4 space-y-4">
                         <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Konfigurasi Penugasan ({selectedProject})</p>
                         
-                        {(projectStatus === "draft" || projectStatus === "uji_coba") ? (
+                        {(projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") ? (
                           <>
                             {/* Peran Petugas */}
                             <div>
@@ -2359,7 +2359,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                                 <div>
                                   <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Wilayah Tugas</p>
                                   <span className="font-semibold text-slate-700">
-                                    {selectedPetugas.assignments?.[selectedProject]?.sls?.[0] || "-"}
+                                    {selectedPetugas.assignments?.[selectedProject]?.sls?.join(', ') || "-"}
                                   </span>
                                 </div>
                                 <div>
