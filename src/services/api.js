@@ -107,7 +107,7 @@ export const api = {
   // ─── DOKUMEN (HEADER & ANSWERS) ───────────────────────
   dokumen: {
     getByPetugas: async (petugasId) => {
-      const res = await request(`/dokumen/petugas/${petugasId}`);
+      const res = await request(`/dokumen/petugas/${petugasId}?_t=${Date.now()}`);
       if (Array.isArray(res)) {
         return res.map(doc => {
           if (doc.review_status === 'approved') {
@@ -122,7 +122,7 @@ export const api = {
       return res;
     },
     getForReview: async (kegiatanId, petugasId) => {
-      const url = petugasId ? `/dokumen/review/${kegiatanId}?petugasId=${petugasId}` : `/dokumen/review/${kegiatanId}`;
+      const url = petugasId ? `/dokumen/review/${kegiatanId}?petugasId=${petugasId}&_t=${Date.now()}` : `/dokumen/review/${kegiatanId}?_t=${Date.now()}`;
       const res = await request(url);
       if (Array.isArray(res)) {
         return res.map(doc => {

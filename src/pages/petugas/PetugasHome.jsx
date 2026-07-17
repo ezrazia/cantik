@@ -86,6 +86,9 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
   const isLoading = loading || localLoading;
 
   const currentPetugas = petugas?.find(p => p.id === currentUser.id) || currentUser;
+  const isPml = (currentPetugas?.projects || []).some(
+    projName => currentPetugas.projectRoles?.[projName] === "PML"
+  ) || currentPetugas?.role === "PML";
 
   const handleDownloadOfflineData = async () => {
     if (isOffline) {
@@ -117,7 +120,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
 
       if (localDocs.length === 0 && offlineDB.isAvailable()) {
         try {
-          const idbDocs = await offlineDB.getAllDokumen();
+          const idbDocs = await offlineDB.getDokumenByPetugas(currentUser.id);
           if (idbDocs && idbDocs.length > 0) localDocs = idbDocs;
         } catch (e) { }
       }
@@ -235,7 +238,7 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
 
       if (localDocs.length === 0 && offlineDB.isAvailable()) {
         try {
-          const idbDocs = await offlineDB.getAllDokumen();
+          const idbDocs = await offlineDB.getDokumenByPetugas(currentUser.id);
           if (idbDocs && idbDocs.length > 0) {
             localDocs = idbDocs;
           }
@@ -278,58 +281,60 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
 
         if (localDocs.length === 0 && offlineDB.isAvailable()) {
           try {
-            const idbDocs = await offlineDB.getAllDokumen();
+            const idbDocs = await offlineDB.getDokumenByPetugas(currentUser.id);
             if (idbDocs && idbDocs.length > 0) localDocs = idbDocs;
           } catch (e) { }
         }
 
         const mergedDocs = [...docs];
-        localDocs.forEach(localDoc => {
-          const apiIdx = mergedDocs.findIndex(d =>
-            (d.id && localDoc.id && d.id === localDoc.id) ||
-            (d.kode && d.kode === localDoc.kode)
-          );
+        if (!isPml) {
+          localDocs.forEach(localDoc => {
+            const apiIdx = mergedDocs.findIndex(d =>
+              (d.id && localDoc.id && d.id === localDoc.id) ||
+              (d.kode && d.kode === localDoc.kode)
+            );
 
-          if (apiIdx >= 0) {
-            const apiDoc = mergedDocs[apiIdx];
-            if (localDoc.kode && apiDoc.kode && localDoc.kode !== apiDoc.kode) {
-              if (offlineDB.isAvailable()) {
-                offlineDB.removeDokumen(localDoc.kode).catch(e => 
-                  console.warn("Gagal hapus dokumen lama di IndexedDB saat loadDocs:", e)
-                );
+            if (apiIdx >= 0) {
+              const apiDoc = mergedDocs[apiIdx];
+              if (localDoc.kode && apiDoc.kode && localDoc.kode !== apiDoc.kode) {
+                if (offlineDB.isAvailable()) {
+                  offlineDB.removeDokumen(localDoc.kode).catch(e => 
+                    console.warn("Gagal hapus dokumen lama di IndexedDB saat loadDocs:", e)
+                  );
+                }
               }
-            }
-            const localValues = localDoc.values || {};
-            const apiValues = apiDoc.values || {};
+              const localValues = localDoc.values || {};
+              const apiValues = apiDoc.values || {};
 
-            const mergedValues = { ...apiValues };
-            Object.keys(localValues).forEach(k => {
-              const val = localValues[k];
-              if (val !== undefined && val !== null && val !== '') {
-                mergedValues[k] = val;
+              const mergedValues = { ...apiValues };
+              Object.keys(localValues).forEach(k => {
+                const val = localValues[k];
+                if (val !== undefined && val !== null && val !== '') {
+                  mergedValues[k] = val;
+                }
+              });
+
+              const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
+              const apiTime = new Date(apiDoc.updated_at || apiDoc.created_at || 0).getTime();
+              if (localTime > apiTime && localDoc.sync === false) {
+                mergedDocs[apiIdx] = {
+                  ...apiDoc,
+                  ...localDoc,
+                  values: mergedValues
+                };
+              } else {
+                mergedDocs[apiIdx] = {
+                  ...localDoc,
+                  ...apiDoc,
+                  values: mergedValues,
+                  sync: (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved') ? true : (localDoc.sync === false ? false : apiDoc.sync)
+                };
               }
-            });
-
-            const localTime = new Date(localDoc.updated_at || localDoc.created_at || 0).getTime();
-            const apiTime = new Date(apiDoc.updated_at || apiDoc.created_at || 0).getTime();
-            if (localTime > apiTime && localDoc.sync === false) {
-              mergedDocs[apiIdx] = {
-                ...apiDoc,
-                ...localDoc,
-                values: mergedValues
-              };
-            } else {
-              mergedDocs[apiIdx] = {
-                ...localDoc,
-                ...apiDoc,
-                values: mergedValues,
-                sync: (apiDoc.status === 'terkirim' || apiDoc.review_status === 'approved') ? true : (localDoc.sync === false ? false : apiDoc.sync)
-              };
+            } else if (localDoc.sync === false) {
+              mergedDocs.push(localDoc);
             }
-          } else if (localDoc.sync === false) {
-            mergedDocs.push(localDoc);
-          }
-        });
+          });
+        }
 
         const dedupedDocs = deduplicateDocs(mergedDocs);
         setDocuments(dedupedDocs);
@@ -369,6 +374,44 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
       } finally {
         setLocalLoading(false);
       }
+    }
+  };
+
+  const handleHardRefresh = async () => {
+    if (isOffline) {
+      showToast("Anda sedang dalam mode offline. Silakan aktifkan mode online untuk melakukan hard refresh.", "warning");
+      return;
+    }
+
+    try {
+      // Clear localStorage cache for offline documents
+      localStorage.removeItem(`offline_docs_${currentUser.id}`);
+      localStorage.removeItem(`last_download_${currentUser.id}`);
+      setDownloadTime(null);
+      
+      // Clear IndexedDB offline storage only for current user's documents
+      if (offlineDB.isAvailable()) {
+        try {
+          const userDocs = await offlineDB.getDokumenByPetugas(currentUser.id);
+          if (userDocs && userDocs.length > 0) {
+            for (const doc of userDocs) {
+              if (doc.kode) {
+                await offlineDB.removeDokumen(doc.kode);
+              }
+            }
+          }
+        } catch (dbErr) {
+          console.warn("Gagal membersihkan dokumen user di IndexedDB:", dbErr);
+        }
+      }
+
+      // Load documents fresh from server
+      await loadDocs();
+
+      showToast("Hard refresh berhasil. Seluruh cache telah dibersihkan dan data terbaru telah dimuat.", "success");
+    } catch (err) {
+      console.error("Gagal melakukan hard refresh:", err);
+      showToast("Gagal melakukan hard refresh: " + err.message, "error");
     }
   };
 
@@ -517,6 +560,17 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                   {isOffline ? <WifiOff size={12} /> : <Wifi size={12} />}
                   <span className="hidden sm:inline">{isOffline ? "Offline" : "Online"}</span>
                 </div>
+                {isPml && (
+                  <button
+                    onClick={handleHardRefresh}
+                    disabled={isLoading}
+                    className="h-9 px-3 bg-purple-50 hover:bg-purple-100 active:scale-95 text-purple-700 transition-all border border-solid border-purple-200/50 cursor-pointer rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold disabled:opacity-50"
+                    title="Hard Refresh (Hapus Cache & Muat Ulang)"
+                  >
+                    <RefreshCw size={13} className={isLoading ? "animate-spin text-purple-600" : ""} />
+                    <span>Hard Refresh</span>
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     if (!isOffline && window.__checkForAppUpdates) {
