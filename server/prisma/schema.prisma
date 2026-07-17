@@ -124,7 +124,7 @@ model PetugasKegiatan {
   kegiatan_id     Int
   role            Role     @default(PCL)
   sls_assignments Json?
-  pengawas        String?  @db.VarChar(100)
+  pengawas        Json?
   created_at      DateTime @default(now())
 
   petugas  Petugas  @relation(fields: [petugas_id], references: [id], onDelete: Cascade)

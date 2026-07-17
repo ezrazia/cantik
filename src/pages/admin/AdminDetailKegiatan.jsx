@@ -441,7 +441,7 @@ function AdminDetailKegiatan({ onNavigate, selectedProject, onProjectChange, act
                 kegiatan_id: selectedActivity.id,
                 role,
                 sls_assignments: p.assignments?.[selectedActivity.name]?.sls || [],
-                pengawas: p.assignments?.[selectedActivity.name]?.pengawas || ''
+                pengawas: p.assignments?.[selectedActivity.name]?.pengawas || []
               });
             }
           }
@@ -581,7 +581,7 @@ function AdminDetailKegiatan({ onNavigate, selectedProject, onProjectChange, act
       // 3. Cek "tiap PCL sudah mendapat PML"
       pcls.forEach(p => {
         const pengawas = p.assignments?.[selectedActivity.name]?.pengawas;
-        if (!pengawas || pengawas.trim() === "") {
+        if (!pengawas || pengawas.length === 0) {
           errors.push(`PCL "${p.name}" belum memiliki Pengawas (PML).`);
         }
       });
@@ -1207,7 +1207,7 @@ function AdminDetailKegiatan({ onNavigate, selectedProject, onProjectChange, act
                     let pmlPct = 0;
                     
                     if (role === "PML") {
-                      supervisedPcls = assignedOfficers.filter(o => o.projectRoles?.[selectedActivity.name] === "PCL" && o.assignments?.[selectedActivity.name]?.pengawas === p.name);
+                      supervisedPcls = assignedOfficers.filter(o => o.projectRoles?.[selectedActivity.name] === "PCL" && (o.assignments?.[selectedActivity.name]?.pengawas || []).includes(p.name));
                       pmlTarget = supervisedPcls.reduce((acc, curr) => acc + (curr.assignments?.[selectedActivity.name]?.target || 0), 0);
                       pmlSelesai = supervisedPcls.reduce((acc, curr) => acc + (curr.assignments?.[selectedActivity.name]?.selesai || 0), 0);
                       pmlPct = pmlTarget > 0 ? Math.round((pmlSelesai / pmlTarget) * 100) : 0;

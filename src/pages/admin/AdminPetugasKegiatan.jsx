@@ -555,7 +555,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
             kegiatan_id: activeActivity.id,
             role: 'PCL',
             sls_assignments: [],
-            pengawas: ''
+            pengawas: (currentAss.pengawas || []).filter(name => name !== pmlName)
           });
         }
         
@@ -734,7 +734,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
         kegiatan_id: activeActivity.id,
         role: newRole,
         sls_assignments: currentAss.sls || [],
-        pengawas: currentAss.pengawas || ''
+        pengawas: currentAss.pengawas || []
       };
       
       const res = await api.petugas.assign(payload);
@@ -754,9 +754,9 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
     if (!selectedPetugas || !activeActivity) return;
     
     try {
-      const currentAss = selectedPetugas.assignments?.[selectedProject] || { sls: [], pengawas: "" };
+      const currentAss = selectedPetugas.assignments?.[selectedProject] || { sls: [], pengawas: (currentAss.pengawas || []).filter(name => name !== pmlName) };
       let nextSls = [...(currentAss.sls || [])];
-      let nextPengawas = currentAss.pengawas || "";
+      let nextPengawas = currentAss.pengawas || [];
       
       if (type === "sls") {
         const isChecked = nextSls.includes(value);
@@ -827,7 +827,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
         kegiatan_id: activeActivity.id,
         role: selectedPetugas.projectRoles?.[selectedProject] || 'PCL',
         sls_assignments: finalVal,
-        pengawas: currentAss.pengawas || ''
+        pengawas: currentAss.pengawas || []
       };
       const res = await api.petugas.assign(payload);
       if (res && res.success) {
@@ -840,7 +840,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
               ...currentAssignments,
               [selectedProject]: {
                 sls: finalVal,
-                pengawas: currentAss.pengawas || ''
+                pengawas: currentAss.pengawas || []
               }
             }
           };
@@ -860,8 +860,8 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
     return petugas.filter(p => 
       p.projects?.includes(selectedProject) && 
       p.projectRoles?.[selectedProject] === "PCL" && 
-      (p.assignments?.[selectedProject]?.pengawas === pmlName || 
-       p.assignments?.[selectedProject]?.pengawas === pmlUsername)
+      ((p.assignments?.[selectedProject]?.pengawas || []).includes(pmlName) || 
+       (p.assignments?.[selectedProject]?.pengawas || []).includes(pmlUsername))
     );
   };
 
@@ -877,7 +877,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
         kegiatan_id: activeActivity.id,
         role: 'PCL',
         sls_assignments: currentAss.sls || [],
-        pengawas: pmlName
+        pengawas: [...new Set([...(currentAss.pengawas || []), pmlName])]
       });
       await refreshData();
     } catch (err) {
@@ -886,7 +886,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
   };
 
   /** Remove a PCL from PML's supervision (clear pengawas on that PCL's record) */
-  const handlePmlPclRemove = async (pclId) => {
+  const handlePmlPclRemove = async (pclId, pmlName) => {
     if (!pclId || !activeActivity) return;
     const pcl = petugas.find(p => p.id === parseInt(pclId));
     if (!pcl) return;
@@ -897,7 +897,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
         kegiatan_id: activeActivity.id,
         role: 'PCL',
         sls_assignments: currentAss.sls || [],
-        pengawas: ''
+        pengawas: (currentAss.pengawas || []).filter(name => name !== pmlName)
       });
       await refreshData();
     } catch (err) {
@@ -915,7 +915,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
         kegiatan_id: activeActivity.id,
         role: p.projectRoles?.[selectedProject] || 'PCL',
         sls_assignments: Array.isArray(locationValue) ? locationValue : (locationValue ? [locationValue] : []),
-        pengawas: currentAss.pengawas || ''
+        pengawas: currentAss.pengawas || []
       };
       const res = await api.petugas.assign(payload);
       if (res && res.success) {
@@ -982,7 +982,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
           kegiatan_id: activeActivity.id,
           role: role,
           sls_assignments: finalAssignments,
-          pengawas: ""
+          pengawas: (currentAss.pengawas || []).filter(name => name !== pmlName)
         };
         await api.petugas.assign(payload);
       }
@@ -1906,7 +1906,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                       const availablePcls = petugas.filter(x =>
                                         x.projects?.includes(selectedProject) &&
                                         x.projectRoles?.[selectedProject] === "PCL" &&
-                                        !(x.assignments?.[selectedProject]?.pengawas === p.name)
+                                        !(x.assignments?.[selectedProject]?.pengawas || []).includes(p.name)
                                       );
                                       if ((projectStatus === "draft" || projectStatus === "uji_coba" || projectStatus === "published") && !isKegiatanAdmin) {
                                         return (
@@ -1916,7 +1916,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                               <span key={pcl.id} className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 rounded-full flex-shrink-0">
                                                 {pcl.name.split(' ')[0]}
                                                 <button
-                                                  onClick={() => handlePmlPclRemove(pcl.id)}
+                                                  onClick={() => handlePmlPclRemove(pcl.id, p?.name || selectedPetugas?.name)}
                                                   className="w-3 h-3 rounded-full bg-purple-200 hover:bg-red-200 hover:text-red-600 flex items-center justify-center border-0 cursor-pointer text-purple-500 transition-colors"
                                                   title={`Hapus ${pcl.name} dari pengawasan`}
                                                 >
@@ -2302,7 +2302,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                     <span key={pcl.id} className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 rounded-full">
                                       {pcl.name.split(' ').slice(0,2).join(' ')}
                                       <button
-                                        onClick={() => handlePmlPclRemove(pcl.id)}
+                                        onClick={() => handlePmlPclRemove(pcl.id, p?.name || selectedPetugas?.name)}
                                         className="w-3.5 h-3.5 rounded-full bg-purple-200 hover:bg-red-200 hover:text-red-600 flex items-center justify-center border-0 cursor-pointer text-purple-500 transition-colors flex-shrink-0"
                                         title={`Hapus ${pcl.name}`}
                                       >
@@ -2314,7 +2314,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                   {petugas.filter(x =>
                                     x.projects?.includes(selectedProject) &&
                                     x.projectRoles?.[selectedProject] === "PCL" &&
-                                    x.assignments?.[selectedProject]?.pengawas !== selectedPetugas.name
+                                    !(x.assignments?.[selectedProject]?.pengawas || []).includes(selectedPetugas.name)
                                   ).length > 0 && (
                                     <SelectDropdown variant="form"
                                       value=""
@@ -2326,7 +2326,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                         .filter(x =>
                                           x.projects?.includes(selectedProject) &&
                                           x.projectRoles?.[selectedProject] === "PCL" &&
-                                          x.assignments?.[selectedProject]?.pengawas !== selectedPetugas.name
+                                          !(x.assignments?.[selectedProject]?.pengawas || []).includes(selectedPetugas.name)
                                         )
                                         .map(x => (
                                           <option key={x.id} value={x.id}>{x.name}</option>
@@ -2360,7 +2360,7 @@ function AdminPetugasKegiatan({ onNavigate, selectedProject, onProjectChange, pe
                                   <div>
                                     <p className="text-[10px] text-slate-400 font-bold uppercase mb-0.5">Pengawas (PML)</p>
                                     <span className="font-semibold text-slate-700">
-                                      {selectedPetugas.assignments?.[selectedProject]?.pengawas || "Belum ada pengawas"}
+                                      {selectedPetugas.assignments?.[selectedProject]?.pengawas?.join(", ") || "Belum ada pengawas"}
                                     </span>
                                   </div>
                                 </>

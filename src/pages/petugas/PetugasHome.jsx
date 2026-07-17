@@ -384,31 +384,39 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
     }
 
     try {
-      // Clear localStorage cache for offline documents
-      localStorage.removeItem(`offline_docs_${currentUser.id}`);
-      localStorage.removeItem(`last_download_${currentUser.id}`);
-      setDownloadTime(null);
-      
-      // Clear IndexedDB offline storage only for current user's documents
-      if (offlineDB.isAvailable()) {
+      // -- TAMBAHAN UNTUK PWA UPDATE --
+      // Hapus semua Service Worker agar PWA bisa diupdate paksa
+      if ('serviceWorker' in navigator) {
         try {
-          const userDocs = await offlineDB.getDokumenByPetugas(currentUser.id);
-          if (userDocs && userDocs.length > 0) {
-            for (const doc of userDocs) {
-              if (doc.kode) {
-                await offlineDB.removeDokumen(doc.kode);
-              }
-            }
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const registration of registrations) {
+            await registration.unregister();
           }
-        } catch (dbErr) {
-          console.warn("Gagal membersihkan dokumen user di IndexedDB:", dbErr);
+        } catch(swErr) {
+          console.warn("Gagal unregister service worker:", swErr);
         }
       }
+      
+      // Hapus cache storage dari PWA
+      // Ini HANYA menghapus cache UI, HTML, JS, dan CSS, 
+      // TIDAK MENGHAPUS IndexedDB atau LocalStorage yang berisi data draft offline.
+      if ('caches' in window) {
+        try {
+          const cacheNames = await caches.keys();
+          await Promise.all(cacheNames.map(name => caches.delete(name)));
+        } catch (cacheErr) {
+          console.warn("Gagal membersihkan cache storage:", cacheErr);
+        }
+      }
+      // -- END PWA UPDATE --
 
-      // Load documents fresh from server
-      await loadDocs();
+      showToast("Hard refresh berhasil! Memuat ulang PWA...", "success");
+      
+      // Reload penuh halaman untuk apply service worker baru
+      setTimeout(() => {
+         window.location.reload(true);
+      }, 500);
 
-      showToast("Hard refresh berhasil. Seluruh cache telah dibersihkan dan data terbaru telah dimuat.", "success");
     } catch (err) {
       console.error("Gagal melakukan hard refresh:", err);
       showToast("Gagal melakukan hard refresh: " + err.message, "error");
@@ -560,17 +568,15 @@ function PetugasHome({ onNavigate, isOffline, setIsOffline, petugas, activities,
                   {isOffline ? <WifiOff size={12} /> : <Wifi size={12} />}
                   <span className="hidden sm:inline">{isOffline ? "Offline" : "Online"}</span>
                 </div>
-                {isPml && (
-                  <button
-                    onClick={handleHardRefresh}
-                    disabled={isLoading}
-                    className="h-9 px-3 bg-purple-50 hover:bg-purple-100 active:scale-95 text-purple-700 transition-all border border-solid border-purple-200/50 cursor-pointer rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold disabled:opacity-50"
-                    title="Hard Refresh (Hapus Cache & Muat Ulang)"
-                  >
-                    <RefreshCw size={13} className={isLoading ? "animate-spin text-purple-600" : ""} />
-                    <span>Hard Refresh</span>
-                  </button>
-                )}
+                <button
+                  onClick={handleHardRefresh}
+                  disabled={isLoading}
+                  className="h-9 px-3 bg-rose-50 hover:bg-rose-100 active:scale-95 text-rose-700 transition-all border border-solid border-rose-200/50 cursor-pointer rounded-xl flex items-center justify-center gap-1.5 text-xs font-bold disabled:opacity-50"
+                  title="Hard Refresh (Hapus Cache & Muat Ulang)"
+                >
+                  <RefreshCw size={13} className={isLoading ? "animate-spin text-rose-600" : ""} />
+                  <span className="hidden sm:inline">Hard Refresh</span>
+                </button>
                 <button
                   onClick={async () => {
                     if (!isOffline && window.__checkForAppUpdates) {
