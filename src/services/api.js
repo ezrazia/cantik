@@ -36,6 +36,12 @@ async function request(path, options = {}) {
 
   try {
     const response = await fetch(url, config);
+    const contentType = response.headers.get('content-type');
+    
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new Error('Koneksi ke backend server gagal. Pastikan server backend (port 5174) sudah dijalankan.');
+    }
+
     const data = await response.json();
     if (!response.ok) {
       throw new Error(data.message || `HTTP error! status: ${response.status}`);
