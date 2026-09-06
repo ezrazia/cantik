@@ -14,6 +14,8 @@ enum PetugasStatus {
 }
 
 enum KegiatanStatus {
+  pengajuan
+  ditolak
   draft
   published
   uji_coba
@@ -64,6 +66,7 @@ model Admin {
   plain_password String?   @db.VarChar(100)
   nama           String    @db.VarChar(100)
   role           String    @default("superadmin") @db.VarChar(20)
+  desa           String?   @db.VarChar(100)
   kegiatan_id    Int?
   created_at     DateTime  @default(now())
   updated_at     DateTime  @updatedAt
@@ -106,6 +109,9 @@ model Kegiatan {
   lokus            Json?
   fokus            String?           @db.VarChar(50)
   prelist_mapping  Json?             // Mapping kolom Excel ke pertanyaan form
+  desa             String?           @db.VarChar(100)
+  catatan_revisi   String?           @db.Text
+  source_kegiatan_id Int?
   created_at       DateTime          @default(now())
   updated_at       DateTime          @updatedAt
   petugas_kegiatan PetugasKegiatan[]
@@ -124,7 +130,7 @@ model PetugasKegiatan {
   kegiatan_id     Int
   role            Role     @default(PCL)
   sls_assignments Json?
-  pengawas        Json?
+  pengawas        String?  @db.VarChar(100)
   created_at      DateTime @default(now())
 
   petugas  Petugas  @relation(fields: [petugas_id], references: [id], onDelete: Cascade)

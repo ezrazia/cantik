@@ -33,6 +33,7 @@ router.post('/login/admin', async (req, res) => {
         username: admin.username,
         nama: admin.nama,
         role: admin.role,
+        desa: admin.desa || null,
         kegiatan_id: admin.kegiatan_id
       }
     });

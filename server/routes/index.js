@@ -44,8 +44,11 @@ router.get('/video-panduan', (req, res) => {
   });
 });
 
+import adminRoutes from './admin.js';
+
 // Daftarkan sub-routes
 router.use('/auth', authRoutes);
+router.use('/admin', adminRoutes);
 router.use('/petugas', petugasRoutes);
 router.use('/kegiatan', kegiatanRoutes);
 router.use('/wilayah', wilayahRoutes);

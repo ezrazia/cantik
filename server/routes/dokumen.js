@@ -295,51 +295,23 @@ router.get('/petugas/:petugasId', async (req, res) => {
       include: {
         kegiatan: { select: { name: true, lokus: true } },
         petugas: { select: { name: true } },
-        dokumen_log: { orderBy: { created_at: 'asc' } },
-        dokumen_jawaban: {
-          where: {
-            form_question: {
-              OR: [
-                { label: 'RT' },
-                { label: 'rt' },
-                { label: 'SLS' },
-                { label: 'sls' },
-                { label: { contains: 'RT' } },
-                { label: { contains: 'rt' } },
-                { label: { contains: 'SLS' } },
-                { label: { contains: 'sls' } }
-              ]
-            }
-          },
-          select: {
-            value: true,
-            form_question: {
-              select: { label: true }
-            }
-          }
-        }
+        dokumen_log: { orderBy: { created_at: 'asc' } }
       },
       orderBy: { updated_at: 'desc' },
     });
 
-    const formatted = [];
+    const allowedItems = [];
     
     for (const doc of rows) {
       const isSlsEmpty = !doc.sls || doc.sls === '-' || doc.sls === '00' || doc.sls === 0 || doc.sls === '0000';
       let rtAnswer = null;
-      if (doc.dokumen_jawaban && doc.dokumen_jawaban.length > 0) {
-        const exactMatch = doc.dokumen_jawaban.find(ans => {
-          const l = (ans.form_question?.label || '').trim().toUpperCase();
-          return l === 'RT' || l === 'SLS';
-        });
-        if (exactMatch) {
-          rtAnswer = exactMatch.value;
-        } else {
-          const partialMatch = doc.dokumen_jawaban.find(ans => {
-            const l = (ans.form_question?.label || '').toUpperCase();
-            return l.includes('RT') || l.includes('SLS');
-          });
-          rtAnswer = partialMatch ? partialMatch.value : doc.dokumen_jawaban[0].value;
+      if (doc.last_sent_data && typeof doc.last_sent_data === 'object') {
+        // Cek apakah ada isian SLS/RT di last_sent_data
+        for (const [key, val] of Object.entries(doc.last_sent_data)) {
+          if (String(val).toLowerCase().includes('rt') || String(val).toLowerCase().includes('sls')) {
+            rtAnswer = val;
+            break;
+          }
         }
       }
       const effectiveSls = isSlsEmpty && (doc.sub_sls || rtAnswer) ? (doc.sub_sls || rtAnswer) : doc.sls;
@@ -391,51 +363,77 @@ router.get('/petugas/:petugasId', async (req, res) => {
             }
           }
 
-          if (allowedSlsNum) {
-            if (allowedSlsNum === slsStr) {
-              if (allowedDesa && docDesa && docDesa !== 'unknown') {
-                return allowedDesa === docDesa;
-              }
-              return true;
-            }
-          } else if (allowedDesa === docDesa) {
+          if (allowedDesa && docDesa && allowedDesa !== docDesa) {
+            return false;
+          }
+
+          if (!allowedSlsNum) {
             return true;
           }
-          return false;
+
+          return slsStr && allowedSlsNum === slsStr;
         });
       }
 
-      // Allow if document was explicitly assigned by ID or name
-      let isExplicitlyAssigned = false;
-      if (doc.petugas_id === pId) isExplicitlyAssigned = true;
-      if (petugas.name && (
-        (doc.assigned_pcls && doc.assigned_pcls.includes(petugas.name)) ||
-        (doc.assigned_pmls && doc.assigned_pmls.includes(petugas.name))
-      )) {
-        isExplicitlyAssigned = true;
-      }
-      if (petugas.username && (
-        (doc.assigned_pcls && doc.assigned_pcls.includes(petugas.username)) ||
-        (doc.assigned_pmls && doc.assigned_pmls.includes(petugas.username))
-      )) {
-        isExplicitlyAssigned = true;
-      }
+      const pcls = Array.isArray(doc.assigned_pcls) ? doc.assigned_pcls : [];
+      const pmls = Array.isArray(doc.assigned_pmls) ? doc.assigned_pmls : [];
+      const isExplicitlyAssigned = doc.petugas_id === pId ||
+        pcls.includes(petugasName) || pmls.includes(petugasName) ||
+        pcls.includes(petugasUsername) || pmls.includes(petugasUsername);
 
       if (isExplicitlyAssigned) {
         isAllowed = true;
       }
+
       if (isAllowed) {
-        formatted.push({
-          ...doc,
-          sls: cleanSls || doc.sls, // Return cleaned SLS for consistent display
-          activity_name: doc.kegiatan?.name || '',
-          petugas_name: doc.petugas?.name || '',
-          logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
-          sync: !!doc.sync,
-          is_prelist: !!doc.is_prelist,
-        });
+        allowedItems.push({ doc, cleanSls });
       }
     }
+
+    // Ambil jawaban dari DB hanya untuk dokumen yang belum memiliki last_sent_data lengkap
+    const docIdsNeedingAnswers = [];
+    for (const item of allowedItems) {
+      if (!item.doc.last_sent_data || Object.keys(item.doc.last_sent_data).length === 0) {
+        docIdsNeedingAnswers.push(item.doc.id);
+      }
+    }
+
+    const answersMap = new Map();
+    if (docIdsNeedingAnswers.length > 0) {
+      const fetchedAnswers = await prisma.dokumenJawaban.findMany({
+        where: { dokumen_id: { in: docIdsNeedingAnswers } },
+        select: { dokumen_id: true, question_id: true, value: true }
+      });
+      for (const ans of fetchedAnswers) {
+        if (!answersMap.has(ans.dokumen_id)) {
+          answersMap.set(ans.dokumen_id, {});
+        }
+        answersMap.get(ans.dokumen_id)[ans.question_id] = ans.value;
+      }
+    }
+
+    const formatted = allowedItems.map(item => {
+      const doc = item.doc;
+      const docValues = {};
+      if (doc.last_sent_data && typeof doc.last_sent_data === 'object') {
+        Object.assign(docValues, doc.last_sent_data);
+      }
+      const dbAns = answersMap.get(doc.id);
+      if (dbAns) {
+        Object.assign(docValues, dbAns);
+      }
+
+      return {
+        ...doc,
+        values: docValues,
+        sls: item.cleanSls || doc.sls,
+        activity_name: doc.kegiatan?.name || '',
+        petugas_name: doc.petugas?.name || '',
+        logs: doc.dokumen_log.map(l => `${l.created_at.toLocaleString('id-ID')}: ${l.message}`),
+        sync: !!doc.sync,
+        is_prelist: !!doc.is_prelist,
+      };
+    });
 
     return res.json(formatted);
   } catch (error) {

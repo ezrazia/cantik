@@ -27,7 +27,7 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
     return saved ? JSON.parse(saved) : null;
   });
 
-  const isKegiatanAdmin = currentUser?.role === 'admin_kegiatan';
+  const isAdminDesa = currentUser?.role === 'admin_desa';
 
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const status = activeActivity ? activeActivity.status : "draft";
@@ -40,6 +40,10 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         return { dot: "bg-red-500", pulse: "bg-red-400", text: "text-red-600", bg: "bg-red-50", label: "Selesai" };
       case "uji_coba":
         return { dot: "bg-blue-500", pulse: "bg-blue-400", text: "text-blue-600", bg: "bg-blue-50", label: "Uji Coba" };
+      case "pengajuan":
+        return { dot: "bg-indigo-500", pulse: "bg-indigo-400", text: "text-indigo-600", bg: "bg-indigo-50", label: "Pengajuan" };
+      case "ditolak":
+        return { dot: "bg-rose-500", pulse: "bg-rose-400", text: "text-rose-600", bg: "bg-rose-50", label: "Perlu Perbaikan" };
       case "draft":
       default:
         return { dot: "bg-amber-500", pulse: "bg-amber-400", text: "text-amber-600", bg: "bg-amber-50", label: "Draft" };
@@ -60,28 +64,38 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
   }, []);
 
   useEffect(() => {
-    if (isKegiatanAdmin) {
-      const allowedTabs = ["admin-dash", "admin-review", "admin-users"];
+    if (isAdminDesa) {
+      const allowedTabs = ["admin-kegiatan", "admin-dash", "admin-detail-kegiatan", "admin-review", "admin-users", "admin-tabulasi", "admin-master-petugas"];
       if (!allowedTabs.includes(tab)) {
-        onNavigate("admin-dash");
+        onNavigate("admin-kegiatan");
       }
     } else {
       if (!selectedProject && tab !== "admin-beranda" && tab !== "admin-kegiatan" && tab !== "admin-master-petugas" && tab !== "admin-freeform" && tab !== "admin-backup") {
         onNavigate("admin-beranda");
       }
     }
-  }, [selectedProject, tab, onNavigate, isKegiatanAdmin]);
+  }, [selectedProject, tab, onNavigate, isAdminDesa]);
 
-  const projects = activities ? activities.map(a => a.name) : ["Desa Cantik 2026", "Survei Ekonomi 2026", "Pendataan PLS 2026"];
+  const filteredActivities = isAdminDesa
+    ? (activities || []).filter(a => {
+        const cleanDesa = String(currentUser?.desa || '').trim().toLowerCase();
+        if (a.desa && String(a.desa).trim().toLowerCase() === cleanDesa) return true;
+        if (a.name && a.name.toLowerCase().includes(cleanDesa)) return true;
+        const lokusDesas = (a.lokus?.desa || []).map(d => String(d).trim().toLowerCase());
+        return lokusDesas.some(d => d.includes(cleanDesa) || cleanDesa.includes(d));
+      })
+    : (activities || []);
+
+  const projects = filteredActivities.map(a => a.name);
   
   const navItems = [
     { id:"admin-dash",    icon: BarChart2, label:"Dashboard" },
-      { id:"admin-detail-kegiatan", icon: FileText, label:"Detail Kegiatan" },
-    { id:"admin-review",  icon: Eye,       label:"Review Data" },
-    ...(!isKegiatanAdmin ? [{ id:"admin-builder", icon: Layers,    label:"Form Builder" }] : []),
-      ...(!isKegiatanAdmin ? [{ id:"admin-anomali", icon: AlertTriangle, label:"Anomali" }] : []),
-    { id:"admin-users",   icon: Users,     label:"Petugas Kegiatan" },
-    ...(!isKegiatanAdmin ? [{ id:"admin-tabulasi",icon: Table,     label:"Tabulasi" }] : []),
+    { id:"admin-detail-kegiatan", icon: FileText, label:"Detail Kegiatan" },
+    { id:"admin-review",  icon: Eye,       label: isAdminDesa ? "Review Data Warga" : "Review Data" },
+    ...(!isAdminDesa ? [{ id:"admin-builder", icon: Layers,    label:"Form Builder" }] : []),
+    ...(!isAdminDesa ? [{ id:"admin-anomali", icon: AlertTriangle, label:"Anomali" }] : []),
+    { id:"admin-users",   icon: Users,     label: isAdminDesa ? "Petugas Lapangan" : "Petugas Kegiatan" },
+    { id:"admin-tabulasi",icon: Table,     label:"Tabulasi" },
   ];
 
   const sidebarWidth = isSidebarOpen ? "w-64" : "w-[72px]";
@@ -97,7 +111,9 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
             </div>
             <div>
               <h1 className="text-sm font-bold tracking-tight">CANTIK</h1>
-              <p className="text-[10px] text-slate-400 font-medium">Badan Pusat Statistik</p>
+              <p className="text-[10px] text-slate-400 font-medium truncate max-w-[140px]">
+                {isAdminDesa ? `Desa ${currentUser?.desa || ''}` : "Badan Pusat Statistik"}
+              </p>
             </div>
           </div>
         ) : (
@@ -107,8 +123,8 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         )}
       </div>
 
-      {/* Beranda (Home) - Positioned above Master Petugas */}
-      {!isKegiatanAdmin && (
+      {/* Beranda (Home) - Untuk Admin BPS */}
+      {!isAdminDesa && (
         <div className="px-3 mb-2">
           <button key="admin-beranda"
             onClick={() => { onNavigate("admin-beranda"); if (isMobile) setIsMobileMenuOpen(false); }}
@@ -124,42 +140,38 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         </div>
       )}
 
-      {/* Kegiatan (Activities) - Positioned under Beranda and above Master Petugas */}
-      {!isKegiatanAdmin && (
-        <div className="px-3 mb-2">
-          <button key="admin-kegiatan"
-            onClick={() => { onNavigate("admin-kegiatan"); if (isMobile) setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
-              tab === "admin-kegiatan"
-                ? "bg-blue-600 text-white font-semibold shadow-sm"
-                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
-            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-            title="Master Kegiatan">
-            <Briefcase size={18} strokeWidth={tab === "admin-kegiatan" ? 2 : 1.5}/>
-            {(isSidebarOpen || isMobile) && <span>Master Kegiatan</span>}
-          </button>
-        </div>
-      )}
+      {/* Kegiatan (Activities) */}
+      <div className="px-3 mb-2">
+        <button key="admin-kegiatan"
+          onClick={() => { onNavigate("admin-kegiatan"); if (isMobile) setIsMobileMenuOpen(false); }}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+            tab === "admin-kegiatan"
+              ? "bg-blue-600 text-white font-semibold shadow-sm"
+              : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+          } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+          title={isAdminDesa ? "Kegiatan Desa" : "Master Kegiatan"}>
+          <Briefcase size={18} strokeWidth={tab === "admin-kegiatan" ? 2 : 1.5}/>
+          {(isSidebarOpen || isMobile) && <span>{isAdminDesa ? "Kegiatan Desa" : "Master Kegiatan"}</span>}
+        </button>
+      </div>
 
-      {/* Master Petugas (Overall List) - Positioned above Project Selector */}
-      {!isKegiatanAdmin && (
-        <div className="px-3 mb-2">
-          <button key="admin-master-petugas"
-            onClick={() => { onNavigate("admin-master-petugas"); if (isMobile) setIsMobileMenuOpen(false); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
-              tab === "admin-master-petugas"
-                ? "bg-blue-600 text-white font-semibold shadow-sm"
-                : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
-            } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
-            title="Master Petugas">
-            <Users size={18} strokeWidth={tab === "admin-master-petugas" ? 2 : 1.5}/>
-            {(isSidebarOpen || isMobile) && <span>Master Petugas</span>}
-          </button>
-        </div>
-      )}
+      {/* Master Petugas / Petugas Desa (Overall List) */}
+      <div className="px-3 mb-2">
+        <button key="admin-master-petugas"
+          onClick={() => { onNavigate("admin-master-petugas"); if (isMobile) setIsMobileMenuOpen(false); }}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm border-0 cursor-pointer transition-all ${
+            tab === "admin-master-petugas"
+              ? "bg-blue-600 text-white font-semibold shadow-sm"
+              : "bg-transparent text-slate-400 hover:bg-white/5 hover:text-white font-medium"
+          } ${!isSidebarOpen && !isMobile ? 'justify-center' : ''}`}
+          title={isAdminDesa ? "Petugas Desa" : "Master Petugas"}>
+          <Users size={18} strokeWidth={tab === "admin-master-petugas" ? 2 : 1.5}/>
+          {(isSidebarOpen || isMobile) && <span>{isAdminDesa ? "Petugas Desa" : "Master Petugas"}</span>}
+        </button>
+      </div>
 
-      {/* Freeform (Dynamic Options & Anomalies) */}
-      {!isKegiatanAdmin && (
+      {/* Freeform (Dynamic Options & Anomalies) - Hanya untuk BPS */}
+      {!isAdminDesa && (
         <div className="px-3 mb-2">
           <button key="admin-freeform"
             onClick={() => { onNavigate("admin-freeform"); if (isMobile) setIsMobileMenuOpen(false); }}
@@ -175,8 +187,8 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
         </div>
       )}
 
-      {/* Backup & Restore */}
-      {!isKegiatanAdmin && (
+      {/* Backup & Restore - Hanya untuk BPS */}
+      {!isAdminDesa && (
         <div className="px-3 mb-4">
           <button key="admin-backup"
             onClick={() => { onNavigate("admin-backup"); if (isMobile) setIsMobileMenuOpen(false); }}
@@ -195,13 +207,8 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
       {/* Project selector */}
       {(isSidebarOpen || isMobile) && (
         <div className="px-4 mb-4 relative">
-          {isKegiatanAdmin ? (
-            <div className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-semibold border border-white/10 text-slate-400 bg-white/5 cursor-not-allowed select-none">
-              <span className="truncate">{selectedProject || "Pilih Kegiatan"}</span>
-            </div>
-          ) : (
-            <>
-              <button onClick={() => setIsProjDropdownOpen(!isProjDropdownOpen)}
+          <>
+            <button onClick={() => setIsProjDropdownOpen(!isProjDropdownOpen)}
                 className="w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-medium transition-all border border-white/10 hover:bg-white/5 text-slate-300 bg-transparent cursor-pointer">
                 <span className="truncate">{selectedProject || "Pilih Kegiatan"}</span>
                 <ChevronDown size={14} className={`transition-transform duration-200 ${isProjDropdownOpen ? 'rotate-180' : ''} text-slate-500`}/>
@@ -228,7 +235,6 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
                 </>
               )}
             </>
-          )}
         </div>
       )}
 
@@ -265,7 +271,9 @@ function AdminLayout({ tab, onNavigate, selectedProject: propSelectedProject, on
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-semibold text-white truncate">{currentUser?.nama || "Administrator"}</p>
-              <p className="text-[11px] text-slate-500">{isKegiatanAdmin ? "Admin Kegiatan" : "Koordinator"}</p>
+              <p className="text-[11px] text-slate-500">
+                {isAdminDesa ? `Admin Desa ${currentUser?.desa || ''}` : "Administrator BPS"}
+              </p>
             </div>
             <button onClick={() => setShowLogoutConfirm(true)}
               className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-400 hover:bg-white/5 transition-all border-0 bg-transparent cursor-pointer">

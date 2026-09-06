@@ -19,8 +19,35 @@ import {
  * @param {(screen: string) => void} props.onNavigate
  * @returns {React.ReactElement}
  */
-function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData, loading }) {
+function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petugas, setPetugas, activities, refreshData, loading, currentUser }) {
   const isGlobal = true;
+
+  const user = currentUser || (() => {
+    try {
+      const saved = localStorage.getItem("currentUser");
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  })();
+  const isAdminDesa = user?.role === 'admin_desa';
+  const currentDesa = (user?.desa || '').trim();
+
+  const cleanDesa = (d) => String(d || '').toLowerCase().replace(/^desa\s+/, '').trim();
+  const desaFilterMatch = (petugasDesa) => {
+    if (!isAdminDesa) return true;
+    if (!currentDesa) return true;
+    if (!petugasDesa) return false;
+    const pD = cleanDesa(petugasDesa);
+    const aD = cleanDesa(currentDesa);
+    if (!pD || !aD) return false;
+    return pD === aD || pD.includes(aD) || aD.includes(pD);
+  };
+
+  const effectivePetugas = isAdminDesa
+    ? (petugas || []).filter(p => desaFilterMatch(p.desa) || desaFilterMatch(p.asalDesa))
+    : (petugas || []);
+
   const activeActivity = activities?.find(a => a.name === selectedProject);
   const projectStatus = activeActivity ? activeActivity.status : "draft";
 
@@ -217,21 +244,33 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
 
   // Dropdown for village filter (contextual view)
   const villageDropdown = useDropdown("Semua Desa");
-  const villages = ["Semua Desa", ...dbDesa.map(d => d.name)];
+  const villages = isAdminDesa
+    ? [`Desa ${currentDesa}`]
+    : ["Semua Desa", ...dbDesa.map(d => d.name)];
 
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, filter, villageDropdown.selected, selectedProject]);
 
+  const relevantActivities = isAdminDesa
+    ? (activities || []).filter(a => {
+        const cleanD = cleanDesa(currentDesa);
+        if (a.desa && cleanDesa(a.desa) === cleanD) return true;
+        if (a.name && cleanDesa(a.name).includes(cleanD)) return true;
+        const lokusDesas = (a.lokus?.desa || []).map(d => cleanDesa(d));
+        return lokusDesas.some(d => d.includes(cleanD) || cleanD.includes(d));
+      })
+    : (activities || []);
+
   // Dropdown for activities/projects filter (global view)
-  const allProjects = activities ? activities.map(a => a.name) : [
+  const allProjects = relevantActivities.length > 0 ? relevantActivities.map(a => a.name) : (activities ? activities.map(a => a.name) : [
     "Desa Cantik 2026", 
     "Survei Ekonomi 2026", 
     "Pendataan PLS 2026",
     "Survei Demografi 2026",
     "Pendataan Pertanian 2026",
     "Survei Sosial Ekonomi Nasional 2026"
-  ];
+  ]);
   const availableProjects = ["Semua Kegiatan", ...allProjects];
   const projectFilterDropdown = useDropdown("Semua Kegiatan");
 
@@ -284,12 +323,12 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
   // Get current active officers data based on global/local state
   const activeProjectOfficers = isGlobal 
     ? (projectFilterDropdown.selected === "Semua Kegiatan"
-        ? petugas
-        : petugas.filter(p => p.projects && p.projects.includes(projectFilterDropdown.selected))
+        ? effectivePetugas
+        : effectivePetugas.filter(p => p.projects && p.projects.includes(projectFilterDropdown.selected))
       )
-    : petugas.filter(p => p.projects && p.projects.includes(selectedProject));
+    : effectivePetugas.filter(p => p.projects && p.projects.includes(selectedProject));
 
-  const unassignedOfficers = petugas.filter(p => !p.projects || !p.projects.includes(selectedProject));
+  const unassignedOfficers = effectivePetugas.filter(p => !p.projects || !p.projects.includes(selectedProject));
 
   // Filter & Search Logic
   const filteredByVillage = (isGlobal || villageDropdown.selected === "Semua Desa")
@@ -387,8 +426,8 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
   );
 
   // Data for Kegiatan view
-  const kegiatanDataRaw = (activities || []).map(act => {
-    const actPetugas = petugas.filter(p => p.projects?.includes(act.name));
+  const kegiatanDataRaw = relevantActivities.map(act => {
+    const actPetugas = effectivePetugas.filter(p => p.projects?.includes(act.name));
     const pmlList = actPetugas.filter(p => p.projectRoles?.[act.name] === "PML");
     const pclList = actPetugas.filter(p => p.projectRoles?.[act.name] === "PCL" || p.projectRoles?.[act.name] === "PPL");
     return {
@@ -542,7 +581,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
         name: name.trim(),
         nik: finalNik,
         phone: finalPhone,
-        desa: assignedDesa,
+        desa: isAdminDesa ? currentDesa : assignedDesa,
         status: 'active'
       };
       
@@ -574,6 +613,8 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
         }
         setShowAddModal(false);
         setShowAddConfirm(false);
+        
+        alert("Petugas berhasil ditambahkan!");
       }
     } catch (err) {
       alert("Gagal menambahkan petugas: " + err.message);
@@ -587,7 +628,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
     setUsernameInput(selectedPetugas.username || "");
     setNikInput(selectedPetugas.nik || "");
     setPhoneInput(selectedPetugas.phone || "");
-    setAssignedDesa(selectedPetugas.desa || (dbDesa.length > 0 ? dbDesa[0].name.replace("Desa ", "") : "Tideng Pale"));
+    setAssignedDesa(isAdminDesa ? currentDesa : (selectedPetugas.desa || (dbDesa.length > 0 ? dbDesa[0].name.replace("Desa ", "") : "Tideng Pale")));
     setPasswordInput("");
     setShowPassword(false);
     setShowEditModal(true);
@@ -603,7 +644,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
         username: usernameInput.trim(),
         nik: nikInput.trim() || null,
         phone: phoneInput.trim() || null,
-        desa: assignedDesa
+        desa: isAdminDesa ? (selectedPetugas?.desa || currentDesa) : assignedDesa
       };
       
       if (passwordInput.trim()) {
@@ -1156,7 +1197,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-                {isGlobal ? "Master Database Petugas" : `Petugas Lapangan`}
+                {isAdminDesa ? `Petugas Desa ${currentDesa}` : (isGlobal ? "Master Database Petugas" : `Petugas Lapangan`)}
               </h1>
               {!isGlobal && selectedProject && (
                 <div className={`flex items-center gap-1.5 px-2.5 py-1 border rounded-xl text-[10px] font-bold ${statusConfig.text} ${statusConfig.bg} border-slate-100/50 shadow-sm`}>
@@ -1170,7 +1211,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
             </div>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="text-xs font-medium text-slate-400">
-                {isGlobal ? "Daftar Seluruh Petugas BPS" : `Daftar Petugas BPS aktif untuk kegiatan ${selectedProject}`}
+                {isAdminDesa ? `Daftar seluruh akun petugas lapangan yang terdaftar di Desa ${currentDesa}` : (isGlobal ? "Daftar Seluruh Petugas BPS" : `Daftar Petugas BPS aktif untuk kegiatan ${selectedProject}`)}
               </span>
               {!isGlobal && (
                 <>
@@ -1324,7 +1365,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                 <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                   viewMode === "petugas" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"
                 }`}>
-                  {petugas.length}
+                  {effectivePetugas.length}
                 </span>
               </button>
               <button 
@@ -1337,7 +1378,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                 <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                   viewMode === "kegiatan" ? "bg-white/25 text-white" : "bg-slate-100 text-slate-500"
                 }`}>
-                  {activities.length}
+                  {relevantActivities.length}
                 </span>
               </button>
             </div>
@@ -2105,7 +2146,9 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
                       {selectedPetugas.name.split(' ').map(n=>n[0]).join('')}
                     </div>
                     <h4 className="text-md font-bold text-slate-800">{selectedPetugas.name}</h4>
-                    <p className="text-xs text-slate-400 font-medium">Petugas Badan Pusat Statistik</p>
+                    <p className="text-xs text-slate-400 font-medium">
+                      {isAdminDesa ? `Petugas Desa ${selectedPetugas.desa || currentDesa}` : "Petugas Badan Pusat Statistik"}
+                    </p>
                     
                     {/* Status Badge */}
                     {isGlobal ? (() => {
@@ -2432,7 +2475,7 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
               Tambah Petugas Baru
             </h3>
             <p className="text-xs text-slate-400 mb-6 leading-relaxed">
-              Daftarkan petugas BPS baru.
+              {isAdminDesa ? `Daftarkan akun petugas lapangan baru untuk Desa ${currentDesa}.` : "Daftarkan petugas BPS baru."}
             </p>
 
             <form onSubmit={handleOpenAddConfirm} className="space-y-4">
@@ -2502,20 +2545,29 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-2">Asal Desa</label>
-                  <SelectDropdown variant="form" 
-                    value={assignedDesa} 
-                    onChange={e => setAssignedDesa(e.target.value)}
-                    className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer"
-                  >
-                    {dbDesa.map(d => {
-                       const simpleName = d.name.replace("Desa ", "");
-                       return (
-                         <option key={simpleName} value={simpleName}>
-                           {simpleName}
-                         </option>
-                       );
-                    })}
-                  </SelectDropdown>
+                  {isAdminDesa ? (
+                    <input 
+                      type="text" 
+                      value={currentDesa} 
+                      disabled
+                      className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl bg-slate-50 text-slate-600 font-semibold cursor-not-allowed"
+                    />
+                  ) : (
+                    <SelectDropdown variant="form" 
+                      value={assignedDesa} 
+                      onChange={e => setAssignedDesa(e.target.value)}
+                      className="w-full px-4 py-3 text-sm border border-slate-200 rounded-xl outline-none focus:border-blue-500 bg-white text-slate-700 transition-all font-medium cursor-pointer"
+                    >
+                      {dbDesa.map(d => {
+                         const simpleName = d.name.replace("Desa ", "");
+                         return (
+                           <option key={simpleName} value={simpleName}>
+                             {simpleName}
+                           </option>
+                         );
+                      })}
+                    </SelectDropdown>
+                  )}
                 </div>
               </div>
 
@@ -3015,18 +3067,27 @@ function AdminMasterPetugas({ onNavigate, selectedProject, onProjectChange, petu
 
               <div>
                 <label className="block text-xs font-semibold text-slate-500 mb-2">Asal Desa</label>
-                <SelectDropdown variant="form" 
-                  value={assignedDesa}
-                  onChange={(e) => setAssignedDesa(e.target.value)}
-                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all font-medium text-slate-700 cursor-pointer"
-                >
-                  {dbDesa.map(d => (
-                    <option key={d.name} value={d.name.replace("Desa ", "")}>{d.name}</option>
-                  ))}
-                  {dbDesa.length === 0 && (
-                    <option value="Tideng Pale">Desa Tideng Pale</option>
-                  )}
-                </SelectDropdown>
+                {isAdminDesa ? (
+                  <input 
+                    type="text" 
+                    value={selectedPetugas?.desa || currentDesa} 
+                    disabled
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 cursor-not-allowed"
+                  />
+                ) : (
+                  <SelectDropdown variant="form" 
+                    value={assignedDesa}
+                    onChange={(e) => setAssignedDesa(e.target.value)}
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:bg-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 transition-all font-medium text-slate-700 cursor-pointer"
+                  >
+                    {dbDesa.map(d => (
+                      <option key={d.name} value={d.name.replace("Desa ", "")}>{d.name}</option>
+                    ))}
+                    {dbDesa.length === 0 && (
+                      <option value="Tideng Pale">Desa Tideng Pale</option>
+                    )}
+                  </SelectDropdown>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100 mt-6">

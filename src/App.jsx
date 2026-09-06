@@ -57,8 +57,8 @@ export default function App() {
           }
           if (parsedUser.role === "superadmin" || parsedUser.role === "admin") {
             return "admin-beranda";
-          } else if (parsedUser.role === "admin_kegiatan") {
-            return "admin-dash";
+          } else if (parsedUser.role === "admin_desa") {
+            return "admin-kegiatan";
           }
           return "petugas-home";
         } catch {
@@ -107,8 +107,9 @@ export default function App() {
   const refreshData = async () => {
     setGlobalLoading(true);
     try {
+      const desaFilter = currentUser?.role === 'admin_desa' ? (currentUser?.desa || '') : '';
       const [acts, pets] = await Promise.all([
-        api.kegiatan.getAll(),
+        api.kegiatan.getAll(desaFilter),
         api.petugas.getAll()
       ]);
 
@@ -193,8 +194,8 @@ export default function App() {
     let targetScreen = "login";
     if (user.role === "superadmin" || user.role === "admin") {
       targetScreen = "admin-beranda";
-    } else if (user.role === "admin_kegiatan") {
-      targetScreen = "admin-dash";
+    } else if (user.role === "admin_desa") {
+      targetScreen = "admin-kegiatan";
     } else {
       targetScreen = "petugas-home";
     }
@@ -254,7 +255,7 @@ export default function App() {
     "admin-review": <ErrorBoundary><AdminDataReview onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} onApproveDocument={() => setNewDataTrigger(t => t + 1)} petugas={petugas} loading={globalLoading} currentUser={currentUser} /></ErrorBoundary>,
     "admin-builder": <ErrorBoundary><AdminFormBuilder onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} loading={globalLoading} /></ErrorBoundary>,
     "admin-users": <ErrorBoundary><AdminPetugasKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} currentUser={currentUser} /></ErrorBoundary>,
-    "admin-master-petugas": <ErrorBoundary><AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} /></ErrorBoundary>,
+    "admin-master-petugas": <ErrorBoundary><AdminMasterPetugas onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} petugas={petugas} setPetugas={setPetugas} activities={activities} refreshData={refreshData} loading={globalLoading} currentUser={currentUser} /></ErrorBoundary>,
     "admin-freeform": <ErrorBoundary><AdminFreeform onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} currentUser={currentUser} petugas={petugas} /></ErrorBoundary>,
     "admin-anomali": <ErrorBoundary><AdminAnomali onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} currentUser={currentUser} /></ErrorBoundary>,
     "admin-kegiatan": <ErrorBoundary><AdminKegiatan onNavigate={go} selectedProject={selectedProject} onProjectChange={setSelectedProject} activities={activities} setActivities={setActivities} petugas={petugas} setPetugas={setPetugas} refreshData={refreshData} loading={globalLoading} /></ErrorBoundary>,

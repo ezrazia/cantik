@@ -74,10 +74,13 @@ export const api = {
 
   // ─── KEGIATAN (CRUD) ──────────────────────────────────
   kegiatan: {
-    getAll: () => request('/kegiatan'),
+    getAll: (desa = '') => request(desa ? `/kegiatan?desa=${encodeURIComponent(desa)}` : '/kegiatan'),
     create: (data) => request('/kegiatan', { method: 'POST', body: data }),
     update: (id, data) => request(`/kegiatan/${id}`, { method: 'PUT', body: data }),
     delete: (id) => request(`/kegiatan/${id}`, { method: 'DELETE' }),
+    pengajuanDesa: (data) => request('/kegiatan/pengajuan-desa', { method: 'POST', body: data }),
+    approvePengajuan: (id) => request(`/kegiatan/${id}/approve-pengajuan`, { method: 'POST' }),
+    rejectPengajuan: (id, catatan_revisi = '') => request(`/kegiatan/${id}/reject-pengajuan`, { method: 'POST', body: { catatan_revisi } }),
   },
 
   // ─── WILAYAH (REFERENCES) ─────────────────────────────
@@ -203,5 +206,14 @@ export const api = {
     restoreFile: (filename) => request('/backup/restore-file', { method: 'POST', body: { filename } }),
     restoreUpload: (sqlContent) => request('/backup/restore-upload', { method: 'POST', body: { sqlContent } }),
     delete: (filename) => request(`/backup/delete/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
+  },
+
+  // ─── ADMIN DESA MANAGEMENT ───────────────────────────
+  adminDesa: {
+    getAll: () => request('/admin/desa'),
+    create: (data) => request('/admin/desa', { method: 'POST', body: data }),
+    resetPassword: (id, newPassword) => request(`/admin/desa/${id}/reset-password`, { method: 'PUT', body: { newPassword } }),
+    delete: (id) => request(`/admin/desa/${id}`, { method: 'DELETE' }),
+    seedAll: () => request('/admin/desa/seed-all', { method: 'POST' }),
   }
 };
