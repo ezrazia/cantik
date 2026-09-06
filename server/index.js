@@ -43,12 +43,24 @@ app.use(express.json());
 
 app.use('/api', routes);
 
+// Global Error Handler for API routes to prevent HTML error responses
+app.use((err, req, res, next) => {
+  console.error('API Server Error:', err);
+  if (req.path.startsWith('/api') || req.originalUrl.startsWith('/api')) {
+    return res.status(err.status || 500).json({
+      success: false,
+      message: err.message || 'Terjadi kesalahan internal pada server backend',
+    });
+  }
+  next(err);
+});
+
 // Serve static files from Vite build output
 app.use(express.static(path.join(__dirname, '../dist')));
 
 // Fallback route to serve index.html for SPA client-side routing
 app.get('*any', (req, res) => {
-  if (req.path.startsWith('/api')) {
+  if (req.path.startsWith('/api') || req.originalUrl.startsWith('/api')) {
     return res.status(404).json({ success: false, message: 'API Route Not Found' });
   }
   res.sendFile(path.join(__dirname, '../dist/index.html'));
@@ -67,7 +79,7 @@ async function start() {
     console.warn('⚠️  Server berjalan tanpa koneksi database.');
   }
 
-  app.listen(PORT, (err) => {
+  app.listen(PORT, '0.0.0.0', (err) => {
     if (err) {
       console.error(`❌ Gagal menjalankan server pada port ${PORT}:`, err.message);
       process.exit(1);

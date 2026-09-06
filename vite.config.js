@@ -157,18 +157,38 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3002',
         changeOrigin: true,
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, res) => {
+            console.error('Vite Proxy Error:', err.message);
+            if (res && !res.headersSent) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: 'Backend Server tidak merespon di port 5174. Pastikan backend aktif.' }));
+            }
+          });
+        }
       }
     }
   },
   preview: {
     host: true,
-    port: 5173,
+    port: 1100,
     strictPort: true,
     allowedHosts: ['.bpsktt.com'],
     proxy: {
       '/api': {
         target: 'http://localhost:3002',
         changeOrigin: true,
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, res) => {
+            console.error('Vite Preview Proxy Error:', err.message);
+            if (res && !res.headersSent) {
+              res.writeHead(503, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ success: false, message: 'Backend Server tidak merespon di port 5174. Pastikan backend aktif.' }));
+            }
+          });
+        }
       }
     }
   }
