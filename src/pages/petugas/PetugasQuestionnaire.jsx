@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo, useCallback, startTransition } from 'react';
-import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp, ChevronDown, Search, Filter, ArrowUpDown } from "lucide-react";
+import { useState, useEffect, useRef, useMemo, useCallback, startTransition, memo } from 'react';
+import { ArrowLeft, Save, Check, AlertTriangle, ChevronRight, ChevronLeft, Plus, CheckCircle, Calendar, FileText, Landmark, ShieldCheck, MessageSquare, XCircle, X, Clock, AlertCircle, Info, RefreshCw, MapPin, Trash2, ChevronUp, ChevronDown, Search, Filter, ArrowUpDown, User } from "lucide-react";
 import QCard from "../../components/ui/QCard";
 import Badge from "../../components/ui/Badge";
 import PetugasLayout from "../../components/layouts/PetugasLayout";
@@ -63,14 +63,19 @@ const DebouncedInput = ({ value, onChange, delay = 500, forceUppercase = false, 
     if (props.onBlur) props.onBlur(e);
   };
 
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
   // Flush value on unmount if it was changed
   useEffect(() => {
     return () => {
       if (localValueRef.current !== (valueRef.current || "")) {
-        onChange(localValueRef.current);
+        onChangeRef.current(localValueRef.current);
       }
     };
-  }, [onChange]);
+  }, []);
 
   const displayValue = useMemo(() => {
     if (!isNumberFormat) return localValue;
@@ -120,33 +125,23 @@ const DebouncedTextarea = ({ value, onChange, delay = 500, ...props }) => {
     if (props.onBlur) props.onBlur(e);
   };
 
+  const onChangeRef = useRef(onChange);
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
   useEffect(() => {
     return () => {
       if (localValueRef.current !== (valueRef.current || "")) {
-        onChange(localValueRef.current);
+        onChangeRef.current(localValueRef.current);
       }
     };
-  }, [onChange]);
+  }, []);
 
   return <textarea {...props} value={localValue} onChange={handleChange} onBlur={handleBlur} />;
 };
 
-const FastRadioGroup = ({ value, onChange, options, name, className }) => {
-  const [localValue, setLocalValue] = useState(value);
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
-
-  const handleChange = (val) => {
-    setLocalValue(val);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      onChange(val);
-    }, 50); // reduced delay for snappier skip logic
-  };
-
+const FastRadioGroup = memo(({ value, onChange, options, name, className }) => {
   return (
     <div className={className}>
       {options?.map(opt => (
@@ -155,69 +150,46 @@ const FastRadioGroup = ({ value, onChange, options, name, className }) => {
             type="radio"
             name={name}
             value={opt.value}
-            checked={String(localValue) === String(opt.value)}
-            onChange={() => handleChange(opt.value)}
+            checked={String(value) === String(opt.value)}
+            onChange={() => onChange(opt.value)}
           />
           {opt.label}
         </label>
       ))}
     </div>
   );
-};
+});
 
-const FastSelect = ({ value, onChange, options, className, placeholder = "Pilih Opsi", children }) => {
-  const [localValue, setLocalValue] = useState(value || "");
-  const timerRef = useRef(null);
-
-  useEffect(() => {
-    setLocalValue(value || "");
-  }, [value]);
-
-  const handleChange = (e) => {
-    const val = e.target.value;
-    setLocalValue(val);
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      onChange(val);
-    }, 50);
-  };
-
+const FastSelect = memo(({ value, onChange, options, className, placeholder = "Pilih Opsi", children }) => {
   return (
-    <select value={localValue} onChange={handleChange} className={className}>
+    <select value={value || ""} onChange={(e) => onChange(e.target.value)} className={className}>
       <option value="">{placeholder}</option>
       {options ? options.map(opt => (
         <option key={opt.value} value={opt.value}>{opt.label}</option>
       )) : children}
     </select>
   );
-};
+});
 
-const FastChoiceButton = ({ isSelected, onClick, children, disabled, type }) => {
-  const [localSelected, setLocalSelected] = useState(isSelected);
-  const timerRef = useRef(null);
-
-  useEffect(() => setLocalSelected(isSelected), [isSelected]);
-
+const FastChoiceButton = memo(({ isSelected, onClick, children, disabled, type }) => {
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => {
         if (disabled) return;
-        setLocalSelected(type === 'select' ? !localSelected : true);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => onClick(), 50);
+        onClick();
       }}
-      className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left ${localSelected
+      className={`flex items-center gap-2.5 px-4 py-3 h-full rounded-lg border border-solid text-xs font-medium transition-all text-left ${isSelected
         ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
         : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
         } ${disabled ? "cursor-not-allowed opacity-80" : "cursor-pointer"}`}
     >
-      <div className={`w-4 h-4 flex-shrink-0 mt-0.5 flex items-center justify-center transition-all ${type === 'select'
-        ? `rounded border-2 ${localSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
-        : `rounded-full border-2 ${localSelected ? 'border-blue-600' : 'border-slate-200'}`
+      <div className={`w-4 h-4 flex-shrink-0 flex items-center justify-center transition-all ${type === 'select'
+        ? `rounded border-2 ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200'}`
+        : `rounded-full border-2 ${isSelected ? 'border-blue-600' : 'border-slate-200'}`
         }`}>
-        {localSelected && (
+        {isSelected && (
           type === 'select'
             ? <Check size={10} className="text-white stroke-[3px]" />
             : <div className="w-2 h-2 rounded-full bg-blue-600" />
@@ -226,7 +198,7 @@ const FastChoiceButton = ({ isSelected, onClick, children, disabled, type }) => 
       {children}
     </button>
   );
-};
+});
 
 // Memoized parseValidation cache
 const validationCache = new Map();
@@ -240,16 +212,34 @@ const getCachedValidation = (validation) => {
   return result;
 };
 
+const matchesTrigger = (singleVal, triggerOpts) => {
+  if (singleVal === undefined || singleVal === null || singleVal === '') return false;
+  const strVal = String(singleVal).trim();
+
+  for (const opt of triggerOpts) {
+    const strOpt = String(opt).trim();
+    if (strVal === strOpt) return true;
+
+    const valCode = strVal.includes('.') ? strVal.split('.')[0].trim() : strVal;
+    const optCode = strOpt.includes('.') ? strOpt.split('.')[0].trim() : strOpt;
+
+    if (valCode === optCode && valCode !== "") return true;
+    if (strVal.startsWith(strOpt + ".") || strVal.startsWith(strOpt + " ")) return true;
+    if (strOpt.startsWith(strVal + ".") || strOpt.startsWith(strVal + " ")) return true;
+  }
+  return false;
+};
+
 const checkOptionTrigger = (val, triggerOptions) => {
   if (val === undefined || val === null || val === '') return false;
   
   if (Array.isArray(val)) {
-    return val.some(item => triggerOptions.includes(String(item)));
+    return val.some(item => matchesTrigger(item, triggerOptions));
   }
   
   if (val && typeof val === 'object') {
     if ('value' in val) {
-      return triggerOptions.includes(String(val.value));
+      return matchesTrigger(val.value, triggerOptions);
     }
     return triggerOptions.some(opt => {
       const optVal = val[opt];
@@ -262,11 +252,11 @@ const checkOptionTrigger = (val, triggerOptions) => {
     try {
       const parsedVal = JSON.parse(trimmed);
       if (Array.isArray(parsedVal)) {
-        return parsedVal.some(item => triggerOptions.includes(String(item)));
+        return parsedVal.some(item => matchesTrigger(item, triggerOptions));
       }
       if (parsedVal && typeof parsedVal === 'object') {
         if ('value' in parsedVal) {
-          return triggerOptions.includes(String(parsedVal.value));
+          return matchesTrigger(parsedVal.value, triggerOptions);
         }
         return triggerOptions.some(opt => {
           const optVal = parsedVal[opt];
@@ -275,11 +265,15 @@ const checkOptionTrigger = (val, triggerOptions) => {
       }
     } catch (e) { }
   }
-  return triggerOptions.includes(String(val));
+  return matchesTrigger(val, triggerOptions);
 };
 
 const evaluateCondition = (c, values) => {
-  const val = values[c.question_id];
+  let val = values[c.question_id];
+  if (val === undefined || val === null || val === '') {
+    const cleanCode = String(c.question_id).replace(/^r\.?/i, "").replace(/\s/g, "");
+    val = values[cleanCode] !== undefined ? values[cleanCode] : (values[`R.${cleanCode}`] !== undefined ? values[`R.${cleanCode}`] : values[`R${cleanCode}`]);
+  }
   if (c.operator && ['=', '>', '>=', '<', '<='].includes(c.operator)) {
     if (val === undefined || val === null || val === '') return false;
     let actualVal = val;
@@ -321,6 +315,259 @@ const evaluateCondition = (c, values) => {
   const triggerOptions = String(c.value).split(",").map(x => x.trim()).filter(Boolean);
   return checkOptionTrigger(val, triggerOptions);
 };
+
+const ManualLoopGroup = ({
+  groupId,
+  groupQs,
+  allQuestions = [],
+  instances,
+  loopCount,
+  manualControlQ,
+  isReadOnly,
+  handleAddManualLoop,
+  handleRemoveManualLoop,
+  renderQuestionRow,
+  getLoopValue
+}) => {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (activeIdx >= instances.length) {
+      setActiveIdx(Math.max(0, instances.length - 1));
+    }
+  }, [instances.length, activeIdx]);
+
+  const scrollToTop = () => {
+    if (containerRef.current) {
+      const y = containerRef.current.getBoundingClientRect().top + window.scrollY - 80;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    }
+  };
+
+  const getTabName = (idx) => {
+    // Helper for safe validation parsing
+    const safeParse = (qVal) => {
+      if (!qVal) return {};
+      try {
+        const p = typeof qVal === 'string' ? JSON.parse(qVal) : qVal;
+        return {
+          loopBy: p.loop_by || p.loopByQuestionId || null,
+        };
+      } catch (e) {
+        return {};
+      }
+    };
+
+    // 1. Check if this group is for Member / ART loop (Blok IV, Blok V)
+    const isMemberLoopGroup = groupQs.some(q => {
+      const v = safeParse(q.validation);
+      const loopByStr = String(v.loopBy || "");
+      return loopByStr.includes("500") || loopByStr.includes("301") || loopByStr.includes("400");
+    }) || groupQs.some(q => {
+      const lbl = (q.label || "").toLowerCase();
+      return (lbl.includes("anggota") || lbl.includes("demografi") || lbl.includes("sosial ekonomi")) && !lbl.includes("usaha");
+    });
+
+    if (isMemberLoopGroup) {
+      const memberNameQ = (allQuestions || []).find(q => {
+        const lbl = (q.label || "").toLowerCase();
+        return (lbl.includes("nama anggota") || lbl.includes("nama art") || lbl.includes("nama kepala") || lbl.includes("nama keluarga")) &&
+               !lbl.includes("pcl") && !lbl.includes("pml") && !lbl.includes("kegiatan") && !lbl.includes("jumlah");
+      });
+      if (memberNameQ) {
+        const val = getLoopValue(memberNameQ.id, idx);
+        if (val && typeof val === 'string' && val.trim() !== '' && isNaN(val.trim())) {
+          const cleanName = val.trim();
+          return cleanName.length > 18 ? cleanName.substring(0, 18) + '...' : cleanName;
+        }
+      }
+    }
+
+    // 2. For all other blocks/loops, strictly return "Isian 1", "Isian 2", "Isian 3", etc.
+    return `Isian ${idx + 1}`;
+  };
+
+  return (
+    <div ref={containerRef} className="manual-loop-group bg-slate-50/50 p-4 rounded-2xl border border-solid border-slate-200 mt-6 mb-4">
+      {/* Tab Header with rounded-full pill buttons like Blok IV */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-3 mb-2 border-b border-solid border-slate-200">
+        {instances.map(idx => {
+          const tabName = getTabName(idx);
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setActiveIdx(idx)}
+              className={`flex-shrink-0 px-5 py-2.5 text-xs font-bold rounded-full transition-all cursor-pointer border ${
+                activeIdx === idx 
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-md font-extrabold' 
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300 font-bold'
+              }`}
+            >
+              {tabName}
+            </button>
+          );
+        })}
+        {!isReadOnly && manualControlQ && (
+          <button
+            type="button"
+            onClick={() => {
+              handleAddManualLoop(manualControlQ.id);
+              setActiveIdx(instances.length);
+              setTimeout(scrollToTop, 50);
+            }}
+            className="flex-shrink-0 px-4 py-2.5 text-xs font-bold rounded-xl bg-blue-50 text-blue-600 hover:bg-blue-100 transition-all border border-solid border-blue-200 cursor-pointer flex items-center gap-1"
+          >
+            <Plus size={14} /> Tambah
+          </button>
+        )}
+      </div>
+
+      {/* Tab Content */}
+      <div className="mt-4 space-y-4">
+        {groupQs.map(gq => {
+          const el = renderQuestionRow(gq, 0, true, activeIdx);
+          return el ? <div key={gq.id}>{el}</div> : null;
+        })}
+      </div>
+
+      {/* Bottom Controls */}
+      <div className="mt-8 flex flex-col gap-3 pt-5 border-t border-solid border-slate-200">
+        {!isReadOnly && manualControlQ && (
+          <div className="flex items-center gap-3 w-full">
+            {activeIdx > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveIdx(activeIdx - 1);
+                  scrollToTop();
+                }}
+                className="flex-1 py-3 bg-white border border-solid border-slate-200 hover:bg-slate-50 text-slate-700 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm truncate"
+              >
+                <ChevronLeft size={14} />
+                <span>{getTabName(activeIdx - 1)}</span>
+              </button>
+            )}
+
+            {activeIdx < loopCount - 1 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveIdx(activeIdx + 1);
+                  scrollToTop();
+                }}
+                className="flex-1 py-3 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-solid border-blue-200/80 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-sm truncate"
+              >
+                <span>{getTabName(activeIdx + 1)}</span>
+                <ChevronRight size={14} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  handleAddManualLoop(manualControlQ.id);
+                  setActiveIdx(instances.length);
+                  setTimeout(scrollToTop, 50);
+                }}
+                className="flex-1 py-3 bg-white border-2 border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Plus size={14} /> Tambah Isian Baru
+              </button>
+            )}
+          </div>
+        )}
+        {loopCount > 1 && !isReadOnly && manualControlQ && (
+          <div className="flex items-center justify-between mt-2">
+             <div className="text-xs font-bold text-slate-400 bg-white px-3 py-1.5 rounded-lg border border-solid border-slate-200">
+                Total: {loopCount} Isian
+             </div>
+             <button
+                type="button"
+                onClick={() => handleRemoveManualLoop(manualControlQ.id, loopCount, activeIdx)}
+                className="py-2 px-4 bg-rose-50 border border-solid border-rose-100 text-rose-600 hover:bg-rose-100 hover:border-rose-200 font-bold text-xs rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+             >
+                <X size={14} /> Hapus Isian
+             </button>
+
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// Memoized QuestionItem with horizontal member/instance chip tab selector for multi-instance questions
+const QuestionItem = memo(({
+  q,
+  instances,
+  activeInstanceIdx,
+  renderInputs,
+  val,
+  getResolvedValuesForIndex,
+  ansValues,
+  onActiveTabChange
+}) => {
+  const [activeTabIdx, setActiveTabIdx] = useState(0);
+  const isMultiInstance = activeInstanceIdx === null && instances && instances.length > 1;
+
+  const currentInstances = isMultiInstance
+    ? [activeTabIdx < instances.length ? activeTabIdx : 0]
+    : instances;
+
+  const currentActiveIdx = isMultiInstance ? activeTabIdx : activeInstanceIdx;
+
+  const handleTabClick = (idx) => {
+    setActiveTabIdx(idx);
+    if (onActiveTabChange) {
+      onActiveTabChange(idx);
+    }
+  };
+
+  const getInstanceTabName = (idx) => {
+    if (!getResolvedValuesForIndex || !ansValues) return `Isian Ke-${idx + 1}`;
+    const resolved = getResolvedValuesForIndex(ansValues, idx);
+    const nameVal = resolved["302"] || resolved["301"] || resolved["R302"] || resolved["R301"] || resolved["R.302"] || resolved["R.301"];
+    if (nameVal && typeof nameVal === 'string' && nameVal.trim()) {
+      return `${idx + 1}. ${nameVal.trim()}`;
+    }
+    return `Isian Ke-${idx + 1}`;
+  };
+
+  return (
+    <div className="space-y-3">
+      {isMultiInstance && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-2.5 no-scrollbar border-b border-solid border-slate-100">
+          {instances.map((idx) => {
+            const isActive = activeTabIdx === idx;
+            const tabName = getInstanceTabName(idx);
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => handleTabClick(idx)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 flex-shrink-0 ${
+                  isActive
+                    ? "bg-blue-600 text-white shadow-sm shadow-blue-500/20 font-bold"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                <User size={12} className={isActive ? "text-white" : "text-slate-400"} />
+                <span>{tabName}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {renderInputs(q, currentInstances, currentActiveIdx)}
+    </div>
+  );
+}, (prev, next) => {
+  return prev.val === next.val && 
+         prev.activeInstanceIdx === next.activeInstanceIdx &&
+         prev.instances.length === next.instances.length &&
+         prev.ansValues === next.ansValues;
+});
 
 /**
  * Halaman pengisian kuesioner petugas — clean & BPS standard.
@@ -851,27 +1098,59 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return map;
   }, [allOrderedQuestions]);
 
-  const allSkippers = useMemo(() => {
-    return questions.filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null);
+  const parsedShowIfs = useMemo(() => {
+    const map = new Map();
+    questions.forEach(q => {
+      const showIfValue = q.show_if_value || q.showIfValue || q.show_logic || q.show_if || q.showLogic || q.showIf;
+      if (showIfValue) {
+        if (typeof showIfValue === 'object') {
+          map.set(String(q.id), { isJson: !!(showIfValue && showIfValue.conditions), parsed: showIfValue });
+        } else if (typeof showIfValue === 'string' && (showIfValue.trim().startsWith('{') || showIfValue.trim().startsWith('['))) {
+          try {
+            const parsed = JSON.parse(showIfValue);
+            map.set(String(q.id), { isJson: !!(parsed && parsed.conditions), parsed });
+          } catch (e) {
+            map.set(String(q.id), { isJson: false });
+          }
+        } else {
+          map.set(String(q.id), { isJson: false });
+        }
+      }
+    });
+    return map;
+  }, [questions]);
+
+  const parsedSkippers = useMemo(() => {
+    return questions
+      .filter(quest => quest.skip_target && quest.skip_logic !== undefined && quest.skip_logic !== null)
+      .map(q => {
+        let isJson = false;
+        let parsedLogic = null;
+        let triggerOptions = null;
+        try {
+          parsedLogic = JSON.parse(q.skip_logic);
+          if (parsedLogic && parsedLogic.conditions) isJson = true;
+        } catch (e) {
+          triggerOptions = String(q.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+        }
+        return { q, isJson, parsedLogic, triggerOptions };
+      });
   }, [questions]);
 
   const activeSkipsMemo = useMemo(() => {
     const activeSkips = [];
-    questions.forEach(q => {
-      if (!q.skip_target || !q.skip_logic) return;
+    parsedSkippers.forEach(({ q, isJson, parsedLogic, triggerOptions }) => {
       let matchesTrigger = false;
       const qVal = ans.values[q.id];
-      try {
-        const parsed = JSON.parse(q.skip_logic);
-        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
-          const operator = parsed.operator || "AND";
-          const results = parsed.conditions.map(c => evaluateCondition(c, ans.values));
-          matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
-        }
-      } catch (e) {
-        const triggerOptions = String(q.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
+      
+      if (isJson) {
+        const operator = parsedLogic.operator || "AND";
+        const results = parsedLogic.conditions.map(c => evaluateCondition(c, ans.values));
+        matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
+      } else {
         matchesTrigger = checkOptionTrigger(qVal, triggerOptions);
       }
+
       if (matchesTrigger) {
         activeSkips.push({
           questionId: q.id,
@@ -881,7 +1160,26 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
       }
     });
     return activeSkips;
-  }, [questions, ans.values, getQuestionCode]);
+  }, [parsedSkippers, ans.values, getQuestionCode]);
+
+  const activeSkipRanges = useMemo(() => {
+    const ranges = [];
+    activeSkipsMemo.forEach(skip => {
+      const skipQ = questionMapById.get(String(skip.questionId));
+      let targetQ = questionMapById.get(String(skip.skipTargetId));
+      if (!targetQ) {
+        targetQ = findQuestionByCode(String(skip.skipTargetId));
+      }
+      if (skipQ && targetQ) {
+        const startIdx = questionIndexMap.get(String(skipQ.id));
+        const endIdx = questionIndexMap.get(String(targetQ.id));
+        if (startIdx !== undefined && endIdx !== undefined) {
+          ranges.push({ start: startIdx, end: endIdx });
+        }
+      }
+    });
+    return ranges;
+  }, [activeSkipsMemo, questionMapById, findQuestionByCode, questionIndexMap]);
 
   const getActiveSkips = useCallback(() => activeSkipsMemo, [activeSkipsMemo]);
 
@@ -1535,11 +1833,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   }, [questionMapById, loopGroupsMap, ans.values, parseValidation, getManualLoopCount]);
 
   const handleAddManualLoop = (qId) => {
-    const currentCount = ans.values[`${qId}_loop_count`] ? parseInt(ans.values[`${qId}_loop_count`], 10) : 1;
+    const q = questions.find(x => x.id === qId);
+    const currentCount = q ? getQuestionLoopCount(q, ans.values) : (ans.values[`${qId}_loop_count`] ? parseInt(ans.values[`${qId}_loop_count`], 10) : 1);
     const newCount = currentCount + 1;
     const newValues = { ...ans.values, [`${qId}_loop_count`]: newCount };
 
-    const q = questions.find(x => x.id === qId);
     if (q) {
       const targetBlockId = q.blok_id;
       const relatedQs = questions.filter(x => {
@@ -1558,9 +1856,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         // Initialize the new array slot with default value for serial numbers
         const raw = ans.values[rq.id];
         const isSerialNumber = rq.type === 'number' && (
-          rq.label.toLowerCase().includes('no. urut') ||
-          rq.label.toLowerCase().includes('nomor urut') ||
-          rq.label.toLowerCase().includes('no urut')
+          (rq.label || "").toLowerCase().includes('no. urut') ||
+          (rq.label || "").toLowerCase().includes('nomor urut') ||
+          (rq.label || "").toLowerCase().includes('no urut')
         );
         if (isSerialNumber) {
           let parsed = [];
@@ -1578,6 +1876,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           while (parsed.length < newCount) {
             parsed.push(String(parsed.length + 1));
           }
+          parsed = parsed.map((_, i) => String(i + 1)); // Safely re-index everything
           newValues[rq.id] = JSON.stringify(parsed);
         }
       }
@@ -1589,12 +1888,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     }));
   };
 
-  const handleRemoveManualLoop = (qId, currentCount) => {
-    const newCount = Math.max(1, currentCount - 1);
+  const handleRemoveManualLoop = (qId, currentCount, indexToRemove = null) => {
+    const q = questions.find(x => x.id === qId);
+    const actualCurrentCount = q ? getQuestionLoopCount(q, ans.values) : currentCount;
+    const newCount = Math.max(1, actualCurrentCount - 1);
     const updatedValues = { ...ans.values };
     updatedValues[`${qId}_loop_count`] = newCount;
 
-    const q = questions.find(x => x.id === qId);
     if (q) {
       const targetBlockId = q.blok_id;
       const relatedQs = questions.filter(x => {
@@ -1611,7 +1911,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         updatedValues[`${rq.id}_loop_count`] = newCount;
       }
 
-      // Truncate arrays for all questions in the block that are loops
+      // Truncate or splice arrays for all questions in the block that are loops
       const blockQs = questions.filter(x => String(x.blok_id) === String(q.blok_id));
       for (const bq of blockQs) {
         const raw = ans.values[bq.id];
@@ -1619,9 +1919,21 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           try {
             let parsed = JSON.parse(raw);
             if (Array.isArray(parsed)) {
-              if (parsed.length > newCount) {
+              if (indexToRemove !== null && indexToRemove >= 0 && indexToRemove < parsed.length) {
+                parsed.splice(indexToRemove, 1);
+              } else if (parsed.length > newCount) {
                 parsed = parsed.slice(0, newCount);
               }
+
+              const isSerialNumber = bq.type === 'number' && (
+                (bq.label || "").toLowerCase().includes('no. urut') ||
+                (bq.label || "").toLowerCase().includes('nomor urut') ||
+                (bq.label || "").toLowerCase().includes('no urut')
+              );
+              if (isSerialNumber) {
+                parsed = parsed.map((_, i) => String(i + 1));
+              }
+
               updatedValues[bq.id] = JSON.stringify(parsed);
             }
           } catch (e) { }
@@ -1636,10 +1948,9 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
   };
 
   const handleValueChange = (q, val, idx = 0, instancesLength = 1) => {
-    startTransition(() => {
-      setAns(prevAns => {
-        const newValues = { ...prevAns.values };
-        let headerUpdates = {};
+    setAns(prevAns => {
+      const newValues = { ...prevAns.values };
+      let headerUpdates = {};
 
         const qValStr = q.val || q.validation;
         let isTargetLoop = idx > 0;
@@ -1674,8 +1985,11 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
           isTargetLoop = checkParentLoop(q.parent_id || q.parentId);
         }
 
+        const qCode = q.kode || getQuestionCode(q, questions, blocks);
+        const cleanCode = qCode ? String(qCode).replace(/^r\.?/i, "").replace(/\s/g, "") : "";
+
         if (instancesLength > 1 || isTargetLoop) {
-          const raw = prevAns.values[q.id];
+          const raw = prevAns.values[q.id] !== undefined ? prevAns.values[q.id] : (qCode ? prevAns.values[qCode] : undefined);
           let parsed = [];
           if (raw) {
             try {
@@ -1688,9 +2002,23 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
             }
           }
           parsed[idx] = val;
-          newValues[q.id] = JSON.stringify(parsed);
+          const jsonVal = JSON.stringify(parsed);
+          newValues[q.id] = jsonVal;
+          if (qCode) newValues[qCode] = jsonVal;
+          if (cleanCode) {
+            newValues[cleanCode] = jsonVal;
+            newValues[`R.${cleanCode}`] = jsonVal;
+            newValues[`R${cleanCode}`] = jsonVal;
+          }
         } else {
           newValues[q.id] = val;
+          if (qCode) newValues[qCode] = val;
+          if (cleanCode) {
+            newValues[cleanCode] = val;
+            newValues[`R.${cleanCode}`] = val;
+            newValues[`R${cleanCode}`] = val;
+          }
+        }
 
           const lowerLabel = q.label.toLowerCase();
           let extractedText = val;
@@ -1752,7 +2080,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
               headerUpdates.bekerja = extractedText;
             }
           }
-        }
 
         const qVal = parseValidation(q.validation);
         if (qVal.isLookupKey && val && idx === 0) {
@@ -1810,7 +2137,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
         return updatedAns;
       });
-    });
   };
 
 
@@ -2734,125 +3060,167 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
     return true;
   };
 
-  const getResolvedValuesForIndex = (values, idx) => {
-    if (idx === null) return values;
-    const resolved = {};
-    for (const qId in values) {
-      const raw = values[qId];
+  const parsedAnsValues = useMemo(() => {
+    const parsedMap = {};
+    for (const qId in ans.values) {
+      const raw = ans.values[qId];
       if (raw && typeof raw === 'string' && (raw.startsWith('[') || raw.startsWith('{'))) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
-          } else if (typeof parsed === 'object' && parsed !== null) {
-            if ('value' in parsed) {
-              resolved[qId] = parsed.value !== undefined && parsed.value !== null ? parsed.value : "";
-            } else {
-              resolved[qId] = parsed[idx] !== undefined && parsed[idx] !== null ? parsed[idx] : "";
-            }
-          } else {
-            resolved[qId] = raw;
-          }
-        } catch (e) {
-          resolved[qId] = raw;
+        try { 
+          parsedMap[qId] = JSON.parse(raw); 
+        } catch (e) { 
+          parsedMap[qId] = raw; 
         }
       } else {
-        resolved[qId] = raw;
+        parsedMap[qId] = raw;
       }
     }
-    return resolved;
-  };
+    return parsedMap;
+  }, [ans.values]);
+
+  const getResolvedValuesForIndex = useMemo(() => {
+    const cache = {};
+    return (values, idx) => {
+      const targetIdx = idx !== null ? idx : 0;
+      if (cache[targetIdx]) return cache[targetIdx];
+      const resolved = {};
+
+      questions.forEach(q => {
+        const qCode = q.kode || getQuestionCode(q, questions, blocks);
+        const cleanCode = qCode ? String(qCode).replace(/^r\.?/i, "").replace(/\s/g, "") : "";
+
+        const parsed = (parsedAnsValues[q.id] !== undefined)
+          ? parsedAnsValues[q.id]
+          : ((qCode && parsedAnsValues[qCode] !== undefined)
+            ? parsedAnsValues[qCode]
+            : (cleanCode && (parsedAnsValues[cleanCode] !== undefined ? parsedAnsValues[cleanCode] : (parsedAnsValues[`R.${cleanCode}`] !== undefined ? parsedAnsValues[`R.${cleanCode}`] : parsedAnsValues[`R${cleanCode}`]))));
+
+        let valForIdx = "";
+        if (parsed !== undefined && parsed !== null) {
+          if (Array.isArray(parsed)) {
+            valForIdx = parsed[targetIdx] !== undefined && parsed[targetIdx] !== null ? parsed[targetIdx] : "";
+          } else if (typeof parsed === 'object') {
+            if ('value' in parsed) {
+              valForIdx = parsed.value !== undefined && parsed.value !== null ? parsed.value : "";
+            } else {
+              valForIdx = parsed[targetIdx] !== undefined && parsed[targetIdx] !== null ? parsed[targetIdx] : "";
+            }
+          } else {
+            valForIdx = parsed;
+          }
+        }
+
+        resolved[q.id] = valForIdx;
+        if (q.kode) resolved[q.kode] = valForIdx;
+        if (qCode) resolved[qCode] = valForIdx;
+        if (cleanCode) {
+          resolved[cleanCode] = valForIdx;
+          resolved[`R.${cleanCode}`] = valForIdx;
+          resolved[`R${cleanCode}`] = valForIdx;
+        }
+      });
+
+      cache[targetIdx] = resolved;
+      return resolved;
+    };
+  }, [parsedAnsValues, questions, blocks, getQuestionCode]);
 
   // getActiveSkips and getSkipTargetBlock have been optimized and moved above to avoid render lags.
 
+  const visCacheRef = useRef(new Map());
+  visCacheRef.current.clear();
+
   const isQuestionVisibleIgnoreBlock = useCallback((q, activeInstanceIdx = null) => {
-    const parentId = q.parent_id || q.parentId;
-    if (parentId) {
-      const parent = questionMapById.get(String(parentId));
-      if (parent && !isQuestionVisibleIgnoreBlock(parent, activeInstanceIdx)) {
-        return false;
-      }
+    const cacheKey = `${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : 0}`;
+    if (visCacheRef.current.has(cacheKey)) {
+      return visCacheRef.current.get(cacheKey);
     }
 
-    const resolvedValues = getResolvedValuesForIndex(ans.values, activeInstanceIdx);
-    const showIfValue = q.show_if_value || q.showIfValue;
-    if (showIfValue) {
-      let matchesShowIf = true;
-      let isJson = false;
-      try {
-        const parsed = JSON.parse(showIfValue);
-        if (parsed && parsed.conditions) {
-          isJson = true;
+    const checkVisibility = () => {
+      const parentId = q.parent_id || q.parentId;
+      if (parentId) {
+        const parent = questionMapById.get(String(parentId));
+        if (parent && !isQuestionVisibleIgnoreBlock(parent, activeInstanceIdx)) {
+          return false;
+        }
+      }
+
+      const resolvedValues = getResolvedValuesForIndex(ans.values, activeInstanceIdx);
+      const showIfValue = q.show_if_value || q.showIfValue || q.show_logic || q.show_if || q.showLogic || q.showIf;
+      if (showIfValue) {
+        let matchesShowIf = true;
+        const parsedData = parsedShowIfs.get(String(q.id));
+        
+        if (parsedData && parsedData.isJson) {
+          const parsed = parsedData.parsed;
           const operator = parsed.operator || "AND";
           const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
           matchesShowIf = operator === "OR" ? results.some(r => r) : results.every(r => r);
-        }
-      } catch (e) { }
-
-      if (isJson) {
-        if (!matchesShowIf) {
-          return false;
-        }
-      } else {
-        const showIfParentId = q.show_if_parent_id || q.showIfParentId;
-        if (showIfParentId) {
-          const parentVal = resolvedValues[showIfParentId];
-          const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
-          if (!checkOptionTrigger(parentVal, triggerOptions)) {
-            return false;
+          
+          if (!matchesShowIf) return false;
+        } else {
+          const showIfParentId = q.show_if_parent_id || q.showIfParentId;
+          if (showIfParentId) {
+            let parentVal = resolvedValues[showIfParentId];
+            if (parentVal === undefined || parentVal === null || parentVal === "") {
+              const cleanCode = String(showIfParentId).replace(/^r\.?/i, "").replace(/\s/g, "");
+              parentVal = resolvedValues[cleanCode] !== undefined ? resolvedValues[cleanCode] : (resolvedValues[`R.${cleanCode}`] !== undefined ? resolvedValues[`R.${cleanCode}`] : resolvedValues[`R${cleanCode}`]);
+            }
+            const triggerOptions = String(showIfValue).split(",").map(x => x.trim()).filter(Boolean);
+            if (!checkOptionTrigger(parentVal, triggerOptions)) {
+              return false;
+            }
           }
         }
       }
-    }
 
-    const qBlock = blockMap.get(String(q.blok_id));
-    if (qBlock) {
-      const blocksToHide = getBlocksToHideBySkip();
-      if (blocksToHide.has(qBlock.id) || blocksToHide.has(qBlock.kode)) {
-        return false;
-      }
-    }
-
-    const currentIdx = questionIndexMap.get(String(q.id));
-
-    for (const skipper of allSkippers) {
-      let matchesTrigger = false;
-
-      try {
-        const parsed = JSON.parse(skipper.skip_logic);
-        if (parsed && parsed.conditions && parsed.conditions.length > 0) {
-          const operator = parsed.operator || "AND";
-          const results = parsed.conditions.map(c => evaluateCondition(c, resolvedValues));
-          matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
-        }
-      } catch (e) {
-        const skipperVal = resolvedValues[skipper.id];
-        const triggerOptions = String(skipper.skip_logic).split(",").map(x => x.trim()).filter(Boolean);
-        matchesTrigger = checkOptionTrigger(skipperVal, triggerOptions);
-      }
-
-      const skipperIdx = questionIndexMap.get(String(skipper.id));
-
-      let targetQ = questionMapById.get(String(skipper.skip_target));
-      if (!targetQ) {
-        targetQ = findQuestionByCode(String(skipper.skip_target));
-      }
-
-      const targetIdx = targetQ ? questionIndexMap.get(String(targetQ.id)) : -1;
-
-      if (q.id === skipper.id) {
-      }
-      else if (targetQ && q.id === targetQ.id) {
-      }
-      else if (matchesTrigger && skipperIdx !== undefined && targetIdx !== -1 && currentIdx !== undefined) {
-        if (currentIdx > skipperIdx && currentIdx < targetIdx) {
+      const qBlock = blockMap.get(String(q.blok_id));
+      if (qBlock) {
+        const blocksToHide = getBlocksToHideBySkip();
+        if (blocksToHide.has(qBlock.id) || blocksToHide.has(qBlock.kode)) {
           return false;
         }
       }
-    }
 
-    return true;
-  }, [ans.values, questionMapById, questionMapByCode, blockMap, questionIndexMap, allSkippers, findQuestionByCode, checkOptionTrigger, getBlocksToHideBySkip]);
+      const currentIdx = questionIndexMap.get(String(q.id));
+
+      if (currentIdx !== undefined) {
+        for (const { q: skipperQ, isJson, parsedLogic, triggerOptions } of parsedSkippers) {
+          const skipperIdx = questionIndexMap.get(String(skipperQ.id));
+          let targetQ = questionMapById.get(String(skipperQ.skip_target));
+          if (!targetQ) {
+            targetQ = findQuestionByCode(String(skipperQ.skip_target));
+          }
+          const targetIdx = targetQ ? questionIndexMap.get(String(targetQ.id)) : undefined;
+
+          if (skipperIdx !== undefined && targetIdx !== undefined && currentIdx > skipperIdx && currentIdx < targetIdx) {
+            if (!isQuestionVisibleIgnoreBlock(skipperQ, activeInstanceIdx)) {
+              continue;
+            }
+
+            let matchesTrigger = false;
+            if (isJson) {
+              const operator = parsedLogic.operator || "AND";
+              const results = parsedLogic.conditions.map(c => evaluateCondition(c, resolvedValues));
+              matchesTrigger = operator === "OR" ? results.some(r => r) : results.every(r => r);
+            } else {
+              const skipperVal = resolvedValues[skipperQ.id];
+              matchesTrigger = checkOptionTrigger(skipperVal, triggerOptions);
+            }
+
+            if (matchesTrigger) {
+              return false;
+            }
+          }
+        }
+      }
+
+      return true;
+    };
+
+    const res = checkVisibility();
+    visCacheRef.current.set(cacheKey, res);
+    return res;
+  }, [ans.values, questionMapById, questionMapByCode, blockMap, questionIndexMap, parsedSkippers, findQuestionByCode, checkOptionTrigger, getBlocksToHideBySkip, getResolvedValuesForIndex]);
 
   const visibleBlocksMap = useMemo(() => {
     const map = new Map();
@@ -3627,6 +3995,34 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
         );
         if (match) {
           updatedValues[q.id] = match.value;
+        }
+      }
+    });
+
+    // Normalize loaded values so both q.id and question codes are mapped in updatedValues
+    questions.forEach(q => {
+      const qCode = q.kode || getQuestionCode(q, questions, blocks);
+      const cleanCode = qCode ? String(qCode).replace(/^r\.?/i, "").replace(/\s/g, "") : "";
+
+      const valByCode = (qCode && updatedValues[qCode] !== undefined)
+        ? updatedValues[qCode]
+        : (cleanCode && (updatedValues[cleanCode] !== undefined ? updatedValues[cleanCode] : (updatedValues[`R.${cleanCode}`] !== undefined ? updatedValues[`R.${cleanCode}`] : updatedValues[`R${cleanCode}`])));
+
+      if (valByCode !== undefined && updatedValues[q.id] === undefined) {
+        updatedValues[q.id] = valByCode;
+      }
+      if (updatedValues[q.id] !== undefined && qCode && updatedValues[qCode] === undefined) {
+        updatedValues[qCode] = updatedValues[q.id];
+      }
+    });
+
+    // Initialize loop count state for manual loops in loaded document
+    questions.forEach(q => {
+      const qVal = parseValidation(q.validation);
+      if (qVal.isLoop && qVal.loopType === "manual") {
+        const count = getQuestionLoopCount(q, updatedValues);
+        if (count > 0) {
+          updatedValues[`${q.id}_loop_count`] = count;
         }
       }
     });
@@ -4436,7 +4832,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     type="text"
                     value={activitySearchQuery}
                     onChange={e => setActivitySearchQuery(e.target.value)}
-                    className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0"
+                    className="text-xs !outline-none focus:!outline-none focus:!ring-0 text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0 shadow-none"
+                    style={{ outline: "none", boxShadow: "none" }}
                     placeholder="Cari kegiatan survei..."
                   />
                   {activitySearchQuery && (
@@ -4552,7 +4949,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         type="text"
                         value={searchQuery}
                         onChange={e => setSearchQuery(e.target.value)}
-                        className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0"
+                        className="text-xs !outline-none focus:!outline-none focus:!ring-0 text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0 shadow-none"
+                        style={{ outline: "none", boxShadow: "none" }}
                         placeholder="Cari KRT, kode, atau SLS..."
                       />
                       {searchQuery && (
@@ -5140,14 +5538,14 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                       onChange={(newVal) => {
                                         handleValueChange(q, newVal, idx, instances.length);
                                       }}
-                                      className={`w-full flex-1 px-4 py-3 text-sm bg-white border border-solid rounded-xl outline-none focus:ring-2 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${hasErr
+                                      className={`w-full flex-1 min-w-0 px-4 py-3 text-sm bg-white border border-solid rounded-lg outline-none focus:ring-2 transition-all font-medium disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed ${hasErr
                                         ? "border-red-500 text-red-905 focus:border-red-500 focus:ring-red-500/10"
                                         : "border-slate-200 text-slate-800 focus:border-blue-500 focus:ring-blue-500/10"
                                         }`}
                                     />
                                     {qVal.satuan && (
-                                      <div className="flex-shrink-0 px-1">
-                                        <span className="text-sm font-bold text-slate-500">{qVal.satuan}</span>
+                                      <div className="flex-shrink-0 shrink-0 whitespace-nowrap px-2 flex items-center">
+                                        <span className="text-sm font-bold text-slate-600 tracking-wide whitespace-nowrap">{qVal.satuan}</span>
                                       </div>
                                     )}
                                   </div>
@@ -5177,7 +5575,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                     {instances.length > 1 && <label className="text-[10px] font-bold text-slate-400 block mb-1">Isian Ke-{idx + 1}</label>}
                                     <div className="flex flex-col space-y-1">
                                       <div className="flex items-center gap-2 w-full">
-                                        <div className={`flex-1 flex items-center justify-between bg-white border border-solid rounded-xl px-4 py-2.5 focus-within:ring-2 transition-all ${hasErr
+                                        <div className={`flex-1 min-w-0 flex items-center justify-between bg-white border border-solid rounded-lg px-4 py-2.5 focus-within:ring-2 transition-all ${hasErr
                                           ? "border-red-500 focus-within:ring-red-500/10"
                                           : "border-slate-200 focus-within:ring-blue-500/10"
                                           }`}>
@@ -5196,34 +5594,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                           />
                                         </div>
                                         {qVal.satuan && (
-                                          <div className="flex-shrink-0 px-1">
-                                            <span className="text-sm font-bold text-slate-500">{qVal.satuan}</span>
-                                          </div>
-                                        )}
-                                        {!isFormula && !isReadOnlyQ && (
-                                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                const currentVal = parseFloat(val) || 0;
-                                                const newVal = Math.max(0, currentVal - 1);
-                                                handleValueChange(q, String(newVal), idx, instances.length);
-                                              }}
-                                              className="w-11 h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-90 text-slate-600 flex items-center justify-center border border-solid border-slate-200 cursor-pointer font-bold transition-all text-lg"
-                                            >
-                                              -
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                const currentVal = parseFloat(val) || 0;
-                                                const newVal = currentVal + 1;
-                                                handleValueChange(q, String(newVal), idx, instances.length);
-                                              }}
-                                              className="w-11 h-11 rounded-xl bg-slate-50 hover:bg-slate-100 active:scale-90 text-slate-600 flex items-center justify-center border border-solid border-slate-200 cursor-pointer font-bold transition-all text-lg"
-                                            >
-                                              +
-                                            </button>
+                                          <div className="flex-shrink-0 shrink-0 whitespace-nowrap px-2 flex items-center">
+                                            <span className="text-sm font-bold text-slate-600 tracking-wide whitespace-nowrap">{qVal.satuan}</span>
                                           </div>
                                         )}
                                       </div>
@@ -5253,7 +5625,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                   onChange={(newVal) => {
                                     handleValueChange(q, newVal, idx, instances.length);
                                   }}
-                                  className="w-full h-20 p-3 border border-solid border-slate-200 rounded-xl outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none disabled:bg-slate-50"
+                                  className="w-full h-20 p-3 border border-solid border-slate-200 rounded-lg outline-none focus:border-blue-500 text-xs font-semibold text-slate-800 resize-none disabled:bg-slate-50"
                                 />
                               </div>
                             ))}
@@ -5426,7 +5798,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                       placeholder="Latitude, Longitude (Klik 'Ambil Lokasi')"
                                       readOnly
                                       disabled={isReadOnlyQ}
-                                      className="flex-1 px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-xl outline-none transition-all font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
+                                      className="flex-1 px-4 py-3 text-sm bg-slate-50 border border-solid border-slate-200 rounded-lg outline-none transition-all font-medium text-slate-800 disabled:bg-slate-100 disabled:text-slate-400"
                                     />
                                     <button
                                       type="button"
@@ -5448,7 +5820,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                           alert("Browser Anda tidak mendukung layanan Geotagging.");
                                         }
                                       }}
-                                      className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold border-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                                      className="px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold border-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-50"
                                     >
                                       <MapPin size={14} />
                                       <span>Ambil Lokasi</span>
@@ -5530,8 +5902,27 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                     );
                   };
 
+                  const getQuestionDepth = (targetQ, allQs) => {
+                    let d = 0;
+                    let cur = targetQ;
+                    const qMap = new Map((allQs || []).map(x => [x.id, x]));
+                    const visited = new Set();
+                    while (cur && (cur.parent_id || cur.parentId)) {
+                      if (visited.has(cur.id)) break;
+                      visited.add(cur.id);
+                      const pid = cur.parent_id || cur.parentId;
+                      cur = qMap.get(pid);
+                      if (cur) d++;
+                      else break;
+                    }
+                    return d;
+                  };
+
                   const renderQuestionRow = (q, depth = 0, forceCard = false, activeInstanceIdx = null) => {
                     if (!isQuestionVisible(q, activeInstanceIdx)) return null;
+
+                    const calculatedDepth = Math.max(depth, getQuestionDepth(q, questions));
+                    const indentPx = calculatedDepth * 16;
 
                     if (q.type === 'note') {
                       let labelText = q.label || "";
@@ -5552,7 +5943,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       }
 
                       return (
-                        <div key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5">
+                        <div key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5 transition-all" style={{ marginLeft: `${indentPx}px` }}>
                           <p className="text-sm font-semibold text-amber-950 leading-relaxed break-words">
                             {renderNoteText(labelText, computeAggregation)}
                           </p>
@@ -5579,22 +5970,42 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
 
                     if (depth === 0 || forceCard) {
                       return (
-                        <div key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} id={`q-card-${q.id}`} className="scroll-mt-24">
+                        <div key={`${q.id}_${activeInstanceIdx !== null ? activeInstanceIdx : '0'}`} id={`q-card-${q.id}`} className="scroll-mt-24 transition-all" style={{ marginLeft: `${indentPx}px` }}>
                           <QCard
                             r={qCode}
                             label={resolveLabelText(q.label, activeInstanceIdx)}
                             subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
+                            description={description || q.description || qVal.description}
                             required={!!q.required}
-                            readOnly={isReadOnly || !!qVal.readOnly}
+                            readOnly={!!qVal.readOnly || !!qVal.formula}
                             showIfInfo={formatLogic(q.show_logic || q.show_if)}
+                            inlineLabel={(hasChildren && parentMode === "label") || q.type === "note" || q.type === "label"}
                             className={getQuestionCardBgClass(q)}
                           >
                             {parentMode === "original" ? (
                               <div className="mb-4">
-                                {renderInputs(q, instances, activeInstanceIdx)}
+                                <QuestionItem 
+                                  q={q} 
+                                  instances={instances} 
+                                  activeInstanceIdx={activeInstanceIdx} 
+                                  renderInputs={renderInputs} 
+                                  val={ans.values[q.id]} 
+                                  getResolvedValuesForIndex={getResolvedValuesForIndex}
+                                  ansValues={ans.values}
+                                />
                               </div>
                             ) : (
-                              !hasChildren && renderInputs(q, instances, activeInstanceIdx)
+                              !hasChildren && (
+                                <QuestionItem 
+                                  q={q} 
+                                  instances={instances} 
+                                  activeInstanceIdx={activeInstanceIdx} 
+                                  renderInputs={renderInputs} 
+                                  val={ans.values[q.id]} 
+                                  getResolvedValuesForIndex={getResolvedValuesForIndex}
+                                  ansValues={ans.values}
+                                />
+                              )
                             )}
 
                             {isLoop && loopType === "manual" && activeInstanceIdx === null && (
@@ -5603,10 +6014,10 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                                   <button
                                     type="button"
                                     onClick={() => handleAddManualLoop(q.id)}
-                                    className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl cursor-pointer border-0 shadow-sm transition-all active:scale-[0.98]"
+                                    className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-xl cursor-pointer border border-solid border-blue-200 transition-all active:scale-[0.98]"
                                   >
-                                    <Plus size={16} />
-                                    Tambah Isian
+                                    <Plus size={14} />
+                                    Tambah Isian Baru
                                   </button>
                                 )}
 
@@ -5636,13 +6047,13 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       );
                     } else {
                       return (
-                        <div key={q.id} id={`q-card-${q.id}`} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0 scroll-mt-24">
+                        <div key={q.id} id={`q-card-${q.id}`} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0 scroll-mt-24 transition-all" style={{ marginLeft: `${indentPx}px` }}>
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
-                                {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
-                                {isReadOnly && <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded uppercase border border-slate-200">Read Only</span>}
+                                <span className="mono text-xs font-bold text-blue-600">R.{qCode}</span>
+                                {q.required && <span className="text-[10px] font-bold text-red-500 uppercase tracking-wide">WAJIB</span>}
+                                {(!!qVal.readOnly || !!qVal.formula) && <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Read Only</span>}
                                 {q.show_logic || q.show_if ? (
                                   <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-bold">
                                     <Eye size={10} className="text-emerald-500" /> Tampil jika: {formatLogic(q.show_logic || q.show_if)}
@@ -5759,9 +6170,49 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         return v.isLoop && v.loopType === "manual";
                       });
 
+                      // Find the best manual loop master question for the Add/Remove controls
+                      // It must be is_loop=true AND loop_type=manual AND NOT read_only
+                      const manualControlQ = groupQs.find(x => {
+                        if (!x.validation) return false;
+                        try {
+                          const v = JSON.parse(x.validation);
+                          return v && v.is_loop && v.loop_type === "manual" && !v.read_only;
+                        } catch (e) { return false; }
+                      }) || (groupIsManual ? masterQ : null);
+
+                      const isGroupVisible = instances.some(idx => 
+                        groupQs.some(gq => isQuestionVisible(gq, idx))
+                      );
+
+                      if (!isGroupVisible) {
+                        return [];
+                      }
+
+                      if (instances.length > 1 || (groupIsManual && manualControlQ)) {
+                        return (
+                          <ManualLoopGroup
+                            key={`manual_group_${groupId}`}
+                            groupId={groupId}
+                            groupQs={groupQs}
+                            allQuestions={questions}
+                            instances={instances}
+                            loopCount={loopCount}
+                            manualControlQ={manualControlQ}
+                            isReadOnly={isReadOnly}
+                            handleAddManualLoop={handleAddManualLoop}
+                            handleRemoveManualLoop={handleRemoveManualLoop}
+                            renderQuestionRow={renderQuestionRow}
+                            getLoopValue={getLoopValue}
+                          />
+                        );
+                      }
+
                       const resultElements = [];
 
                       instances.forEach((idx) => {
+                        const isInstanceVisible = groupQs.some(gq => isQuestionVisible(gq, idx));
+                        if (!isInstanceVisible) return;
+
                         if (instances.length > 1) {
                           resultElements.push(
                             <div key={`loop_header_${groupId}_${idx}`} className="flex items-center gap-2 py-2 border-b border-solid border-slate-200 mt-6 first:mt-0 mb-4">
@@ -5780,50 +6231,6 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                         });
                       });
 
-                      // Find the best manual loop master question for the Add/Remove controls
-                      // It must be is_loop=true AND loop_type=manual AND NOT read_only
-                      const manualControlQ = groupQs.find(x => {
-                        if (!x.validation) return false;
-                        try {
-                          const v = JSON.parse(x.validation);
-                          return v && v.is_loop && v.loop_type === "manual" && !v.read_only;
-                        } catch (e) { return false; }
-                      }) || (groupIsManual ? masterQ : null);
-
-                      if (groupIsManual && manualControlQ && !isReadOnly) {
-                        resultElements.push(
-                          <div key={`loop_controls_${groupId}`} className="flex flex-col gap-2 mt-6 p-4 bg-white rounded-xl border border-solid border-slate-200">
-                            <button
-                              type="button"
-                              onClick={() => handleAddManualLoop(manualControlQ.id)}
-                              className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-xl cursor-pointer border-0 shadow-sm transition-all active:scale-[0.98]"
-                            >
-                              <Plus size={16} />
-                              Tambah Isian
-                            </button>
-                            {loopCount > 1 ? (
-                              <div className="flex items-center gap-3 w-full">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveManualLoop(manualControlQ.id, loopCount)}
-                                  className="w-1/2 flex items-center justify-center gap-1.5 py-2 bg-rose-50 hover:bg-rose-100 active:scale-[0.98] text-rose-600 font-bold text-xs rounded-lg transition-all cursor-pointer border-0"
-                                >
-                                  <X size={12} />
-                                  Hapus Terakhir
-                                </button>
-                                <div className="w-1/2 flex items-center justify-center text-xs text-slate-500 font-bold bg-slate-50 border border-solid border-slate-100 py-2 rounded-lg">
-                                  Total: {loopCount} isian
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-center text-xs text-slate-500 font-bold bg-slate-50 border border-solid border-slate-100 py-2 rounded-lg w-full">
-                                Total: {loopCount} isian
-                              </div>
-                            )}
-                          </div>
-                        );
-                      }
-
                       return resultElements;
                     }
 
@@ -5835,12 +6242,12 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 <div className="flex gap-3 pt-6 pb-4">
                   {!isFirstBlock ? (
                     <button type="button" onClick={handlePrevTab}
-                      className="px-5 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
-                      <ChevronLeft size={14} /> Sebelumnya
+                      className="px-6 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-600 font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 shrink-0 shadow-sm">
+                      <ChevronLeft size={14} /> Blok Sebelumnya
                     </button>
                   ) : (
                     <button type="button" onClick={() => setView("prelist")}
-                      className="px-5 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-500 font-semibold cursor-pointer transition-all flex items-center gap-1.5">
+                      className="px-6 py-3 border border-solid border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs text-slate-600 font-bold cursor-pointer transition-all flex items-center justify-center gap-1.5 shrink-0 shadow-sm">
                       <ArrowLeft size={14} /> Batal
                     </button>
                   )}
@@ -5850,7 +6257,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                       {isPml ? (
                         selectedRtItem?.review_status === "approved" ? (
                           <button type="button" onClick={() => setView("prelist")}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
+                            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md shadow-blue-500/10">
                             Kembali ke Prelist
                           </button>
                         ) : (
@@ -5860,7 +6267,7 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                               Reject
                             </button>
                             <button type="button" onClick={handlePmlApprove}
-                              className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-emerald-700 active:scale-[0.98] transition-all">
+                              className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-emerald-600 text-white text-sm font-bold rounded-xl border-0 cursor-pointer hover:bg-emerald-700 active:scale-[0.98] transition-all shadow-md shadow-emerald-500/10">
                               Approve
                             </button>
                           </>
@@ -5874,21 +6281,21 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                             </button>
                           )}
                           <button type="button" onClick={() => setView("prelist")}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
+                            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md shadow-blue-500/10">
                             Kembali ke Prelist
                           </button>
                         </>
                       ) : (
                         <button type="button" onClick={handleSave}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
+                          className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md shadow-blue-500/10">
                           <Save size={14} /> Simpan Kuesioner
                         </button>
                       )}
                     </div>
                   ) : (
                     <button type="button" onClick={handleNextTab}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-semibold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all">
-                      Selanjutnya <ChevronRight size={14} />
+                      className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-blue-600 text-white text-sm font-bold rounded-xl border-0 cursor-pointer hover:bg-blue-700 active:scale-[0.98] transition-all shadow-md shadow-blue-500/10">
+                      Blok Selanjutnya <ChevronRight size={14} />
                     </button>
                   )}
                 </div>
@@ -6151,7 +6558,8 @@ function PetugasQuestionnaire({ onNavigate, petugas, activities, currentUser, is
                 placeholder="Cari Pertanyaan atau Angka Rincian..." 
                 value={questionSearchQuery}
                 onChange={e => setQuestionSearchQuery(e.target.value)}
-                className="flex-1 outline-none text-sm font-semibold text-slate-800"
+                className="flex-1 !outline-none focus:!outline-none focus:!ring-0 border-none shadow-none text-sm font-semibold text-slate-800"
+                style={{ outline: "none", boxShadow: "none" }}
               />
               <button onClick={() => { setShowSearchModal(false); setQuestionSearchQuery(""); }} className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-50 cursor-pointer transition-all"><X size={18}/></button>
             </div>

@@ -90,6 +90,7 @@ function SearchableSelect({ value, options = [], disabled, placeholder = "Pilih 
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari opsi..."
               className="w-full bg-transparent text-xs font-semibold text-slate-700 !outline-none !border-none focus:!ring-0 focus:!outline-none focus:!border-none focus:!shadow-none p-0 m-0"
+              style={{ outline: "none", boxShadow: "none" }}
             />
             {search && (
               <button

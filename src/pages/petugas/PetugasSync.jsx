@@ -2779,7 +2779,8 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
                       type="text"
                       value={syncSearchQuery}
                       onChange={e => setSyncSearchQuery(e.target.value)}
-                      className="text-xs outline-none text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0"
+                      className="text-xs !outline-none focus:!outline-none focus:!ring-0 text-slate-700 placeholder-slate-400 w-full bg-transparent font-medium border-0 p-0 shadow-none"
+                      style={{ outline: "none", boxShadow: "none" }}
                       placeholder="Cari berdasarkan Nama Kepala Keluarga atau ID/Kode Dokumen..."
                     />
                     {syncSearchQuery && (
@@ -2799,8 +2800,8 @@ function PetugasSync({ onNavigate, currentUser, isOffline, loading, activities, 
                         {item.status === 'terkirim' ? <CheckCircle size={16} /> : <Clock size={16} />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{item.kode} ({item.krt || "Nama KRT Kosong"})</p>
-                        <p className="text-[10px] text-slate-400 mt-1 font-semibold">{item.alamat || "Alamat belum diisi"}</p>
+                        <p className="text-xs font-bold text-slate-800 truncate group-hover:text-blue-600 transition-colors">{item.kode}</p>
+                        <p className="text-[11px] text-slate-500 mt-1 font-semibold truncate">{item.krt || "Nama KRT belum diisi"}</p>
                       </div>
                       <div className="flex-shrink-0">
                         {item.status === 'tersimpan' ? (

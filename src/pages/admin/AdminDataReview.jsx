@@ -1988,6 +1988,7 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         required={!!q.required}
                         skipInfo={skipInfoStr}
                         showIfInfo={showIfInfoStr}
+                        inlineLabel={(hasChildren && parentMode === "label") || q.type === "note" || q.type === "label"}
                         className="bg-white border-slate-100 shadow-sm"
                       >
                         {hasChildren ? (
@@ -2035,8 +2036,8 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
-                                {q.required && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+                                <span className="mono text-xs font-bold text-blue-600">R.{qCode}</span>
+                                {q.required && <span className="text-[10px] font-bold text-red-500 uppercase tracking-wide">WAJIB</span>}
                                 {showIfInfoStr ? (
                                   <span className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded text-[9px] font-bold">
                                     <Eye size={10} className="text-emerald-500" /> Tampil jika: {showIfInfoStr}

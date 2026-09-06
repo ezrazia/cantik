@@ -1886,7 +1886,7 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
                             handleValueChange(q, val, idx, instances.length);
                           }
                         }}
-                        className={`flex items-center gap-2.5 px-4 py-3 rounded-xl border border-solid text-xs font-medium transition-all text-left cursor-pointer ${isSelected
+                        className={`flex items-center gap-2.5 px-4 py-3 h-full rounded-xl border border-solid text-xs font-medium transition-all text-left cursor-pointer ${isSelected
                           ? "border-blue-500 bg-blue-50 text-blue-700 font-bold"
                           : "border-slate-100 bg-white text-slate-500 hover:border-slate-200 hover:bg-slate-50/50"
                           }`}
@@ -2074,13 +2074,32 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
     );
   };
 
+  const getQuestionDepth = (targetQ, allQs) => {
+    let d = 0;
+    let cur = targetQ;
+    const qMap = new Map((allQs || []).map(x => [x.id, x]));
+    const visited = new Set();
+    while (cur && (cur.parent_id || cur.parentId)) {
+      if (visited.has(cur.id)) break;
+      visited.add(cur.id);
+      const pid = cur.parent_id || cur.parentId;
+      cur = qMap.get(pid);
+      if (cur) d++;
+      else break;
+    }
+    return d;
+  };
+
   const renderPreviewQuestionRow = (q, depth = 0, forceCard = false, activeInstanceIdx = null) => {
     if (!isQuestionVisible(q, activeInstanceIdx)) return null;
+
+    const calculatedDepth = Math.max(depth, getQuestionDepth(q, questions));
+    const indentPx = calculatedDepth * 16;
 
     if (q.type === 'note') {
       let labelText = q.label || "";
       return (
-        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5">
+        <div key={q.id} className="bg-amber-50/60 border border-solid border-amber-100 rounded-2xl p-5 transition-all" style={{ marginLeft: `${indentPx}px` }}>
           <p className="text-sm font-semibold text-amber-950 leading-relaxed break-words">
             {renderNoteText(labelText)}
           </p>
@@ -2110,13 +2129,15 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
 
     if (depth === 0 || forceCard) {
       return (
-        <QCard
-          key={q.id}
-          r={qCode}
+        <div key={q.id} className="transition-all" style={{ marginLeft: `${indentPx}px` }}>
+          <QCard
+            key={q.id}
+            r={qCode}
           label={resolveLabelText(q.label, activeInstanceIdx)}
           subLabel={q.type === 'number' && subLabel === 'Satuan Angka' ? null : subLabel}
           required={!!q.req}
           description={description}
+          inlineLabel={(hasChildren && parentMode === "label") || q.type === "note" || q.type === "label"}
         >
           {hasChildren ? (
             <div className="space-y-4">
@@ -2177,15 +2198,16 @@ function AdminFormBuilder({ onNavigate, selectedProject, onProjectChange, activi
             </div>
           )}
         </QCard>
+        </div>
       );
     } else {
       return (
-        <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0">
+        <div key={q.id} className="space-y-2 py-2 border-b border-solid border-slate-50 last:border-0 transition-all" style={{ marginLeft: `${indentPx}px` }}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="mono text-[10px] font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">R.{qCode}</span>
-                {q.req && <span className="text-[9px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded uppercase">Wajib</span>}
+                <span className="mono text-xs font-bold text-blue-600">R.{qCode}</span>
+                {q.req && <span className="text-[10px] font-bold text-red-500 uppercase tracking-wide">WAJIB</span>}
               </div>
               <p className="text-xs font-bold text-slate-700 mt-1">{resolveLabelText(q.label, activeInstanceIdx)}</p>
               {subLabel && !(q.type === 'number' && subLabel === 'Satuan Angka') && <p className="text-[11px] text-slate-500 font-medium mt-0.5">{subLabel}</p>}
