@@ -1012,19 +1012,29 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
   };
 
   const parseValidation = (str) => {
-    if (!str) return { isLoop: false, loopByQuestionId: null };
+    if (!str) return { rangeText: "", hintText: "", description: "", isLoop: false, loopType: "question", loopByQuestionId: null, defaultVal: null, isLookupKey: false, readOnly: false, parentMode: "label", subLabel: "", satuan: "", formula: "" };
     const trimmed = str.trim();
     if (trimmed.startsWith('{')) {
       try {
         const parsed = JSON.parse(trimmed);
         return {
+          rangeText: parsed.type === 'range' ? `Rentang: ${parsed.min} - ${parsed.max}` : "",
+          hintText: parsed.hint || "",
+          description: parsed.description || parsed.hint || "",
           isLoop: !!parsed.is_loop,
-          loopType: parsed.loop_type || "question",
+          loopType: parsed.loop_type || (parsed.loop_by_question_id ? "question" : "manual"),
           loopByQuestionId: parsed.loop_by_question_id || null,
+          defaultVal: parsed.default_val || null,
+          isLookupKey: !!parsed.is_lookup_key,
+          readOnly: !!parsed.read_only,
+          parentMode: parsed.parent_mode || "label",
+          subLabel: parsed.sub_label || "",
+          satuan: parsed.satuan || parsed.unit || "",
+          formula: parsed.formula || ""
         };
       } catch (e) {}
     }
-    return { isLoop: false, loopByQuestionId: null };
+    return { rangeText: "", hintText: "", description: "", isLoop: false, loopType: "question", loopByQuestionId: null, defaultVal: null, isLookupKey: false, readOnly: false, parentMode: "label", subLabel: "", satuan: "", formula: "" };
   };
 
   const getQuestionLoopGroup = (q) => {
@@ -1933,16 +1943,12 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   const value = ans[q.id] ?? '';
                   const hasOptions = q.options && Array.isArray(q.options);
 
-                  let subLabel = "";
-                  if (q.validation && q.validation.trim().startsWith('{')) {
-                    try {
-                      const parsed = JSON.parse(q.validation);
-                      subLabel = parsed.sub_label || "";
-                    } catch (e) { }
-                  }
+                  const qVal = parseValidation(q.validation);
+                  const subLabel = qVal.subLabel || "";
+                  const parentMode = qVal.parentMode || "label";
+                  const { isLoop, loopType, loopByQuestionId } = qVal;
 
                   const loopCount = getQuestionLoopCount(q);
-                  const { isLoop, loopType, loopByQuestionId } = parseValidation(q.validation);
                   if (loopCount <= 0 && loopByQuestionId) {
                     return null;
                   }
@@ -1951,6 +1957,14 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                   const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
                   const hasChildren = childQs.length > 0;
                   const qCode = getQuestionCode(q, questions, blocks);
+
+                  if (hasChildren && parentMode === "empty") {
+                    return (
+                      <div key={q.id} className="space-y-4 w-full">
+                        {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth, forceCard, activeInstanceIdx))}
+                      </div>
+                    );
+                  }
 
                   let showIfInfoStr = formatLogic(q.show_logic || q.show_if);
                   if (!showIfInfoStr && q.show_if_parent_id) {
@@ -1993,6 +2007,11 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                       >
                         {hasChildren ? (
                           <div className="mt-3 pl-3 border-l-2 border-solid border-slate-100 space-y-4">
+                            {parentMode === "original" && (
+                              <div className="mb-4">
+                                {q.type === 'note' ? null : renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)}
+                              </div>
+                            )}
                             {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
                           </div>
                         ) : (
@@ -2055,8 +2074,15 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
                         </div>
                         <div className="pl-4 mt-2">
                           {hasChildren ? (
-                            <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
-                              {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                            <div className="space-y-3">
+                              {parentMode === "original" && (
+                                <div className="mb-3">
+                                  {q.type === 'note' ? null : renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)}
+                                </div>
+                              )}
+                              <div className="border-l border-solid border-slate-200 pl-3 space-y-3">
+                                {childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, depth + 1, false, activeInstanceIdx))}
+                              </div>
                             </div>
                           ) : (
                             q.type === 'note' ? null : renderInputForQuestion(q, instances, value, hasOptions, activeInstanceIdx)
@@ -2193,8 +2219,10 @@ function AdminDataReview({ onNavigate, selectedProject, onProjectChange, activit
 
                   const childQs = questions.filter(c => c.parent_id === q.id || c.parentId === q.id);
                   const hasChildren = childQs.length > 0;
+                  const qVal = parseValidation(q.validation);
+                  const parentMode = qVal.parentMode || "label";
 
-                  if (hasChildren && (!q.label || q.label.trim() === "")) {
+                  if (hasChildren && (!q.label || q.label.trim() === "" || parentMode === "empty")) {
                     return childQs.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map(child => renderQuestionRow(child, 0, true));
                   }
                   return [renderQuestionRow(q)];
